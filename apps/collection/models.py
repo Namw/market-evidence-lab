@@ -16,6 +16,7 @@ class CollectionRun(models.Model):
         ONE_HOUR = "1h", "1h"
 
     class Trigger(models.TextChoices):
+        SCHEDULED = "scheduled", "定时"
         MANUAL = "manual", "手工"
 
     class Status(models.TextChoices):

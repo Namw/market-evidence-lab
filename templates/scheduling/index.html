@@ -1,0 +1,175 @@
+{% extends "base.html" %}
+{% load static tz %}
+
+{% block title %}系统管理 · 自动调度 · Market Evidence Lab{% endblock %}
+
+{% block content %}
+<header class="page-header">
+    <div>
+        <p class="eyebrow">系统管理</p>
+        <h1>K线自动调度与运行监控</h1>
+        <p class="page-intro">每日编排现有 ETHUSDT K线采集与数据质量检查服务。执行范围始终是最近若干个完整 UTC 自然日。</p>
+    </div>
+    <span class="phase-badge">阶段 4 · 独立执行器</span>
+</header>
+
+{% if messages %}
+<div class="message-stack" aria-live="polite">
+    {% for message in messages %}
+    <div class="message message-{{ message.tags|default:'info' }}">{{ message }}</div>
+    {% endfor %}
+</div>
+{% endif %}
+
+<div class="scheduling-grid">
+    <section class="panel" aria-labelledby="schedule-title">
+        <div class="panel-heading">
+            <div>
+                <p class="eyebrow">内置任务</p>
+                <h2 id="schedule-title">{{ schedule.name }}</h2>
+            </div>
+            {% if schedule.enabled %}<span class="status-label online-label">已启用</span>{% else %}<span class="status-label offline-label">已停用</span>{% endif %}
+        </div>
+
+        <dl class="source-facts schedule-facts">
+            <div><dt>数据源</dt><dd>Binance USD-M Futures</dd></div>
+            <div><dt>品种 / 周期</dt><dd>ETHUSDT · 1d、1h</dd></div>
+            <div><dt>范围口径</dt><dd>[开始, 结束) UTC</dd></div>
+        </dl>
+
+        <form method="post" class="collection-form" id="schedule-config-form">
+            {% csrf_token %}
+            <input type="hidden" name="action" value="save">
+            {% if form.non_field_errors %}<div class="form-errors" role="alert">{{ form.non_field_errors }}</div>{% endif %}
+            <div class="schedule-form-grid">
+                <div class="form-field checkbox-field">
+                    <label for="{{ form.enabled.id_for_label }}">{{ form.enabled }} {{ form.enabled.label }}</label>
+                    {% if form.enabled.errors %}<div class="field-errors">{{ form.enabled.errors }}</div>{% endif %}
+                    <small>停用后调度执行器不会领取该任务。</small>
+                </div>
+                <div class="form-field">
+                    <label for="{{ form.run_time.id_for_label }}">{{ form.run_time.label }}</label>
+                    {{ form.run_time }}
+                    {% if form.run_time.errors %}<div class="field-errors">{{ form.run_time.errors }}</div>{% endif %}
+                    <small>{{ form.run_time.help_text }}</small>
+                </div>
+                <div class="form-field">
+                    <label for="{{ form.lookback_days.id_for_label }}">{{ form.lookback_days.label }}</label>
+                    {{ form.lookback_days }}
+                    {% if form.lookback_days.errors %}<div class="field-errors">{{ form.lookback_days.errors }}</div>{% endif %}
+                    <small>{{ form.lookback_days.help_text }}</small>
+                </div>
+            </div>
+            <button class="primary-button" type="submit" data-waiting-text="保存中…">保存配置</button>
+        </form>
+    </section>
+
+    <section class="panel" aria-labelledby="executor-title">
+        <div class="panel-heading">
+            <div>
+                <p class="eyebrow">执行器状态</p>
+                <h2 id="executor-title">独立后台调度进程</h2>
+            </div>
+            {% if scheduler.online %}<span class="status-label online-label">调度执行器在线</span>{% else %}<span class="status-label offline-label">调度执行器离线</span>{% endif %}
+        </div>
+        <dl class="runtime-facts">
+            <div><dt>最近心跳</dt><dd>{% if scheduler.last_heartbeat_at %}{{ scheduler.last_heartbeat_at|date:"Y-m-d H:i:s" }} UTC{% else %}从未收到{% endif %}</dd></div>
+            <div><dt>上次计划运行</dt><dd>{% if schedule.last_run_at %}{{ schedule.last_run_at|date:"Y-m-d H:i:s" }} UTC{% else %}尚未运行{% endif %}</dd></div>
+            <div><dt>下次计划运行</dt><dd>{% timezone schedule.timezone %}{{ schedule.next_run_at|date:"Y-m-d H:i:s" }} {{ schedule.timezone }}{% endtimezone %}</dd></div>
+        </dl>
+        {% if not scheduler.online %}
+        <div class="message message-warning">页面只显示数据库中的真实心跳；当前没有在线执行器，已启用任务也不会自动运行。</div>
+        {% endif %}
+        <p class="boundary-note">执行器由操作系统或部署环境运行 <code>uv run python manage.py run_scheduler</code>。本页不启动或停止进程。</p>
+
+        <form method="post" id="schedule-run-form" class="manual-run-form">
+            {% csrf_token %}
+            <input type="hidden" name="action" value="run">
+            <input type="hidden" name="run_token" value="{{ run_token }}">
+            <button class="primary-button" type="submit" data-waiting-text="工作流执行中，请稍候…">立即运行</button>
+            <small>同步执行当前 {{ schedule.lookback_days }} 天配置；手工运行不要求启用自动任务。</small>
+        </form>
+    </section>
+</div>
+
+<section class="panel runs-panel" aria-labelledby="workflow-runs-title">
+    <div class="panel-heading">
+        <div>
+            <p class="eyebrow">工作流历史</p>
+            <h2 id="workflow-runs-title">最近 20 次完整编排</h2>
+        </div>
+    </div>
+    <div class="table-scroll">
+        <table class="runs-table scheduling-table">
+            <thead>
+                <tr><th>ID</th><th>触发</th><th>范围（UTC，结束不包含）</th><th>执行</th><th>质量</th><th>开始 / 完成（UTC）</th><th>错误摘要</th><th>详情</th></tr>
+            </thead>
+            <tbody>
+                {% for run in recent_runs %}
+                <tr>
+                    <td>#{{ run.id }}</td>
+                    <td>{{ run.get_trigger_display }}</td>
+                    <td class="nowrap">{{ run.range_start|date:"Y-m-d H:i" }} → {{ run.range_end|date:"Y-m-d H:i" }}</td>
+                    <td><span class="run-status status-{{ run.status }}">{{ run.get_status_display }}</span></td>
+                    <td><span class="run-status quality-{{ run.quality_status }}">{{ run.get_quality_status_display }}</span></td>
+                    <td class="nowrap">{{ run.started_at|date:"Y-m-d H:i:s" }}<br>{% if run.finished_at %}{{ run.finished_at|date:"Y-m-d H:i:s" }}{% else %}—{% endif %}</td>
+                    <td class="error-summary">{{ run.error_message|default:"—"|truncatechars:160 }}</td>
+                    <td><a class="table-link" href="?run={{ run.id }}#workflow-details">查看</a></td>
+                </tr>
+                {% empty %}<tr><td colspan="8" class="empty-state">尚无工作流运行记录。</td></tr>{% endfor %}
+            </tbody>
+        </table>
+    </div>
+</section>
+
+{% if selected_run %}
+<section class="panel workflow-details" id="workflow-details" aria-labelledby="workflow-details-title">
+    <div class="panel-heading">
+        <div>
+            <p class="eyebrow">工作流 #{{ selected_run.id }}</p>
+            <h2 id="workflow-details-title">四步执行详情</h2>
+        </div>
+        <div class="status-pair">
+            <span class="run-status status-{{ selected_run.status }}">{{ selected_run.get_status_display }}</span>
+            <span class="run-status quality-{{ selected_run.quality_status }}">{{ selected_run.get_quality_status_display }}</span>
+        </div>
+    </div>
+    <p class="boundary-note">{{ selected_run.range_start|date:"Y-m-d H:i:s" }} → {{ selected_run.range_end|date:"Y-m-d H:i:s" }} UTC，左闭右开。统计来自既有子运行记录，未复制到工作流 details。</p>
+    <div class="workflow-step-grid">
+        {% for item in selected_steps %}
+        <article class="workflow-step-card">
+            <div class="workflow-step-heading">
+                <h3>{{ item.label }}</h3>
+                <span class="run-status status-{{ item.step.status|default:'pending' }}">{{ item.step.status|default:"pending" }}</span>
+            </div>
+            {% if item.run %}
+                <p class="child-run-link">子运行 #{{ item.run.id }}</p>
+                {% if item.is_collection %}
+                <dl>
+                    <div><dt>新增</dt><dd>{{ item.run.inserted_count }}</dd></div>
+                    <div><dt>更新</dt><dd>{{ item.run.updated_count }}</dd></div>
+                    <div><dt>跳过</dt><dd>{{ item.run.skipped_count }}</dd></div>
+                    <div><dt>接收</dt><dd>{{ item.run.received_count }}</dd></div>
+                </dl>
+                {% else %}
+                <dl>
+                    <div><dt>质量</dt><dd>{{ item.run.get_quality_status_display }}</dd></div>
+                    <div><dt>预期 / 实际</dt><dd>{{ item.run.expected_count }} / {{ item.run.actual_count }}</dd></div>
+                    <div><dt>缺失</dt><dd>{{ item.run.missing_count }}</dd></div>
+                    <div><dt>其他问题</dt><dd>{{ item.run.duplicate_count|add:item.run.misaligned_count|add:item.run.invalid_ohlc_count|add:item.run.invalid_numeric_count|add:item.run.invalid_close_time_count }}</dd></div>
+                </dl>
+                {% endif %}
+            {% else %}
+                <p class="muted">该步骤未产生子运行记录。</p>
+            {% endif %}
+            {% if item.step.error_summary %}<p class="step-error">{{ item.step.error_summary }}</p>{% endif %}
+        </article>
+        {% endfor %}
+    </div>
+</section>
+{% endif %}
+{% endblock %}
+
+{% block extra_js %}
+<script src="{% static 'scheduling/js/form.js' %}" defer></script>
+{% endblock %}

@@ -7,9 +7,9 @@
     <div>
         <p class="eyebrow">总览</p>
         <h1>Market Evidence Lab</h1>
-        <p class="page-intro">面向市场证据工作流的单体系统。当前已建立 ETHUSDT K线的手工采集与数据质量检查闭环。</p>
+        <p class="page-intro">面向市场证据工作流的单体系统。当前已建立 ETHUSDT K线采集、数据质量检查与每日自动编排闭环。</p>
     </div>
-    <span class="phase-badge">阶段 3</span>
+    <span class="phase-badge">阶段 4</span>
 </header>
 
 <section class="panel" aria-labelledby="workflow-title">
@@ -21,6 +21,7 @@
         <div class="header-links">
             <a class="text-link" href="{% url 'collection:index' %}">进入采集层 →</a>
             <a class="text-link" href="{% url 'inspection:index' %}">进入数据质量检查 →</a>
+            <a class="text-link" href="{% url 'scheduling:index' %}">进入系统管理 →</a>
         </div>
     </div>
 
@@ -38,7 +39,7 @@
     <div class="scope-icon" aria-hidden="true">✓</div>
     <div>
         <h2 id="scope-title">当前交付范围</h2>
-        <p>当前支持手工采集和检查 Binance USD-M Futures 的 ETHUSDT 1d、1h 已闭合K线。数据质量检查只报告问题，不自动补采或修复；分析、市场异常巡检、研究案例、AI报告和人工反馈仍待后续阶段建设。</p>
+        <p>当前支持手工或每日自动编排 Binance USD-M Futures 的 ETHUSDT 1d、1h 已闭合K线采集和数据质量检查。巡检只报告问题，不自动补采或修复；分析、市场异常巡检、研究案例、AI报告和人工反馈仍待后续阶段建设。</p>
     </div>
 </section>
 {% endblock %}

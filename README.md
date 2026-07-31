@@ -1,6 +1,6 @@
 # Market Evidence Lab
 
-Market Evidence Lab 是一个面向市场证据工作流的 Django 单体项目。当前完成第 3 阶段“K线数据质量检查闭环”：在既有 ETHUSDT K线采集能力之上，对 PostgreSQL 中的 1d、1h K线执行手工数据质量检查并保存逐周期结果与异常详情。
+Market Evidence Lab 是一个面向市场证据工作流的 Django 单体项目。当前完成第 4 阶段“自动调度与运行监控闭环”：使用独立调度进程每日编排既有 ETHUSDT K线采集和数据质量检查服务，并保存完整工作流、子运行关联与执行器心跳。
 
 ## 当前实现范围
 
@@ -16,8 +16,12 @@ Market Evidence Lab 是一个面向市场证据工作流的 Django 单体项目�
 - `/inspection/` 手工数据质量检查、最近运行与指定运行详情页面
 - 缺失、重复、时间未对齐、OHLC、负数值与 close_time 检查
 - 连续缺失时间压缩和最多 200 项异常详情保护
+- `/system/schedules/` 内置每日任务配置、立即运行、执行器状态与工作流历史
+- 默认 08:05 Asia/Shanghai、回看最近 3 个完整 UTC 日，可配置 1 至 30 天
+- 独立 `run_scheduler` 进程、数据库行锁领取、`--once` 部署检查与执行器心跳
+- 工作流固定按 1d 采集、1d 巡检、1h 采集、1h 巡检顺序调用既有统一服务
 
-当前采集和数据质量检查页面均同步执行，不包含后台任务或自动调度。数据质量检查只报告问题，不会自动修复或补采。
+数据质量检查只报告问题，不会自动修复或补采。自动任务在迁移后保持禁用；只有明确启用配置并独立运行调度命令后才会自动执行。
 
 ## 环境要求
 
@@ -67,6 +71,27 @@ uv run --env-file .env python manage.py runserver
 - 总览：<http://127.0.0.1:8000/>
 - 采集：<http://127.0.0.1:8000/collection/>
 - 数据质量检查：<http://127.0.0.1:8000/inspection/>
+- 系统管理 / 自动调度：<http://127.0.0.1:8000/system/schedules/>
+
+## 自动调度与工作流
+
+内置任务固定处理 Binance USD-M Futures 的 ETHUSDT 1d、1h K线。页面只能配置启用状态、Asia/Shanghai 每日执行时间和 1 至 30 天回看范围，不接受 Cron 表达式。
+
+每次运行动态取当前 UTC 日期的 `00:00` 为 `range_end`，并以 `range_end - lookback_days` 为 `range_start`，范围是左闭右开的 `[range_start, range_end)`。四个步骤固定顺序执行；某一步失败后仍继续执行后续步骤，采集失败后也会巡检数据库当前真实质量。工作流 JSON 只保存子运行 ID、步骤状态和安全错误摘要，详细统计仍以 `CollectionRun` 和 `KlineInspectionRun` 为准。
+
+启动独立调度执行器：
+
+```bash
+uv run python manage.py run_scheduler
+```
+
+只检查一次后退出，适合测试和部署健康检查：
+
+```bash
+uv run python manage.py run_scheduler --once
+```
+
+轮询间隔默认为 30 秒，可通过 `--poll-interval SECONDS` 设置为 1 至 3600 秒。执行器使用 PostgreSQL 事务和行锁领取到期任务；Web 请求和 `AppConfig.ready()` 都不会启动后台线程。页面根据每个执行器的运行标记和最近心跳判断在线状态，也不会提供操作系统进程的启动或停止按钮。
 
 ## 手工采集
 
@@ -124,4 +149,4 @@ uv run --env-file .env python manage.py makemigrations --check --dry-run
 
 ## 当前未实现
 
-当前没有实现自动调度、后台任务、实时 WebSocket、自动补采或修复、技术指标、K线图、行情分析、市场异常巡检、研究案例、AI报告、人工反馈、登录权限或 Django Admin 页面。没有采集 1m、OI、Funding、订单簿、成交明细或新闻。
+当前没有实现通用 Cron 平台、Celery、Redis、消息队列、APScheduler、实时 WebSocket、自动补采或修复、技术指标、K线图、行情分析、市场异常巡检、研究案例、AI报告、人工反馈、登录权限或 Django Admin 页面。没有采集 1m、OI、Funding、订单簿、成交明细或新闻。

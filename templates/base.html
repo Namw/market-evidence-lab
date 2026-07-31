@@ -32,10 +32,12 @@
                 <a class="nav-item{% if request.resolver_match.namespace == 'collection' %} is-active{% endif %}" href="{% url 'collection:index' %}"{% if request.resolver_match.namespace == 'collection' %} aria-current="page"{% endif %}>
                     <span>采集</span><small>已建设</small>
                 </a>
-                <span class="nav-item is-disabled" aria-disabled="true"><span>系统管理</span><small>待建设</small></span>
+                <a class="nav-item{% if request.resolver_match.namespace == 'scheduling' %} is-active{% endif %}" href="{% url 'scheduling:index' %}"{% if request.resolver_match.namespace == 'scheduling' %} aria-current="page"{% endif %}>
+                    <span>系统管理</span><small>自动调度</small>
+                </a>
             </nav>
 
-            <div class="sidebar-footer">阶段 3 · 数据质量检查</div>
+            <div class="sidebar-footer">阶段 4 · 自动调度与运行监控</div>
         </aside>
 
         <main class="main-content">
