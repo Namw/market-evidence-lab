@@ -33,6 +33,8 @@ INSTALLED_APPS = [
     "django.contrib.messages",
     "django.contrib.staticfiles",
     "apps.core.apps.CoreConfig",
+    "apps.market_data.apps.MarketDataConfig",
+    "apps.collection.apps.CollectionConfig",
 ]
 
 MIDDLEWARE = [
@@ -100,3 +102,8 @@ STATIC_URL = "static/"
 STATICFILES_DIRS = [BASE_DIR / "static"]
 
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
+
+BINANCE_FUTURES_BASE_URL = os.getenv(
+    "BINANCE_FUTURES_BASE_URL",
+    "https://fapi.binance.com",
+).rstrip("/")
