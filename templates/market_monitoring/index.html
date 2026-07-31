@@ -127,7 +127,7 @@
         {% else %}
         <div class="table-scroll">
             <table class="runs-table findings-table">
-                <thead><tr><th>序号</th><th>UTC日期</th><th>异常类型</th><th>OHLC</th><th>涨跌幅</th><th>振幅</th><th>成交量</th><th>20日均量 / 倍数</th><th>上影线 实体 / 全振幅</th><th>下影线 实体 / 全振幅</th><th>计算明细</th></tr></thead>
+                <thead><tr><th>序号</th><th>UTC日期</th><th>异常类型</th><th>OHLC</th><th>涨跌幅</th><th>振幅</th><th>成交量</th><th>20日均量 / 倍数</th><th>上影线 实体 / 全振幅</th><th>下影线 实体 / 全振幅</th><th>计算明细</th><th>操作</th></tr></thead>
                 <tbody>
                     {% for finding in selected_findings %}
                     <tr>
@@ -160,6 +160,16 @@
                                 </article>
                                 {% endfor %}
                             </details>
+                        </td>
+                        <td class="finding-action">
+                            {% if finding.research_case %}
+                            <a class="table-link nowrap" href="{% url 'research_cases:detail' finding.research_case.id %}">查看研究案例</a>
+                            {% else %}
+                            <form method="post" action="{% url 'research_cases:create_from_finding' finding.id %}">
+                                {% csrf_token %}
+                                <button class="compact-button" type="submit">建立研究案例</button>
+                            </form>
+                            {% endif %}
                         </td>
                     </tr>
                     {% endfor %}

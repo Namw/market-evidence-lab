@@ -7,9 +7,9 @@
     <div>
         <p class="eyebrow">总览</p>
         <h1>Market Evidence Lab</h1>
-        <p class="page-intro">面向市场证据工作流的单体系统。当前已建立 ETHUSDT K线采集、数据质量、自动编排与市场异常候选发现闭环。</p>
+        <p class="page-intro">面向市场证据工作流的单体系统。当前已建立 ETHUSDT K线采集、数据质量、自动编排、市场异常候选发现与人工建立研究案例的闭环。</p>
     </div>
-    <span class="phase-badge">阶段 5</span>
+    <span class="phase-badge">阶段 6</span>
 </header>
 
 <section class="panel" aria-labelledby="workflow-title">
@@ -23,6 +23,7 @@
             <a class="text-link" href="{% url 'inspection:index' %}">进入数据质量检查 →</a>
             <a class="text-link" href="{% url 'scheduling:index' %}">进入系统管理 →</a>
             <a class="text-link" href="{% url 'market_monitoring:index' %}">进入市场异常巡检 →</a>
+            <a class="text-link" href="{% url 'research_cases:list' %}">进入研究案例 →</a>
         </div>
     </div>
 
@@ -30,7 +31,7 @@
         <li class="is-ready"><span class="step-number">01</span><strong>采集</strong><small>已建设</small></li>
         <li><span class="step-number">02</span><strong>分析</strong><small>待建设</small></li>
         <li class="is-ready"><span class="step-number">03</span><strong>数据质量检查</strong><small>已建设</small></li>
-        <li><span class="step-number">04</span><strong>研究案例</strong><small>待建设</small></li>
+        <li class="is-ready"><span class="step-number">04</span><strong>研究案例</strong><small>V1 已建设</small></li>
         <li><span class="step-number">05</span><strong>AI报告</strong><small>待建设</small></li>
         <li><span class="step-number">06</span><strong>人工反馈</strong><small>待建设</small></li>
     </ol>
@@ -40,7 +41,7 @@
     <div class="scope-icon" aria-hidden="true">✓</div>
     <div>
         <h2 id="scope-title">当前交付范围</h2>
-        <p>当前支持手工或每日自动编排 ETHUSDT 1d、1h 已闭合K线采集和数据质量检查，并可按固定V1规则扫描1d行情异常候选。异常巡检不解释原因、不预测走势；分析、研究案例、AI报告和人工反馈仍待后续阶段建设。</p>
+        <p>当前支持手工或每日自动编排 ETHUSDT 1d、1h 已闭合K线采集和数据质量检查，并可按固定V1规则扫描1d行情异常候选、由人工选择建立研究案例。案例仅保存异常与行情快照；价格、衍生品、新闻、历史类似和AI报告证据仍待后续阶段建设。</p>
     </div>
 </section>
 {% endblock %}

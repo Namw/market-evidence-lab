@@ -23,7 +23,9 @@
                     <span>总览</span>
                 </a>
                 <span class="nav-item is-disabled" aria-disabled="true"><span>AI 报告</span><small>待建设</small></span>
-                <span class="nav-item is-disabled" aria-disabled="true"><span>研究案例</span><small>待建设</small></span>
+                <a class="nav-item{% if request.resolver_match.namespace == 'research_cases' %} is-active{% endif %}" href="{% url 'research_cases:list' %}"{% if request.resolver_match.namespace == 'research_cases' %} aria-current="page"{% endif %}>
+                    <span>研究案例</span><small>案例容器</small>
+                </a>
                 <span class="nav-item is-disabled" aria-disabled="true"><span>分析</span><small>待建设</small></span>
                 <a class="nav-item{% if request.resolver_match.namespace == 'market_monitoring' %} is-active{% endif %}" href="{% url 'market_monitoring:index' %}"{% if request.resolver_match.namespace == 'market_monitoring' %} aria-current="page"{% endif %}>
                     <span>市场异常巡检</span><small>候选发现</small>
@@ -39,7 +41,7 @@
                 </a>
             </nav>
 
-            <div class="sidebar-footer">阶段 5 · 市场异常巡检 V1</div>
+            <div class="sidebar-footer">阶段 6 · 研究案例 V1</div>
         </aside>
 
         <main class="main-content">

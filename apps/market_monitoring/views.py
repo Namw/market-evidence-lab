@@ -2,18 +2,12 @@ from django.contrib import messages
 from django.shortcuts import redirect, render
 from django.views.decorators.http import require_http_methods
 
+from apps.research_cases.models import ResearchCase
+from apps.research_cases.presentation import signal_badges
+
 from .forms import MarketScanForm
 from .models import MarketScanRun
 from .services import rules_snapshot, scan_market_anomalies
-
-
-SIGNAL_LABELS = {
-    "abnormal_change_up": "大幅上涨",
-    "abnormal_change_down": "大幅下跌",
-    "volume_spike": "成交量异常",
-    "long_upper_wick": "长上影线",
-    "long_lower_wick": "长下影线",
-}
 
 
 def _selected_run(request):
@@ -27,17 +21,19 @@ def _findings_for_display(selected_run):
     if selected_run is None:
         return []
     findings = list(selected_run.findings.all())
+    cases_by_event_time = {
+        research_case.event_time: research_case
+        for research_case in ResearchCase.objects.filter(
+            exchange=selected_run.exchange,
+            market_type=selected_run.market_type,
+            symbol=selected_run.symbol,
+            interval=selected_run.interval,
+            event_time__in=[finding.open_time for finding in findings],
+        )
+    }
     for finding in findings:
-        finding.signal_badges = [
-            {
-                "type": signal.get("type", "unknown"),
-                "label": SIGNAL_LABELS.get(
-                    signal.get("type"),
-                    signal.get("type", "未知类型"),
-                ),
-            }
-            for signal in finding.signals
-        ]
+        finding.signal_badges = signal_badges(finding.signals)
+        finding.research_case = cases_by_event_time.get(finding.open_time)
     return findings
 
 

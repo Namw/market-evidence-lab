@@ -1,0 +1,94 @@
+{% extends "base.html" %}
+{% load research_case_extras %}
+
+{% block title %}{{ research_case.title }} · Market Evidence Lab{% endblock %}
+
+{% block content %}
+<header class="page-header">
+    <div>
+        <p class="eyebrow">研究案例 #{{ research_case.id }}</p>
+        <h1>{{ research_case.title }}</h1>
+        <p class="page-intro">{{ research_case.event_time|date:"Y-m-d" }} UTC · {{ research_case.get_exchange_display }} · {{ research_case.get_market_type_display }} · {{ research_case.symbol }} · {{ research_case.get_interval_display }}</p>
+    </div>
+    <a class="text-link" href="{% url 'research_cases:list' %}">返回研究案例列表 →</a>
+</header>
+
+{% if messages %}
+<div class="message-stack" aria-live="polite">
+    {% for message in messages %}<div class="message message-{{ message.tags|default:'info' }}">{{ message }}</div>{% endfor %}
+</div>
+{% endif %}
+
+<section class="panel case-overview" aria-labelledby="case-overview-title">
+    <div class="panel-heading">
+        <div><p class="eyebrow">创建时快照</p><h2 id="case-overview-title">异常概览</h2></div>
+        <div class="anomaly-tags">
+            {% for badge in research_case.signal_badges %}<span class="anomaly-tag anomaly-tag-{{ badge.type }}">{{ badge.label }}</span>{% endfor %}
+        </div>
+    </div>
+    <p class="case-summary">{{ research_case.anomaly_summary }}</p>
+    <dl class="case-market-grid">
+        <div><dt>开盘价</dt><dd>{{ research_case.open|floatformat:8 }}</dd></div>
+        <div><dt>最高价</dt><dd>{{ research_case.high|floatformat:8 }}</dd></div>
+        <div><dt>最低价</dt><dd>{{ research_case.low|floatformat:8 }}</dd></div>
+        <div><dt>收盘价</dt><dd>{{ research_case.close|floatformat:8 }}</dd></div>
+        <div><dt>成交量</dt><dd>{{ research_case.volume|floatformat:8 }}</dd></div>
+        <div><dt>当日涨跌幅</dt><dd>{{ research_case.price_change_pct|floatformat:6 }}%</dd></div>
+        <div><dt>当日振幅</dt><dd>{{ research_case.amplitude_pct|floatformat:6 }}%</dd></div>
+    </dl>
+</section>
+
+<section class="panel" aria-labelledby="case-source-title">
+    <div class="panel-heading"><div><p class="eyebrow">可追溯来源</p><h2 id="case-source-title">来源巡检</h2></div></div>
+    <dl class="case-source-grid">
+        <div><dt>来源巡检运行</dt><dd><a class="table-link" href="{% url 'market_monitoring:index' %}?run={{ research_case.source_finding.run_id }}#market-run-details">巡检 #{{ research_case.source_finding.run_id }}</a></dd></div>
+        <div><dt>规则版本</dt><dd>{{ research_case.source_finding.run.rules_version }}</dd></div>
+        <div><dt>来源 finding</dt><dd>#{{ research_case.source_finding_id }}</dd></div>
+        <div><dt>案例建立时间</dt><dd>{{ research_case.created_at|date:"Y-m-d H:i:s" }} UTC</dd></div>
+    </dl>
+
+    <details class="raw-calculation-details">
+        <summary>原始计算明细</summary>
+        <div class="raw-detail-grid">
+            <article>
+                <h3>市场身份与派生指标</h3>
+                <dl>
+                    <div><dt>exchange</dt><dd>{{ research_case.exchange }}</dd></div>
+                    <div><dt>market_type</dt><dd>{{ research_case.market_type }}</dd></div>
+                    <div><dt>symbol / interval</dt><dd>{{ research_case.symbol }} / {{ research_case.interval }}</dd></div>
+                    <div><dt>event_time</dt><dd>{{ research_case.event_time|date:"c" }}</dd></div>
+                    {% for key, value in research_case.calculation_snapshot.items %}<div><dt>{{ key }}</dt><dd>{{ value|default_if_none:"null" }}</dd></div>{% endfor %}
+                </dl>
+            </article>
+            <article>
+                <h3>异常信号精确参数</h3>
+                {% for signal in research_case.anomaly_signals_snapshot %}
+                <div class="raw-signal">
+                    <strong>{{ signal.type }}</strong>{% if signal.direction %}<small>{{ signal.direction }}</small>{% endif %}
+                    <dl>
+                        <div><dt>metric</dt><dd>{% for key, value in signal.metric.items %}{{ key }}={{ value }}{% if not forloop.last %}<br>{% endif %}{% endfor %}</dd></div>
+                        <div><dt>threshold</dt><dd>{% for key, value in signal.threshold.items %}{{ key }}={{ value }}{% if not forloop.last %}<br>{% endif %}{% endfor %}</dd></div>
+                    </dl>
+                </div>
+                {% endfor %}
+            </article>
+        </div>
+        <h3>anomaly_signals_snapshot JSON</h3>
+        <pre class="json-snapshot">{{ research_case.anomaly_signals_snapshot|json_pretty }}</pre>
+    </details>
+</section>
+
+<section class="panel" aria-labelledby="evidence-assembly-title">
+    <div class="panel-heading">
+        <div><p class="eyebrow">后续研究结构</p><h2 id="evidence-assembly-title">证据组装区</h2></div>
+        <span class="status-label">本阶段仅展示空状态</span>
+    </div>
+    <div class="evidence-placeholder-grid">
+        <article><h3>价格证据</h3><p>待建设</p></article>
+        <article><h3>衍生品证据</h3><p>待建设</p></article>
+        <article><h3>新闻证据</h3><p>待建设</p></article>
+        <article><h3>历史类似</h3><p>待建设</p></article>
+        <article><h3>AI报告</h3><p>待建设</p></article>
+    </div>
+</section>
+{% endblock %}
