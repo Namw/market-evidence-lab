@@ -35,6 +35,7 @@ INSTALLED_APPS = [
     "apps.core.apps.CoreConfig",
     "apps.market_data.apps.MarketDataConfig",
     "apps.collection.apps.CollectionConfig",
+    "apps.inspection.apps.InspectionConfig",
 ]
 
 MIDDLEWARE = [

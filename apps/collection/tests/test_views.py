@@ -172,7 +172,6 @@ class CollectionPageTests(TestCase):
     def test_unbuilt_business_routes_remain_unavailable(self):
         for path in (
             "/analysis/",
-            "/inspection/",
             "/research/",
             "/reports/",
             "/feedback/",

@@ -7,9 +7,9 @@
     <div>
         <p class="eyebrow">总览</p>
         <h1>Market Evidence Lab</h1>
-        <p class="page-intro">面向市场证据工作流的单体系统。当前已建立 ETHUSDT K线的手工采集闭环。</p>
+        <p class="page-intro">面向市场证据工作流的单体系统。当前已建立 ETHUSDT K线的手工采集与质量巡检闭环。</p>
     </div>
-    <span class="phase-badge">阶段 2</span>
+    <span class="phase-badge">阶段 3</span>
 </header>
 
 <section class="panel" aria-labelledby="workflow-title">
@@ -18,13 +18,16 @@
             <p class="eyebrow">系统流程</p>
             <h2 id="workflow-title">从证据采集到人工反馈</h2>
         </div>
-        <a class="text-link" href="{% url 'collection:index' %}">进入采集层 →</a>
+        <div class="header-links">
+            <a class="text-link" href="{% url 'collection:index' %}">进入采集层 →</a>
+            <a class="text-link" href="{% url 'inspection:index' %}">进入巡检层 →</a>
+        </div>
     </div>
 
     <ol class="workflow" aria-label="系统流程">
         <li class="is-ready"><span class="step-number">01</span><strong>采集</strong><small>已建设</small></li>
         <li><span class="step-number">02</span><strong>分析</strong><small>待建设</small></li>
-        <li><span class="step-number">03</span><strong>巡检</strong><small>待建设</small></li>
+        <li class="is-ready"><span class="step-number">03</span><strong>巡检</strong><small>已建设</small></li>
         <li><span class="step-number">04</span><strong>研究案例</strong><small>待建设</small></li>
         <li><span class="step-number">05</span><strong>AI报告</strong><small>待建设</small></li>
         <li><span class="step-number">06</span><strong>人工反馈</strong><small>待建设</small></li>
@@ -35,7 +38,7 @@
     <div class="scope-icon" aria-hidden="true">✓</div>
     <div>
         <h2 id="scope-title">当前交付范围</h2>
-        <p>采集层当前仅支持从 Binance USD-M Futures 手工采集 ETHUSDT 的 1d 与 1h 已闭合K线。分析、巡检、研究案例、AI报告和人工反馈仍待后续阶段建设。</p>
+        <p>当前支持手工采集和巡检 Binance USD-M Futures 的 ETHUSDT 1d、1h 已闭合K线。巡检只报告质量问题，不自动补采或修复；分析、研究案例、AI报告和人工反馈仍待后续阶段建设。</p>
     </div>
 </section>
 {% endblock %}
