@@ -1,0 +1,41 @@
+{% extends "base.html" %}
+
+{% block title %}总览 · Market Evidence Lab{% endblock %}
+
+{% block content %}
+<header class="page-header">
+    <div>
+        <p class="eyebrow">总览</p>
+        <h1>Market Evidence Lab</h1>
+        <p class="page-intro">面向市场证据工作流的项目基础环境。本阶段仅提供稳定、可验证的系统骨架。</p>
+    </div>
+    <span class="phase-badge">阶段 1</span>
+</header>
+
+<section class="panel" aria-labelledby="workflow-title">
+    <div class="panel-heading">
+        <div>
+            <p class="eyebrow">系统流程</p>
+            <h2 id="workflow-title">从证据采集到人工反馈</h2>
+        </div>
+        <span class="status-label">功能待后续阶段建设</span>
+    </div>
+
+    <ol class="workflow" aria-label="系统流程">
+        <li><span class="step-number">01</span><strong>采集</strong><small>待建设</small></li>
+        <li><span class="step-number">02</span><strong>分析</strong><small>待建设</small></li>
+        <li><span class="step-number">03</span><strong>巡检</strong><small>待建设</small></li>
+        <li><span class="step-number">04</span><strong>研究案例</strong><small>待建设</small></li>
+        <li><span class="step-number">05</span><strong>AI报告</strong><small>待建设</small></li>
+        <li><span class="step-number">06</span><strong>人工反馈</strong><small>待建设</small></li>
+    </ol>
+</section>
+
+<section class="scope-note" aria-labelledby="scope-title">
+    <div class="scope-icon" aria-hidden="true">✓</div>
+    <div>
+        <h2 id="scope-title">当前交付范围</h2>
+        <p>项目依赖、Django 基础配置、PostgreSQL 本地环境、总览页面与基础测试已经就位。页面中的业务入口仅用于展示整体流程，当前不可访问。</p>
+    </div>
+</section>
+{% endblock %}

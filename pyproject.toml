@@ -1,0 +1,13 @@
+[project]
+name = "market-evidence-lab"
+version = "0.1.0"
+description = "A minimal Django foundation for the Market Evidence Lab project."
+readme = "README.md"
+requires-python = ">=3.12,<3.13"
+dependencies = [
+    "django>=5.2,<5.3",
+    "psycopg[binary]>=3.2,<4",
+]
+
+[tool.uv]
+package = false

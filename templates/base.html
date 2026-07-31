@@ -1,0 +1,42 @@
+{% load static %}
+<!doctype html>
+<html lang="zh-Hans">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>{% block title %}Market Evidence Lab{% endblock %}</title>
+    <link rel="stylesheet" href="{% static 'core/css/styles.css' %}">
+</head>
+<body>
+    <div class="app-shell">
+        <aside class="sidebar" aria-label="主导航">
+            <div class="brand">
+                <span class="brand-mark" aria-hidden="true">ME</span>
+                <div>
+                    <strong>Market Evidence Lab</strong>
+                    <span>市场证据实验室</span>
+                </div>
+            </div>
+
+            <nav class="navigation">
+                <a class="nav-item is-active" href="{% url 'core:home' %}" aria-current="page">
+                    <span>总览</span>
+                </a>
+                <span class="nav-item is-disabled" aria-disabled="true"><span>采集</span><small>待建设</small></span>
+                <span class="nav-item is-disabled" aria-disabled="true"><span>分析</span><small>待建设</small></span>
+                <span class="nav-item is-disabled" aria-disabled="true"><span>巡检</span><small>待建设</small></span>
+                <span class="nav-item is-disabled" aria-disabled="true"><span>研究案例</span><small>待建设</small></span>
+                <span class="nav-item is-disabled" aria-disabled="true"><span>AI报告</span><small>待建设</small></span>
+                <span class="nav-item is-disabled" aria-disabled="true"><span>人工反馈</span><small>待建设</small></span>
+                <span class="nav-item is-disabled" aria-disabled="true"><span>系统管理</span><small>待建设</small></span>
+            </nav>
+
+            <div class="sidebar-footer">阶段 1 · 项目骨架</div>
+        </aside>
+
+        <main class="main-content">
+            {% block content %}{% endblock %}
+        </main>
+    </div>
+</body>
+</html>

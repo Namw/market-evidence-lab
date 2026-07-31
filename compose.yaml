@@ -1,0 +1,21 @@
+services:
+  postgres:
+    image: postgres:16
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-market_evidence_lab}
+      POSTGRES_USER: ${POSTGRES_USER:-market_evidence_lab}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-market_evidence_lab_dev}
+    ports:
+      - "${POSTGRES_PORT:-55432}:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 5s
+
+volumes:
+  postgres_data:
