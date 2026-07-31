@@ -127,11 +127,19 @@
         {% else %}
         <div class="table-scroll">
             <table class="runs-table findings-table">
-                <thead><tr><th>UTC日期</th><th>OHLC</th><th>涨跌幅</th><th>振幅</th><th>成交量</th><th>20日均量 / 倍数</th><th>上影线 实体 / 全振幅</th><th>下影线 实体 / 全振幅</th><th>信号</th></tr></thead>
+                <thead><tr><th>序号</th><th>UTC日期</th><th>异常类型</th><th>OHLC</th><th>涨跌幅</th><th>振幅</th><th>成交量</th><th>20日均量 / 倍数</th><th>上影线 实体 / 全振幅</th><th>下影线 实体 / 全振幅</th><th>计算明细</th></tr></thead>
                 <tbody>
                     {% for finding in selected_findings %}
                     <tr>
+                        <td>{{ forloop.counter }}</td>
                         <td class="nowrap"><strong>{{ finding.open_time|date:"Y-m-d" }}</strong></td>
+                        <td>
+                            <div class="anomaly-tags">
+                                {% for badge in finding.signal_badges %}
+                                <span class="anomaly-tag anomaly-tag-{{ badge.type }}">{{ badge.label }}</span>
+                                {% endfor %}
+                            </div>
+                        </td>
                         <td class="nowrap">O {{ finding.open|floatformat:4 }}<br>H {{ finding.high|floatformat:4 }}<br>L {{ finding.low|floatformat:4 }}<br>C {{ finding.close|floatformat:4 }}</td>
                         <td>{{ finding.price_change_pct|floatformat:4 }}%</td>
                         <td>{{ finding.amplitude_pct|floatformat:4 }}%</td>
@@ -141,7 +149,7 @@
                         <td>{% if finding.lower_wick_body_ratio == None %}body=0{% else %}{{ finding.lower_wick_body_ratio|floatformat:4 }}{% endif %}<br>{{ finding.lower_wick_range_ratio|floatformat:4 }}</td>
                         <td>
                             <details class="signal-details">
-                                <summary>{{ finding.signals|length }} 个信号</summary>
+                                <summary>查看计算明细（{{ finding.signals|length }} 个信号）</summary>
                                 {% for signal in finding.signals %}
                                 <article>
                                     <strong>{{ signal.type }}</strong>{% if signal.direction %}<small>{{ signal.direction }}</small>{% endif %}

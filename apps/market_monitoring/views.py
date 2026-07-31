@@ -7,11 +7,38 @@ from .models import MarketScanRun
 from .services import rules_snapshot, scan_market_anomalies
 
 
+SIGNAL_LABELS = {
+    "abnormal_change_up": "大幅上涨",
+    "abnormal_change_down": "大幅下跌",
+    "volume_spike": "成交量异常",
+    "long_upper_wick": "长上影线",
+    "long_lower_wick": "长下影线",
+}
+
+
 def _selected_run(request):
     run_id = request.GET.get("run")
     if not run_id or not run_id.isdigit():
         return None
     return MarketScanRun.objects.prefetch_related("findings").filter(pk=int(run_id)).first()
+
+
+def _findings_for_display(selected_run):
+    if selected_run is None:
+        return []
+    findings = list(selected_run.findings.all())
+    for finding in findings:
+        finding.signal_badges = [
+            {
+                "type": signal.get("type", "unknown"),
+                "label": SIGNAL_LABELS.get(
+                    signal.get("type"),
+                    signal.get("type", "未知类型"),
+                ),
+            }
+            for signal in finding.signals
+        ]
+    return findings
 
 
 @require_http_methods(["GET", "POST"])
@@ -39,7 +66,6 @@ def market_inspection_index(request):
         "rules": rules_snapshot(),
         "recent_runs": MarketScanRun.objects.all()[:20],
         "selected_run": selected_run,
-        "selected_findings": selected_run.findings.all() if selected_run else [],
+        "selected_findings": _findings_for_display(selected_run),
     }
     return render(request, "market_monitoring/index.html", context)
-

@@ -982,6 +982,46 @@ h2 {
     font-weight: 650;
 }
 
+.anomaly-tags {
+    display: flex;
+    min-width: 110px;
+    flex-wrap: wrap;
+    gap: 6px;
+}
+
+.anomaly-tag {
+    display: inline-flex;
+    align-items: center;
+    padding: 4px 8px;
+    border-radius: 999px;
+    color: #344054;
+    background: #eef1f5;
+    font-size: 11px;
+    font-weight: 700;
+    white-space: nowrap;
+}
+
+.anomaly-tag-abnormal_change_up {
+    color: #9b2c2c;
+    background: #fff0f0;
+}
+
+.anomaly-tag-abnormal_change_down {
+    color: #287a5b;
+    background: #eaf7f1;
+}
+
+.anomaly-tag-volume_spike {
+    color: #6941c6;
+    background: #f1edff;
+}
+
+.anomaly-tag-long_upper_wick,
+.anomaly-tag-long_lower_wick {
+    color: #315bce;
+    background: #edf2ff;
+}
+
 .signal-details {
     min-width: 250px;
 }

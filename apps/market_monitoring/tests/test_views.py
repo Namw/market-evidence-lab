@@ -149,9 +149,40 @@ class MarketInspectionPageTests(TestCase):
         response = self.client.get(f"{self.url}?run={run.pk}")
 
         self.assertEqual(response.context["selected_run"], run)
+        self.assertContains(response, "<th>序号</th>", html=True)
+        self.assertContains(response, "<td>1</td>", html=True)
+        self.assertContains(response, "<th>异常类型</th>", html=True)
+        self.assertContains(response, "大幅上涨")
+        self.assertContains(response, "查看计算明细（1 个信号）")
         self.assertContains(response, "abnormal_change_up")
         self.assertContains(response, "name=price_change_pct")
         self.assertContains(response, "value=5")
+
+    def test_multiple_signal_types_are_displayed_as_parallel_chinese_labels(self):
+        run = make_run(anomaly_day_count=1, signal_count=2)
+        finding = make_finding(run)
+        finding.signals.append(
+            {
+                "type": "long_upper_wick",
+                "direction": "upper",
+                "metric": {
+                    "upper_wick_body_ratio": "3.5",
+                    "upper_wick_range_ratio": "0.5",
+                },
+                "threshold": {
+                    "body_ratio_value": "3",
+                    "range_ratio_value": "0.40",
+                },
+            }
+        )
+        finding.save(update_fields=["signals"])
+
+        response = self.client.get(f"{self.url}?run={run.pk}")
+
+        self.assertContains(response, "大幅上涨")
+        self.assertContains(response, "长上影线")
+        self.assertContains(response, "查看计算明细（2 个信号）")
+        self.assertContains(response, "upper_wick_body_ratio=3.5")
 
     def test_successful_empty_run_has_explicit_no_anomaly_message(self):
         run = make_run(anomaly_day_count=0)
@@ -176,7 +207,7 @@ class MarketInspectionPageTests(TestCase):
         response = self.client.get(self.url)
         html = response.content.decode()
         menu_labels = (
-            "总览", "AI 报告", "研究案例", "市场异常巡检", "分析",
+            "总览", "AI 报告", "研究案例", "分析", "市场异常巡检",
             "数据质量检查", "采集", "系统管理",
         )
 
