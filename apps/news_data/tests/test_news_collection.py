@@ -1,0 +1,401 @@
+from __future__ import annotations
+
+import json
+from datetime import UTC, datetime, timedelta
+from pathlib import Path
+
+import httpx
+from django.test import TestCase
+
+from apps.collection.models import CollectionRun
+from apps.collection.pipeline import collect_and_inspect
+from apps.inspection.models import NewsInspectionRun
+from apps.news_data.collectors import NewsRequestClient, ParsedNewsItem
+from apps.news_data.models import NewsCollectionDiagnostic, NewsRawRecord, NewsSource
+from apps.news_data.services import collection_window, save_news_item
+from apps.news_data.sources import (
+    BINANCE_ANNOUNCEMENTS_CODE,
+    ETHEREUM_FOUNDATION_CODE,
+)
+
+
+FIXTURES = Path(__file__).parent / "fixtures"
+END = datetime(2026, 8, 1, tzinfo=UTC)
+
+
+def fixture(name: str) -> bytes:
+    return (FIXTURES / name).read_bytes()
+
+
+def request_client(handler) -> NewsRequestClient:
+    return NewsRequestClient(
+        http_client=httpx.Client(transport=httpx.MockTransport(handler)),
+        max_retries=0,
+    )
+
+
+def response_for(content: bytes, content_type: str):
+    def handler(request):
+        return httpx.Response(
+            200,
+            content=content,
+            headers={"content-type": content_type},
+            request=request,
+        )
+
+    return handler
+
+
+class NewsCollectionTests(TestCase):
+    def setUp(self):
+        self.ef = NewsSource.objects.get(code=ETHEREUM_FOUNDATION_CODE)
+        self.ef.activated_at = datetime(2026, 7, 31, tzinfo=UTC)
+        self.ef.trusted_coverage_end = None
+        self.ef.last_run_at = None
+        self.ef.last_inspection_status = NewsSource.InspectionStatus.NEVER_RUN
+        self.ef.health_status = NewsSource.HealthStatus.NEVER_RUN
+        self.ef.save()
+        self.binance = NewsSource.objects.get(code=BINANCE_ANNOUNCEMENTS_CODE)
+        self.binance.activated_at = datetime(2026, 7, 28, tzinfo=UTC)
+        self.binance.trusted_coverage_end = None
+        self.binance.last_run_at = None
+        self.binance.last_inspection_status = NewsSource.InspectionStatus.NEVER_RUN
+        self.binance.health_status = NewsSource.HealthStatus.NEVER_RUN
+        self.binance.save()
+
+    def test_first_run_only_accepts_items_at_or_after_activation(self):
+        result = collect_and_inspect(
+            data_type=CollectionRun.DataType.NEWS,
+            source_code=self.ef.code,
+            range_end=END,
+            client=request_client(
+                response_for(fixture("ethereum_feed.xml"), "application/xml")
+            ),
+        )
+
+        self.assertEqual(result.collection_run.range_start, self.ef.activated_at)
+        self.assertEqual(NewsRawRecord.objects.count(), 2)
+        self.assertFalse(NewsRawRecord.objects.filter(source_item_id="ef-before").exists())
+        self.assertEqual(result.inspection_run.quality_status, "passed")
+
+    def test_subsequent_window_uses_trusted_watermark_minus_three_days(self):
+        self.ef.activated_at = datetime(2026, 7, 1, tzinfo=UTC)
+        self.ef.trusted_coverage_end = END
+        self.ef.save(update_fields=["activated_at", "trusted_coverage_end"])
+
+        start, end = collection_window(self.ef, END + timedelta(days=1))
+
+        self.assertEqual(start, END - timedelta(days=3))
+        self.assertEqual(end, END + timedelta(days=1))
+
+    def test_failed_run_does_not_advance_watermark(self):
+        old_watermark = datetime(2026, 7, 31, tzinfo=UTC)
+        self.ef.activated_at = datetime(2026, 7, 1, tzinfo=UTC)
+        self.ef.trusted_coverage_end = old_watermark
+        self.ef.save(update_fields=["activated_at", "trusted_coverage_end"])
+
+        result = collect_and_inspect(
+            data_type="news",
+            source_code=self.ef.code,
+            range_end=END,
+            client=request_client(
+                response_for(fixture("ethereum_empty.xml"), "application/xml")
+            ),
+        )
+
+        self.assertEqual(result.inspection_run.quality_status, "failed")
+        self.ef.refresh_from_db()
+        self.assertEqual(self.ef.trusted_coverage_end, old_watermark)
+        self.assertEqual(self.ef.health_status, "broken")
+
+    def test_warning_with_complete_visible_history_advances_watermark(self):
+        self.ef.activated_at = datetime(2026, 7, 1, tzinfo=UTC)
+        self.ef.save(update_fields=["activated_at"])
+
+        result = collect_and_inspect(
+            data_type="news",
+            source_code=self.ef.code,
+            range_end=END,
+            client=request_client(
+                response_for(fixture("ethereum_feed.xml"), "application/xml")
+            ),
+        )
+
+        self.assertEqual(result.inspection_run.quality_status, "warning")
+        self.assertTrue(result.inspection_run.coverage_complete)
+        self.ef.refresh_from_db()
+        self.assertEqual(self.ef.trusted_coverage_end, END)
+        self.assertEqual(self.ef.health_status, "degraded")
+
+    def test_success_after_retry_is_warning_but_still_complete(self):
+        attempts = 0
+
+        def handler(request):
+            nonlocal attempts
+            attempts += 1
+            if attempts == 1:
+                return httpx.Response(500, request=request)
+            return httpx.Response(
+                200,
+                content=fixture("ethereum_feed.xml"),
+                headers={"content-type": "application/xml"},
+                request=request,
+            )
+
+        client = NewsRequestClient(
+            http_client=httpx.Client(transport=httpx.MockTransport(handler)),
+            max_retries=1,
+            sleep_fn=lambda _seconds: None,
+        )
+        result = collect_and_inspect(
+            data_type="news",
+            source_code=self.ef.code,
+            range_end=END,
+            client=client,
+        )
+
+        self.assertEqual(result.inspection_run.quality_status, "warning")
+        self.assertTrue(result.inspection_run.coverage_complete)
+        self.assertEqual(result.collection_run.news_diagnostics.get().retry_count, 1)
+
+    def test_health_uses_36_and_72_hour_freshness_thresholds(self):
+        self.ef.last_run_at = END
+        self.ef.trusted_coverage_end = END
+        self.ef.last_inspection_status = NewsSource.InspectionStatus.PASSED
+
+        self.assertEqual(
+            self.ef.health_at(END + timedelta(hours=36)),
+            NewsSource.HealthStatus.HEALTHY,
+        )
+        self.assertEqual(
+            self.ef.health_at(END + timedelta(hours=37)),
+            NewsSource.HealthStatus.DEGRADED,
+        )
+        self.assertEqual(
+            self.ef.health_at(END + timedelta(hours=73)),
+            NewsSource.HealthStatus.BROKEN,
+        )
+
+    def test_rss_repeat_is_normal_zero_new_and_idempotent(self):
+        client = request_client(
+            response_for(fixture("ethereum_feed.xml"), "application/xml")
+        )
+        collect_and_inspect(
+            data_type="news", source_code=self.ef.code, range_end=END, client=client
+        )
+        result = collect_and_inspect(
+            data_type="news", source_code=self.ef.code, range_end=END, client=client
+        )
+
+        self.assertEqual(NewsRawRecord.objects.count(), 2)
+        self.assertEqual(result.collection_run.inserted_count, 0)
+        self.assertEqual(result.inspection_run.duplicate_count, 2)
+        self.assertEqual(result.inspection_run.quality_status, "passed")
+
+    def test_rss_zero_parseable_items_fails(self):
+        result = collect_and_inspect(
+            data_type="news",
+            source_code=self.ef.code,
+            range_end=END,
+            client=request_client(
+                response_for(fixture("ethereum_empty.xml"), "application/xml")
+            ),
+        )
+
+        self.assertEqual(result.collection_run.status, "failed")
+        self.assertEqual(result.inspection_run.quality_status, "failed")
+        self.assertIn("可解析", "".join(result.inspection_run.reasons))
+
+    def test_binance_paginates_until_older_than_boundary(self):
+        pages = {
+            "1": fixture("binance_page_1.json"),
+            "2": fixture("binance_page_2.json"),
+        }
+
+        def handler(request):
+            return httpx.Response(
+                200,
+                content=pages[request.url.params["pageNo"]],
+                headers={"content-type": "application/json"},
+                request=request,
+            )
+
+        result = collect_and_inspect(
+            data_type="news",
+            source_code=self.binance.code,
+            range_end=END,
+            client=request_client(handler),
+        )
+
+        diagnostics = list(
+            result.collection_run.news_diagnostics.order_by("page_number")
+        )
+        self.assertEqual(len(diagnostics), 2)
+        self.assertEqual(diagnostics[-1].stop_reason, "reached_time_boundary")
+        self.assertTrue(diagnostics[-1].coverage_complete)
+        self.assertEqual(result.inspection_run.quality_status, "passed")
+        self.assertEqual(NewsRawRecord.objects.count(), 2)
+
+    def test_binance_first_page_zero_items_fails(self):
+        payload = json.dumps(
+            {
+                "code": "000000",
+                "data": {"catalogs": [{"catalogId": 1, "total": 1, "articles": []}]},
+            }
+        ).encode()
+        result = collect_and_inspect(
+            data_type="news",
+            source_code=self.binance.code,
+            range_end=END,
+            client=request_client(response_for(payload, "application/json")),
+        )
+
+        self.assertEqual(result.inspection_run.quality_status, "failed")
+        self.assertEqual(
+            result.collection_run.news_diagnostics.get().error_code,
+            "zero_first_page",
+        )
+
+    def test_binance_repeated_page_is_pagination_loop(self):
+        result = collect_and_inspect(
+            data_type="news",
+            source_code=self.binance.code,
+            range_end=END,
+            client=request_client(
+                response_for(fixture("binance_page_1.json"), "application/json")
+            ),
+        )
+
+        self.assertEqual(result.inspection_run.quality_status, "failed")
+        self.assertTrue(
+            result.collection_run.news_diagnostics.filter(
+                stop_reason="pagination_loop"
+            ).exists()
+        )
+
+    def test_binance_safety_limit_is_incomplete_and_failed(self):
+        def handler(request):
+            page = int(request.url.params["pageNo"])
+            payload = {
+                "code": "000000",
+                "data": {
+                    "catalogs": [
+                        {
+                            "catalogId": 1,
+                            "catalogName": "Latest",
+                            "total": 100,
+                            "articles": [
+                                {
+                                    "id": page,
+                                    "code": f"page-{page}",
+                                    "title": f"Page {page}",
+                                    "releaseDate": 1785495600000 - page,
+                                }
+                            ],
+                        }
+                    ]
+                },
+            }
+            return httpx.Response(200, json=payload, request=request)
+
+        result = collect_and_inspect(
+            data_type="news",
+            source_code=self.binance.code,
+            range_end=END,
+            client=request_client(handler),
+            safety_page_limit=2,
+        )
+
+        final = result.collection_run.news_diagnostics.order_by("-page_number").first()
+        self.assertEqual(final.stop_reason, "safety_page_limit")
+        self.assertFalse(final.coverage_complete)
+        self.assertEqual(result.inspection_run.quality_status, "failed")
+
+
+class NewsDeduplicationTests(TestCase):
+    def setUp(self):
+        self.source = NewsSource.objects.get(code=ETHEREUM_FOUNDATION_CODE)
+        self.run = CollectionRun.objects.create(
+            data_type="news",
+            news_source=self.source,
+            range_start=datetime(2026, 7, 1, tzinfo=UTC),
+            range_end=END,
+            started_at=END,
+            status="success",
+        )
+
+    def item(self, *, item_id="id-1", url="https://example.com/a", title="Title"):
+        return ParsedNewsItem(
+            source_item_id=item_id,
+            original_url=url,
+            title=title,
+            summary="Summary",
+            published_at=datetime(2026, 7, 30, tzinfo=UTC),
+            updated_at_source=None,
+            language="en",
+            source_category="Category",
+            source_tags=["Category"],
+            raw_payload={"title": title},
+        )
+
+    def test_source_item_id_has_first_dedup_priority(self):
+        save_news_item(source=self.source, item=self.item(), run=self.run, seen_at=END)
+        count = save_news_item(
+            source=self.source,
+            item=self.item(url="https://example.com/changed"),
+            run=self.run,
+            seen_at=END + timedelta(minutes=1),
+        )
+        self.assertEqual(count.updated, 1)
+        self.assertEqual(NewsRawRecord.objects.count(), 1)
+
+    def test_canonical_url_is_second_dedup_priority(self):
+        first = self.item(item_id="", url="https://example.com/a?utm_source=x#part")
+        second = self.item(item_id="", url="https://example.com/a")
+        save_news_item(source=self.source, item=first, run=self.run, seen_at=END)
+        count = save_news_item(source=self.source, item=second, run=self.run, seen_at=END)
+        self.assertEqual(count.updated + count.duplicate, 1)
+        self.assertEqual(NewsRawRecord.objects.count(), 1)
+
+    def test_time_and_stable_content_fingerprint_is_third_priority(self):
+        item = self.item(item_id="", url="")
+        save_news_item(source=self.source, item=item, run=self.run, seen_at=END)
+        count = save_news_item(source=self.source, item=item, run=self.run, seen_at=END)
+        self.assertEqual(count.duplicate, 1)
+        self.assertEqual(NewsRawRecord.objects.count(), 1)
+
+    def test_content_change_updates_content_hash(self):
+        save_news_item(source=self.source, item=self.item(), run=self.run, seen_at=END)
+        before = NewsRawRecord.objects.get().content_hash
+        count = save_news_item(
+            source=self.source,
+            item=self.item(title="Updated title"),
+            run=self.run,
+            seen_at=END + timedelta(minutes=1),
+        )
+        record = NewsRawRecord.objects.get()
+        self.assertEqual(count.updated, 1)
+        self.assertNotEqual(record.content_hash, before)
+        self.assertIsNone(record.occurred_at)
+
+    def test_collection_and_inspection_are_linked_and_failures_have_reasons(self):
+        diagnostic = NewsCollectionDiagnostic.objects.create(
+            collection_run=self.run,
+            source=self.source,
+            unit_type="feed",
+            unit_identifier="fixture",
+            request_started_at=END,
+            request_finished_at=END,
+            range_start=self.run.range_start,
+            range_end=self.run.range_end,
+            parser_version=self.source.parser_version,
+            http_status=200,
+            parsed_count=0,
+            stop_reason="completed",
+        )
+        from apps.inspection.news import inspect_news_collection
+
+        inspection = inspect_news_collection(self.run)
+        self.assertEqual(inspection.source_collection_run, self.run)
+        self.assertEqual(inspection.quality_status, "failed")
+        self.assertTrue(inspection.reasons)

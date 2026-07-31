@@ -193,6 +193,48 @@ body {
     font-size: 12px;
 }
 
+.news-source-grid {
+    margin: 28px 0;
+}
+
+.news-source-card {
+    display: flex;
+    flex-direction: column;
+}
+
+.source-scope {
+    margin: 2px 0 18px;
+    color: var(--muted);
+    font-size: 13px;
+}
+
+.inline-collection-form {
+    margin-top: auto;
+    padding-top: 18px;
+}
+
+.diagnostic-block {
+    margin-top: 8px;
+    padding: 10px;
+    border: 1px solid var(--line);
+    border-radius: 7px;
+    color: var(--muted);
+    font-size: 12px;
+    line-height: 1.6;
+}
+
+.raw-payload {
+    max-width: 520px;
+    max-height: 240px;
+    overflow: auto;
+    white-space: pre-wrap;
+    word-break: break-word;
+    font-size: 11px;
+}
+
+.danger-text { color: #b42318; }
+.success-text { color: var(--green); }
+
 .main-content {
     width: 100%;
     max-width: 1440px;
@@ -739,6 +781,24 @@ h2 {
 .status-running {
     color: var(--blue);
     background: var(--blue-soft);
+}
+
+.status-passed,
+.status-healthy {
+    color: var(--green) !important;
+    background: var(--green-soft);
+}
+
+.status-warning,
+.status-degraded {
+    color: #805b13 !important;
+    background: #fff3d6;
+}
+
+.status-broken,
+.status-never_run {
+    color: #9b2c2c !important;
+    background: #fff1f1;
 }
 
 .empty-state {

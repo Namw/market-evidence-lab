@@ -4,7 +4,13 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta
 from typing import Callable
 
-from apps.inspection.models import DerivativesInspectionRun, KlineInspectionRun
+from apps.inspection.models import (
+    DerivativesInspectionRun,
+    KlineInspectionRun,
+    NewsInspectionRun,
+)
+from apps.inspection.news import inspect_news_collection
+from apps.news_data.services import collect_news_source
 from apps.inspection.services import (
     inspect_funding_rates,
     inspect_klines,
@@ -19,21 +25,42 @@ from .services import collect_klines
 @dataclass(frozen=True, slots=True)
 class CollectionInspectionResult:
     collection_run: CollectionRun
-    inspection_run: KlineInspectionRun | DerivativesInspectionRun
+    inspection_run: KlineInspectionRun | DerivativesInspectionRun | NewsInspectionRun
 
 
 def collect_and_inspect(
     *,
     data_type: str,
-    symbol: str,
-    range_start: datetime,
-    range_end: datetime,
+    symbol: str = "",
+    range_start: datetime | None = None,
+    range_end: datetime | None = None,
     trigger: str = CollectionRun.Trigger.MANUAL,
     interval: str | None = None,
     client=None,
+    source_code: str | None = None,
+    safety_page_limit: int | None = None,
     between_steps_callback: Callable[[], None] | None = None,
 ) -> CollectionInspectionResult:
     """Run one raw collection and inspect the exact effective persisted range."""
+    if data_type == CollectionRun.DataType.NEWS:
+        if not source_code:
+            raise ValueError("A news source code is required.")
+        kwargs = {}
+        if safety_page_limit is not None:
+            kwargs["safety_page_limit"] = safety_page_limit
+        collection_run = collect_news_source(
+            source_code,
+            trigger=trigger,
+            range_end=range_end,
+            client=client,
+            **kwargs,
+        )
+        if between_steps_callback is not None:
+            between_steps_callback()
+        inspection_run = inspect_news_collection(collection_run)
+        return CollectionInspectionResult(collection_run, inspection_run)
+    if range_start is None or range_end is None:
+        raise ValueError("A collection range is required.")
     if data_type == CollectionRun.DataType.KLINE:
         if interval not in {
             CollectionRun.Interval.ONE_DAY,

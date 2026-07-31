@@ -24,6 +24,16 @@ def empty_derivatives_inspection_details():
     }
 
 
+def empty_news_dimensions():
+    return {
+        "availability": False,
+        "parsing": False,
+        "coverage": False,
+        "key_fields": False,
+        "timeliness": False,
+    }
+
+
 class KlineInspectionRun(models.Model):
     class Exchange(models.TextChoices):
         BINANCE = "binance", "Binance"
@@ -207,3 +217,75 @@ class DerivativesInspectionRun(models.Model):
     @property
     def other_issue_count(self) -> int:
         return max(self.issue_count - self.missing_count, 0)
+
+
+class NewsInspectionRun(models.Model):
+    class Trigger(models.TextChoices):
+        SCHEDULED = "scheduled", "定时"
+        MANUAL = "manual", "手工"
+
+    class Status(models.TextChoices):
+        RUNNING = "running", "运行中"
+        SUCCESS = "success", "完成"
+        FAILED = "failed", "检查执行失败"
+
+    class QualityStatus(models.TextChoices):
+        PENDING = "pending", "待判定"
+        PASSED = "passed", "通过"
+        WARNING = "warning", "警告"
+        FAILED = "failed", "失败"
+
+    source = models.ForeignKey(
+        "news_data.NewsSource",
+        on_delete=models.PROTECT,
+        related_name="inspection_runs",
+    )
+    range_start = models.DateTimeField()
+    range_end = models.DateTimeField()
+    trigger = models.CharField(
+        max_length=20, choices=Trigger.choices, default=Trigger.MANUAL
+    )
+    status = models.CharField(
+        max_length=20, choices=Status.choices, default=Status.RUNNING
+    )
+    quality_status = models.CharField(
+        max_length=20,
+        choices=QualityStatus.choices,
+        default=QualityStatus.PENDING,
+    )
+    coverage_complete = models.BooleanField(default=False)
+    candidate_count = models.PositiveIntegerField(default=0)
+    parsed_count = models.PositiveIntegerField(default=0)
+    eligible_count = models.PositiveIntegerField(default=0)
+    inserted_count = models.PositiveIntegerField(default=0)
+    updated_count = models.PositiveIntegerField(default=0)
+    duplicate_count = models.PositiveIntegerField(default=0)
+    invalid_count = models.PositiveIntegerField(default=0)
+    dimensions = models.JSONField(default=empty_news_dimensions)
+    reasons = models.JSONField(default=list)
+    error_message = models.TextField(blank=True)
+    started_at = models.DateTimeField()
+    finished_at = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    source_collection_run = models.ForeignKey(
+        "collection.CollectionRun",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="news_inspections",
+    )
+
+    class Meta:
+        ordering = ["-started_at"]
+        indexes = [
+            models.Index(fields=["-started_at"], name="news_insp_started_idx"),
+            models.Index(
+                fields=["source", "-started_at"], name="news_insp_src_start_idx"
+            ),
+        ]
+
+    def __str__(self) -> str:
+        return (
+            f"{self.source.code}:{self.quality_status}:"
+            f"{self.started_at.isoformat()}"
+        )

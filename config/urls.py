@@ -9,6 +9,7 @@ urlpatterns = [
     path("market-inspection/", include("apps.market_monitoring.urls")),
     path("system/schedules/", include("apps.scheduling.urls")),
     path("collection/", include("apps.collection.urls")),
+    path("collection/news/", include("apps.news_data.urls")),
     path("inspection/", include("apps.inspection.urls")),
     path("", include("apps.core.urls")),
 ]

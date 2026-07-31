@@ -6,6 +6,7 @@ class CollectionRun(models.Model):
         KLINE = "kline", "K线"
         OPEN_INTEREST = "open_interest", "OI"
         FUNDING = "funding", "Funding"
+        NEWS = "news", "新闻"
 
     class Exchange(models.TextChoices):
         BINANCE = "binance", "Binance"
@@ -33,10 +34,17 @@ class CollectionRun(models.Model):
         choices=DataType.choices,
         default=DataType.KLINE,
     )
-    exchange = models.CharField(max_length=20, choices=Exchange.choices)
-    market_type = models.CharField(max_length=30, choices=MarketType.choices)
-    symbol = models.CharField(max_length=20)
-    interval = models.CharField(max_length=10, choices=Interval.choices)
+    exchange = models.CharField(max_length=20, choices=Exchange.choices, blank=True)
+    market_type = models.CharField(max_length=30, choices=MarketType.choices, blank=True)
+    symbol = models.CharField(max_length=20, blank=True)
+    interval = models.CharField(max_length=10, choices=Interval.choices, blank=True)
+    news_source = models.ForeignKey(
+        "news_data.NewsSource",
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="collection_runs",
+    )
     range_start = models.DateTimeField()
     range_end = models.DateTimeField()
     trigger = models.CharField(
@@ -71,4 +79,9 @@ class CollectionRun(models.Model):
         ]
 
     def __str__(self) -> str:
+        if self.news_source_id:
+            return (
+                f"{self.news_source.code}:{self.status}:"
+                f"{self.started_at.isoformat()}"
+            )
         return f"{self.symbol}:{self.interval}:{self.status}:{self.started_at.isoformat()}"

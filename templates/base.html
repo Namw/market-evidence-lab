@@ -33,9 +33,9 @@
                 <a class="nav-item{% if request.resolver_match.namespace == 'inspection' %} is-active{% endif %}" href="{% url 'inspection:index' %}"{% if request.resolver_match.namespace == 'inspection' %} aria-current="page"{% endif %}>
                     <span>数据质量检查</span><small>已建设</small>
                 </a>
-                <details class="nav-group{% if request.resolver_match.namespace == 'collection' %} is-active{% endif %}"{% if request.resolver_match.namespace == 'collection' %} open{% endif %}>
+                <details class="nav-group{% if request.resolver_match.namespace == 'collection' or request.resolver_match.namespace == 'news_data' %} is-active{% endif %}"{% if request.resolver_match.namespace == 'collection' or request.resolver_match.namespace == 'news_data' %} open{% endif %}>
                     <summary class="nav-item">
-                        <span>采集</span><small>2 种方式</small>
+                        <span>采集</span><small>3 种方式</small>
                     </summary>
                     <div class="nav-submenu" aria-label="采集方式">
                         <a class="nav-subitem{% if request.resolver_match.namespace == 'collection' and request.resolver_match.url_name == 'index' %} is-active{% endif %}" href="{% url 'collection:index' %}"{% if request.resolver_match.namespace == 'collection' and request.resolver_match.url_name == 'index' %} aria-current="page"{% endif %}>
@@ -44,6 +44,9 @@
                         <a class="nav-subitem{% if request.resolver_match.namespace == 'collection' and request.resolver_match.url_name == 'derivatives' %} is-active{% endif %}" href="{% url 'collection:derivatives' %}"{% if request.resolver_match.namespace == 'collection' and request.resolver_match.url_name == 'derivatives' %} aria-current="page"{% endif %}>
                             <span>OI / Funding</span><small>衍生品</small>
                         </a>
+                        <a class="nav-subitem{% if request.resolver_match.namespace == 'news_data' %} is-active{% endif %}" href="{% url 'news_data:index' %}"{% if request.resolver_match.namespace == 'news_data' %} aria-current="page"{% endif %}>
+                            <span>新闻数据采集</span><small>官方来源</small>
+                        </a>
                     </div>
                 </details>
                 <a class="nav-item{% if request.resolver_match.namespace == 'scheduling' %} is-active{% endif %}" href="{% url 'scheduling:index' %}"{% if request.resolver_match.namespace == 'scheduling' %} aria-current="page"{% endif %}>
@@ -51,7 +54,7 @@
                 </a>
             </nav>
 
-            <div class="sidebar-footer">阶段 8 · OI / Funding 证据 V1</div>
+            <div class="sidebar-footer">阶段 9A · 新闻原始数据 V1</div>
         </aside>
 
         <main class="main-content">

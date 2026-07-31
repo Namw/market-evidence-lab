@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="utf-8"?>
+<rss version="2.0">
+  <channel>
+    <title>Ethereum Foundation Blog</title>
+    <item>
+      <title>After activation</title>
+      <link>https://blog.ethereum.org/en/2026/07/31/after?utm_source=test#section</link>
+      <guid>ef-after</guid>
+      <pubDate>Fri, 31 Jul 2026 12:00:00 GMT</pubDate>
+      <description>New official post</description>
+      <category>Protocol</category>
+    </item>
+    <item>
+      <title>At activation</title>
+      <link>https://blog.ethereum.org/en/2026/07/31/at</link>
+      <guid>ef-at</guid>
+      <pubDate>Fri, 31 Jul 2026 00:00:00 GMT</pubDate>
+      <description>Boundary post</description>
+      <category>Organizational</category>
+    </item>
+    <item>
+      <title>Before activation</title>
+      <link>https://blog.ethereum.org/en/2026/07/30/before</link>
+      <guid>ef-before</guid>
+      <pubDate>Thu, 30 Jul 2026 00:00:00 GMT</pubDate>
+      <description>Old official post</description>
+      <category>Events</category>
+    </item>
+  </channel>
+</rss>
