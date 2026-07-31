@@ -1,0 +1,167 @@
+{% extends "base.html" %}
+{% load static %}
+
+{% block title %}市场异常巡检 · Market Evidence Lab{% endblock %}
+
+{% block content %}
+<header class="page-header">
+    <div>
+        <p class="eyebrow">候选异常发现</p>
+        <h1>ETHUSDT 市场异常巡检 V1</h1>
+        <p class="page-intro">扫描 Binance USD-M Futures 已闭合的 ETHUSDT 1d K线，按固定V1规则识别值得进一步研究的异常日期。只识别，不解释原因或预测走势。</p>
+    </div>
+    <span class="phase-badge">UTC · 1d · V1</span>
+</header>
+
+{% if messages %}
+<div class="message-stack" aria-live="polite">
+    {% for message in messages %}
+    <div class="message message-{{ message.tags|default:'info' }}">{{ message }}</div>
+    {% endfor %}
+</div>
+{% endif %}
+
+<section class="panel market-scan-form-panel" aria-labelledby="market-scan-form-title">
+    <div class="panel-heading">
+        <div>
+            <p class="eyebrow">手工巡检</p>
+            <h2 id="market-scan-form-title">选择完整 UTC 日期范围</h2>
+        </div>
+        <a class="text-link" href="{% url 'inspection:index' %}">前往数据质量检查 →</a>
+    </div>
+    <form method="post" id="market-scan-form" class="collection-form">
+        {% csrf_token %}
+        {% if form.non_field_errors %}<div class="form-errors" role="alert">{{ form.non_field_errors }}</div>{% endif %}
+        <div class="market-scan-form-grid">
+            <div class="form-field">
+                <label for="{{ form.start_date.id_for_label }}">{{ form.start_date.label }}</label>
+                {{ form.start_date }}
+                {% if form.start_date.errors %}<div class="field-errors">{{ form.start_date.errors }}</div>{% endif %}
+                <small>当日 00:00 包含在扫描范围内。</small>
+            </div>
+            <div class="form-field">
+                <label for="{{ form.end_date.id_for_label }}">{{ form.end_date.label }}</label>
+                {{ form.end_date }}
+                {% if form.end_date.errors %}<div class="field-errors">{{ form.end_date.errors }}</div>{% endif %}
+                <small><strong>结束日期不包含</strong>，且不得超过当前 UTC 日期 00:00。</small>
+            </div>
+            <div class="market-scan-action">
+                <div class="form-note">固定扫描 ETHUSDT 1d，单次最长366天。不会采集、补采、修复或删除数据。</div>
+                <button class="primary-button" type="submit" data-waiting-text="巡检中，请稍候…">开始巡检</button>
+            </div>
+        </div>
+    </form>
+</section>
+
+<section class="panel" aria-labelledby="v1-rules-title">
+    <div class="panel-heading">
+        <div><p class="eyebrow">固定规则快照</p><h2 id="v1-rules-title">V1 异常规则</h2></div>
+        <span class="status-label">{{ rules.version }}</span>
+    </div>
+    <div class="rule-card-grid">
+        <article class="rule-card">
+            <h3>日涨跌异常</h3>
+            <p><code>(close - open) / open × 100</code></p>
+            <strong>绝对值 ≥ {{ rules.price_change.absolute_threshold_pct }}%</strong>
+            <small>上涨和下跌分别记录独立信号类型。</small>
+        </article>
+        <article class="rule-card">
+            <h3>成交量异常</h3>
+            <p>当日基础资产成交量 ÷ 前 {{ rules.volume_spike.baseline_days }} 个连续UTC日平均成交量</p>
+            <strong>倍数 ≥ {{ rules.volume_spike.ratio_threshold }}</strong>
+            <small>当前日不进入基线；任一自然日缺失时基线不可用。</small>
+        </article>
+        <article class="rule-card">
+            <h3>长上下影线</h3>
+            <p>影线 / 实体 ≥ {{ rules.long_wick.body_ratio_threshold }}，且影线 / 全振幅 ≥ {{ rules.long_wick.range_ratio_threshold }}</p>
+            <strong>两个条件必须同时满足</strong>
+            <small>十字星实体为0时不做实体除法，但仍要求全振幅占比。</small>
+        </article>
+    </div>
+</section>
+
+<section class="panel runs-panel" aria-labelledby="market-runs-title">
+    <div class="panel-heading"><div><p class="eyebrow">运行历史</p><h2 id="market-runs-title">最近20次市场异常巡检</h2></div></div>
+    <div class="table-scroll">
+        <table class="runs-table market-runs-table">
+            <thead><tr><th>ID</th><th>范围（UTC）</th><th>状态</th><th>预期</th><th>实际</th><th>评估</th><th>缺失</th><th>跳过</th><th>基线不可用</th><th>异常日</th><th>信号</th><th>开始 / 完成</th><th>错误</th><th>详情</th></tr></thead>
+            <tbody>
+                {% for run in recent_runs %}
+                <tr>
+                    <td>#{{ run.id }}</td>
+                    <td class="nowrap">{{ run.range_start|date:"Y-m-d" }} → {{ run.range_end|date:"Y-m-d" }}</td>
+                    <td><span class="run-status status-{{ run.status }}">{{ run.get_status_display }}</span></td>
+                    <td>{{ run.expected_count }}</td><td>{{ run.actual_count }}</td><td>{{ run.evaluated_count }}</td><td>{{ run.missing_count }}</td><td>{{ run.skipped_invalid_count }}</td><td>{{ run.volume_baseline_unavailable_count }}</td><td>{{ run.anomaly_day_count }}</td><td>{{ run.signal_count }}</td>
+                    <td class="nowrap">{{ run.started_at|date:"Y-m-d H:i:s" }}<br>{% if run.finished_at %}{{ run.finished_at|date:"Y-m-d H:i:s" }}{% else %}—{% endif %}</td>
+                    <td class="error-summary">{{ run.error_message|default:"—"|truncatechars:120 }}</td>
+                    <td><a class="table-link" href="?run={{ run.id }}#market-run-details">查看</a></td>
+                </tr>
+                {% empty %}<tr><td colspan="14" class="empty-state">尚无市场异常巡检记录。</td></tr>{% endfor %}
+            </tbody>
+        </table>
+    </div>
+</section>
+
+{% if selected_run %}
+<section class="panel market-run-details" id="market-run-details" aria-labelledby="market-run-details-title">
+    <div class="panel-heading">
+        <div><p class="eyebrow">运行 #{{ selected_run.id }} · {{ selected_run.rules_version }}</p><h2 id="market-run-details-title">异常候选与覆盖情况</h2></div>
+        <span class="run-status status-{{ selected_run.status }}">{{ selected_run.get_status_display }}</span>
+    </div>
+    <dl class="scan-summary-grid">
+        <div><dt>扫描范围</dt><dd>{{ selected_run.range_start|date:"Y-m-d" }} → {{ selected_run.range_end|date:"Y-m-d" }} UTC</dd></div>
+        <div><dt>预期 / 实际 / 评估</dt><dd>{{ selected_run.expected_count }} / {{ selected_run.actual_count }} / {{ selected_run.evaluated_count }}</dd></div>
+        <div><dt>异常日期 / 信号</dt><dd>{{ selected_run.anomaly_day_count }} / {{ selected_run.signal_count }}</dd></div>
+        <div><dt>缺失 / 跳过 / 基线不可用</dt><dd>{{ selected_run.missing_count }} / {{ selected_run.skipped_invalid_count }} / {{ selected_run.volume_baseline_unavailable_count }}</dd></div>
+    </dl>
+
+    {% if selected_run.status == 'failed' %}
+    <div class="message message-error">扫描程序执行失败：{{ selected_run.error_message|default:"未提供安全错误摘要" }}</div>
+    {% else %}
+        {% if selected_run.missing_count or selected_run.skipped_invalid_count or selected_run.volume_baseline_unavailable_count %}
+        <div class="message message-warning coverage-warning"><strong>扫描覆盖不完整：</strong>存在缺失、无法安全计算或成交量基线不可用的日期。异常结果不代表这些日期已完成全部V1规则判断。</div>
+        {% endif %}
+
+        {% if selected_run.anomaly_day_count == 0 %}
+        <div class="no-issues">本次范围未发现符合V1规则的市场异常</div>
+        {% else %}
+        <div class="table-scroll">
+            <table class="runs-table findings-table">
+                <thead><tr><th>UTC日期</th><th>OHLC</th><th>涨跌幅</th><th>振幅</th><th>成交量</th><th>20日均量 / 倍数</th><th>上影线 实体 / 全振幅</th><th>下影线 实体 / 全振幅</th><th>信号</th></tr></thead>
+                <tbody>
+                    {% for finding in selected_findings %}
+                    <tr>
+                        <td class="nowrap"><strong>{{ finding.open_time|date:"Y-m-d" }}</strong></td>
+                        <td class="nowrap">O {{ finding.open|floatformat:4 }}<br>H {{ finding.high|floatformat:4 }}<br>L {{ finding.low|floatformat:4 }}<br>C {{ finding.close|floatformat:4 }}</td>
+                        <td>{{ finding.price_change_pct|floatformat:4 }}%</td>
+                        <td>{{ finding.amplitude_pct|floatformat:4 }}%</td>
+                        <td>{{ finding.volume|floatformat:4 }}</td>
+                        <td>{% if finding.volume_average_20 == None %}<span class="unavailable">不可用</span>{% else %}{{ finding.volume_average_20|floatformat:4 }}<br>× {{ finding.volume_ratio|floatformat:4 }}{% endif %}</td>
+                        <td>{% if finding.upper_wick_body_ratio == None %}body=0{% else %}{{ finding.upper_wick_body_ratio|floatformat:4 }}{% endif %}<br>{{ finding.upper_wick_range_ratio|floatformat:4 }}</td>
+                        <td>{% if finding.lower_wick_body_ratio == None %}body=0{% else %}{{ finding.lower_wick_body_ratio|floatformat:4 }}{% endif %}<br>{{ finding.lower_wick_range_ratio|floatformat:4 }}</td>
+                        <td>
+                            <details class="signal-details">
+                                <summary>{{ finding.signals|length }} 个信号</summary>
+                                {% for signal in finding.signals %}
+                                <article>
+                                    <strong>{{ signal.type }}</strong>{% if signal.direction %}<small>{{ signal.direction }}</small>{% endif %}
+                                    <dl>
+                                        <div><dt>实际指标</dt><dd>{% for key, value in signal.metric.items %}{{ key }}={{ value }}{% if not forloop.last %}<br>{% endif %}{% endfor %}</dd></div>
+                                        <div><dt>触发阈值</dt><dd>{% for key, value in signal.threshold.items %}{{ key }}={{ value }}{% if not forloop.last %}<br>{% endif %}{% endfor %}</dd></div>
+                                    </dl>
+                                </article>
+                                {% endfor %}
+                            </details>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        {% endif %}
+    {% endif %}
+</section>
+{% endif %}
+{% endblock %}
+
+{% block extra_js %}<script src="{% static 'market_monitoring/js/form.js' %}" defer></script>{% endblock %}

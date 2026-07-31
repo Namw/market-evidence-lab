@@ -37,6 +37,7 @@ INSTALLED_APPS = [
     "apps.collection.apps.CollectionConfig",
     "apps.inspection.apps.InspectionConfig",
     "apps.scheduling.apps.SchedulingConfig",
+    "apps.market_monitoring.apps.MarketMonitoringConfig",
 ]
 
 MIDDLEWARE = [
