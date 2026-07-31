@@ -112,6 +112,80 @@ body {
     font-weight: 400;
 }
 
+.nav-group {
+    min-width: 0;
+}
+
+.nav-group > summary {
+    cursor: pointer;
+    list-style: none;
+}
+
+.nav-group > summary::-webkit-details-marker {
+    display: none;
+}
+
+.nav-group > summary small::after {
+    content: "›";
+    display: inline-block;
+    margin-left: 7px;
+    font-size: 15px;
+    line-height: 1;
+    transform: rotate(0deg);
+    transition: transform .16s ease;
+}
+
+.nav-group[open] > summary small::after {
+    transform: rotate(90deg);
+}
+
+.nav-group.is-active > summary {
+    color: #fff;
+    background: rgba(255, 255, 255, 0.08);
+    font-weight: 600;
+}
+
+.nav-submenu {
+    display: grid;
+    gap: 3px;
+    margin: 5px 0 4px 16px;
+    padding-left: 10px;
+    border-left: 1px solid rgba(255, 255, 255, 0.14);
+}
+
+.nav-subitem {
+    display: flex;
+    min-height: 36px;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    padding: 0 10px;
+    border-radius: 7px;
+    color: #aeb9ca;
+    font-size: 13px;
+    text-decoration: none;
+}
+
+.nav-subitem small {
+    color: #8996aa;
+    font-size: 10px;
+}
+
+.nav-subitem:hover {
+    color: #fff;
+    background: rgba(255, 255, 255, 0.06);
+}
+
+.nav-subitem.is-active {
+    color: #fff;
+    background: rgba(255, 255, 255, 0.12);
+    font-weight: 650;
+}
+
+.nav-subitem.is-active small {
+    color: #d8dfeb;
+}
+
 .sidebar-footer {
     margin-top: auto;
     padding: 20px 8px 0;
@@ -1507,6 +1581,78 @@ h2 {
     margin-left: auto;
     color: var(--muted);
     font-size: 12px;
+}
+
+.derivatives-evidence-panel {
+    padding: 0;
+    overflow: hidden;
+}
+
+.derivatives-evidence-panel > summary {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 20px;
+    padding: 24px 28px;
+    cursor: pointer;
+    list-style: none;
+}
+
+.derivatives-evidence-panel > summary::-webkit-details-marker {
+    display: none;
+}
+
+.derivatives-evidence-panel > summary strong {
+    display: block;
+    margin-top: 4px;
+    color: var(--ink);
+    font-size: 1.45rem;
+}
+
+.derivatives-evidence-panel > summary .details-hint {
+    color: var(--muted);
+    font-size: .88rem;
+}
+
+.derivatives-evidence-panel[open] > summary {
+    border-bottom: 1px solid var(--line);
+}
+
+.derivatives-evidence-content {
+    padding: 24px 28px 28px;
+}
+
+.derivatives-facts-block + .derivatives-facts-block {
+    margin-top: 28px;
+    padding-top: 24px;
+    border-top: 1px solid var(--line);
+}
+
+.funding-interval-grid {
+    grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+}
+
+.funding-interval-grid article dl {
+    display: grid;
+    gap: 10px;
+    margin: 16px 0 0;
+}
+
+.funding-interval-grid article dl div {
+    display: flex;
+    justify-content: space-between;
+    gap: 14px;
+}
+
+.funding-interval-grid article dt {
+    color: var(--muted);
+}
+
+.funding-interval-grid article dd {
+    margin: 0;
+    text-align: right;
+    overflow-wrap: anywhere;
+    font-variant-numeric: tabular-nums;
 }
 
 .source-audit-panel {

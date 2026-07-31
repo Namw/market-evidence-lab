@@ -40,6 +40,7 @@ INSTALLED_APPS = [
     "apps.market_monitoring.apps.MarketMonitoringConfig",
     "apps.research_cases.apps.ResearchCasesConfig",
     "apps.price_evidence.apps.PriceEvidenceConfig",
+    "apps.derivatives_evidence.apps.DerivativesEvidenceConfig",
 ]
 
 MIDDLEWARE = [

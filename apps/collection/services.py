@@ -165,6 +165,10 @@ def collect_klines(
         run.inserted_count = inserted_count
         run.updated_count = updated_count
         run.skipped_count = collector.skipped_count + database_skipped_count
+        run.failed_count = 1 if run.status in {
+            CollectionRun.Status.PARTIAL,
+            CollectionRun.Status.FAILED,
+        } else 0
         run.save(
             update_fields=[
                 "status",
@@ -174,6 +178,7 @@ def collect_klines(
                 "inserted_count",
                 "updated_count",
                 "skipped_count",
+                "failed_count",
                 "error_message",
             ]
         )

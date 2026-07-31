@@ -49,6 +49,13 @@ def make_run(**overrides):
     return CollectionRun.objects.create(**values)
 
 
+def pipeline_result(collection_status=CollectionRun.Status.SUCCESS, quality_status="passed"):
+    return SimpleNamespace(
+        collection_run=SimpleNamespace(status=collection_status),
+        inspection_run=SimpleNamespace(status="success", quality_status=quality_status),
+    )
+
+
 class CollectionPageTests(TestCase):
     url = "/collection/"
     valid_data = {
@@ -64,25 +71,23 @@ class CollectionPageTests(TestCase):
         self.assertTemplateUsed(response, "collection/index.html")
         self.assertContains(response, "结束日期不包含")
 
-    @patch("apps.collection.views.collect_klines")
-    def test_valid_post_collects_each_selected_interval_and_redirects(self, collect):
-        collect.side_effect = [
-            SimpleNamespace(status=CollectionRun.Status.SUCCESS),
-            SimpleNamespace(status=CollectionRun.Status.SUCCESS),
-        ]
+    @patch("apps.collection.views.collect_and_inspect")
+    def test_valid_post_collects_and_inspects_each_selected_interval(self, collect):
+        collect.side_effect = [pipeline_result(), pipeline_result()]
 
         response = self.client.post(self.url, self.valid_data)
 
         self.assertRedirects(response, self.url)
         self.assertEqual(collect.call_count, 2)
-        self.assertEqual(collect.call_args_list[0].args[:2], ("ETHUSDT", "1d"))
-        self.assertEqual(collect.call_args_list[1].args[:2], ("ETHUSDT", "1h"))
+        self.assertEqual(collect.call_args_list[0].kwargs["data_type"], "kline")
+        self.assertEqual(collect.call_args_list[0].kwargs["interval"], "1d")
+        self.assertEqual(collect.call_args_list[1].kwargs["interval"], "1h")
 
-    @patch("apps.collection.views.collect_klines")
+    @patch("apps.collection.views.collect_and_inspect")
     def test_1d_failure_does_not_prevent_1h_collection(self, collect):
         collect.side_effect = [
-            SimpleNamespace(status=CollectionRun.Status.FAILED),
-            SimpleNamespace(status=CollectionRun.Status.SUCCESS),
+            pipeline_result(CollectionRun.Status.FAILED),
+            pipeline_result(),
         ]
 
         response = self.client.post(self.url, self.valid_data, follow=True)
@@ -90,7 +95,7 @@ class CollectionPageTests(TestCase):
         self.assertEqual(collect.call_count, 2)
         self.assertContains(response, "采集部分完成")
 
-    @patch("apps.collection.views.collect_klines")
+    @patch("apps.collection.views.collect_and_inspect")
     def test_no_interval_reports_form_error(self, collect):
         data = {**self.valid_data, "intervals": []}
 
@@ -100,7 +105,7 @@ class CollectionPageTests(TestCase):
         self.assertContains(response, "请至少选择一个采集周期")
         collect.assert_not_called()
 
-    @patch("apps.collection.views.collect_klines")
+    @patch("apps.collection.views.collect_and_inspect")
     def test_start_not_before_end_reports_form_error(self, collect):
         data = {**self.valid_data, "start_date": "2024-01-03"}
 
@@ -109,7 +114,7 @@ class CollectionPageTests(TestCase):
         self.assertContains(response, "开始日期必须早于结束日期")
         collect.assert_not_called()
 
-    @patch("apps.collection.views.collect_klines")
+    @patch("apps.collection.views.collect_and_inspect")
     def test_range_over_366_days_reports_form_error(self, collect):
         data = {
             **self.valid_data,
@@ -122,7 +127,7 @@ class CollectionPageTests(TestCase):
         self.assertContains(response, "单次采集范围最长为 366 天")
         collect.assert_not_called()
 
-    @patch("apps.collection.views.collect_klines")
+    @patch("apps.collection.views.collect_and_inspect")
     def test_future_start_date_reports_form_error(self, collect):
         future = timezone.now().date() + timedelta(days=1)
         data = {
@@ -134,6 +139,21 @@ class CollectionPageTests(TestCase):
         response = self.client.post(self.url, data)
 
         self.assertContains(response, "开始日期不能是未来日期")
+        collect.assert_not_called()
+
+    @patch("apps.collection.views.collect_and_inspect")
+    def test_end_after_current_utc_date_reports_form_error(self, collect):
+        tomorrow = timezone.now().date() + timedelta(days=1)
+        response = self.client.post(
+            self.url,
+            {
+                **self.valid_data,
+                "start_date": timezone.now().date().isoformat(),
+                "end_date": tomorrow.isoformat(),
+            },
+        )
+
+        self.assertContains(response, "结束日期不得超过当前 UTC 日期 00:00")
         collect.assert_not_called()
 
     def test_page_displays_data_overview_for_each_interval(self):
@@ -183,6 +203,14 @@ class CollectionPageTests(TestCase):
         response = self.client.get(self.url)
 
         self.assertContains(response, 'href="/collection/"')
+        self.assertContains(response, 'href="/collection/derivatives/"')
+        self.assertContains(response, "K线采集")
+        self.assertContains(response, "OI / Funding")
+        self.assertContains(response, '<details class="nav-group is-active" open>')
+        self.assertContains(
+            response,
+            '<a class="nav-subitem is-active" href="/collection/" aria-current="page">',
+        )
         self.assertNotContains(response, 'href="/analysis/"')
         self.assertContains(response, "form.js")
 

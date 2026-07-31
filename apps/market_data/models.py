@@ -53,3 +53,68 @@ class Kline(models.Model):
 
     def __str__(self) -> str:
         return f"{self.exchange}:{self.symbol}:{self.interval}:{self.open_time.isoformat()}"
+
+
+class OpenInterest(models.Model):
+    exchange = models.CharField(max_length=20, choices=Kline.Exchange.choices)
+    market_type = models.CharField(max_length=30, choices=Kline.MarketType.choices)
+    symbol = models.CharField(max_length=20)
+    period = models.CharField(max_length=5, choices=(("1h", "1h"),))
+    timestamp = models.DateTimeField()
+    sum_open_interest = models.DecimalField(max_digits=40, decimal_places=18)
+    sum_open_interest_value = models.DecimalField(max_digits=40, decimal_places=18)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["timestamp"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["exchange", "market_type", "symbol", "period", "timestamp"],
+                name="unique_oi_market_period_time",
+            )
+        ]
+        indexes = [
+            models.Index(
+                fields=["symbol", "period", "timestamp"],
+                name="oi_sym_period_time_idx",
+            )
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.exchange}:{self.symbol}:{self.period}:{self.timestamp.isoformat()}"
+
+
+class FundingRate(models.Model):
+    exchange = models.CharField(max_length=20, choices=Kline.Exchange.choices)
+    market_type = models.CharField(max_length=30, choices=Kline.MarketType.choices)
+    symbol = models.CharField(max_length=20)
+    funding_time = models.DateTimeField()
+    funding_rate = models.DecimalField(max_digits=40, decimal_places=18)
+    mark_price = models.DecimalField(
+        max_digits=40,
+        decimal_places=18,
+        null=True,
+        blank=True,
+    )
+    rate_type = models.CharField(max_length=40, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["funding_time"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["exchange", "market_type", "symbol", "funding_time"],
+                name="unique_funding_market_time",
+            )
+        ]
+        indexes = [
+            models.Index(
+                fields=["symbol", "funding_time"],
+                name="funding_sym_time_idx",
+            )
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.exchange}:{self.symbol}:{self.funding_time.isoformat()}"

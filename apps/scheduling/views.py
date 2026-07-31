@@ -5,7 +5,7 @@ from django.shortcuts import redirect, render
 from django.views.decorators.http import require_http_methods
 
 from apps.collection.models import CollectionRun
-from apps.inspection.models import KlineInspectionRun
+from apps.inspection.models import DerivativesInspectionRun, KlineInspectionRun
 
 from .forms import KlineScheduleForm
 from .models import SCHEDULE_TIMEZONE, WorkflowRun
@@ -35,18 +35,33 @@ def _step_runs(workflow_run):
         ("inspection_1d", "1d 巡检", KlineInspectionRun),
         ("collection_1h", "1h 采集", CollectionRun),
         ("inspection_1h", "1h 巡检", KlineInspectionRun),
+        ("collection_oi", "OI 1h 采集", CollectionRun),
+        ("inspection_oi", "OI 1h 原始质量检查", DerivativesInspectionRun),
+        ("collection_funding", "Funding 实际结算采集", CollectionRun),
+        (
+            "inspection_funding",
+            "Funding 实际结算原始质量检查",
+            DerivativesInspectionRun,
+        ),
     )
     steps = workflow_run.details.get("steps", {})
     result = []
     for key, label, model in definitions:
         run_id = workflow_run.details.get(f"{key}_run_id")
+        child_run = model.objects.filter(pk=run_id).first() if run_id else None
+        is_collection = key.startswith("collection_")
         result.append(
             {
                 "key": key,
                 "label": label,
                 "step": steps.get(key, {}),
-                "run": model.objects.filter(pk=run_id).first() if run_id else None,
-                "is_collection": key.startswith("collection_"),
+                "run": child_run,
+                "is_collection": is_collection,
+                "other_issue_count": (
+                    child_run.other_issue_count
+                    if child_run is not None and not is_collection
+                    else 0
+                ),
             }
         )
     return result
@@ -112,4 +127,3 @@ def schedule_index(request):
         "selected_steps": _step_runs(selected_run),
     }
     return render(request, "scheduling/index.html", context)
-

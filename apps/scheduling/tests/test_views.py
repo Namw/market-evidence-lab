@@ -130,7 +130,7 @@ class SchedulingPageTests(TestCase):
         self.assertEqual(response.context["selected_run"], runs[-1])
         self.assertContains(response, "workflow marker 20")
         self.assertNotContains(response, "workflow marker 0")
-        self.assertContains(response, "四步执行详情")
+        self.assertContains(response, "八步执行详情")
 
     def test_navigation_order_is_unchanged_and_unbuilt_pages_have_no_links(self):
         response = self.client.get(self.url)

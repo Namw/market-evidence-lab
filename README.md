@@ -1,11 +1,11 @@
 # Market Evidence Lab
 
-Market Evidence Lab 是一个面向市场证据工作流的 Django 单体项目。当前完成第 7 阶段“价格证据 V1”：针对人工建立的研究案例，使用异常 UTC 自然日的24根1h K线生成可复现、可验算的日内价格路径事实。
+Market Evidence Lab 是一个面向市场证据工作流的 Django 单体项目。当前完成第 8 阶段“OI / Funding 衍生品证据 V1”：在价格证据之外，用 Binance 1h OI 边界与实际 Funding 结算记录为日K异常研究案例生成可复现、可审计的仓位行为事实。
 
 ## 当前实现范围
 
 - Python 3.12、Django 5.2、PostgreSQL 16 与 `uv` 依赖管理
-- Binance USD-M Futures 公开接口 `/fapi/v1/klines`
+- Binance USD-M Futures 公开接口 `/fapi/v1/klines`、`/futures/data/openInterestHist`、`/fapi/v1/fundingRate`
 - 固定品种 ETHUSDT
 - 固定周期 1d、1h
 - 已闭合K线的分页采集和有限重试
@@ -19,7 +19,7 @@ Market Evidence Lab 是一个面向市场证据工作流的 Django 单体项目�
 - `/system/schedules/` 内置每日任务配置、立即运行、执行器状态与工作流历史
 - 默认 08:05 Asia/Shanghai、回看最近 3 个完整 UTC 日，可配置 1 至 30 天
 - 独立 `run_scheduler` 进程、数据库行锁领取、`--once` 部署检查与执行器心跳
-- 工作流固定按 1d 采集、1d 巡检、1h 采集、1h 巡检顺序调用既有统一服务
+- 手工与自动入口统一执行 1d/1h K线、OI、Funding 的采集及对应原始质量检查
 - `/market-inspection/` 手工扫描已闭合 ETHUSDT 1d K线、最近运行和指定运行异常详情
 - V1日涨跌、连续20日成交量基线、长上下影线规则，全部使用 `Decimal` 判断
 - 每次扫描保存完整规则快照，每个异常日保存OHLC、成交量和衍生指标快照
@@ -28,6 +28,9 @@ Market Evidence Lab 是一个面向市场证据工作流的 Django 单体项目�
 - 每个研究案例最多一份当前价格证据，支持显式生成和重新生成
 - 严格按 UTC 日冻结1h OHLCV、记录缺口、聚合核对日K，并计算 V1 价格路径指标
 - 项目内本地 Canvas 1h蜡烛图和成交量图，不依赖 CDN 或前端构建链
+- OI 与 Funding 独立原始表、Decimal 精确存储、幂等分页采集及独立运行统计
+- 每个案例最多一份当前衍生品证据，保存覆盖、计算、规则、来源与审计快照
+- OI 严格检查 UTC 日首尾共25个整点边界；Funding 按异常前、当日、异常后三个半开区间独立判断
 
 数据质量检查只报告问题，不会自动修复或补采。自动任务在迁移后保持禁用；只有明确启用配置并独立运行调度命令后才会自动执行。
 
@@ -78,6 +81,7 @@ uv run --env-file .env python manage.py runserver
 
 - 总览：<http://127.0.0.1:8000/>
 - 采集：<http://127.0.0.1:8000/collection/>
+- OI / Funding 采集：<http://127.0.0.1:8000/collection/derivatives/>
 - 数据质量检查：<http://127.0.0.1:8000/inspection/>
 - 系统管理 / 自动调度：<http://127.0.0.1:8000/system/schedules/>
 - 市场异常巡检：<http://127.0.0.1:8000/market-inspection/>
@@ -85,7 +89,7 @@ uv run --env-file .env python manage.py runserver
 
 ## 市场异常巡检 V1
 
-市场异常巡检与 `/inspection/` 数据质量检查是两套独立能力。前者检查行情是否满足候选异常规则，后者检查数据库K线是否完整、对齐和有效。
+市场异常巡检与原始数据质量检查是两套独立能力。前者检查行情是否满足候选异常规则；后者检查数据库中的K线、OI与Funding是否完整、连续和有效，其中 `/inspection/` 当前提供K线检查的独立人工入口，OI/Funding检查随采集链路执行。
 
 页面只接受UTC开始和结束日期，范围为 `[开始日期 00:00, 结束日期 00:00)`，单次最长366天且只允许完整闭合日。扫描固定使用 Binance USD-M Futures、ETHUSDT、1d，不调用采集或数据质量服务，也不会补采、修复或删除数据。
 
@@ -101,7 +105,7 @@ V1规则：
 
 巡检结果不会自动转换为案例。异常列表对尚未建案的 finding 提供带 CSRF 保护的 POST 操作；创建成功后进入案例详情。相同 exchange、market_type、symbol、interval 和 event_time 在数据库中只能存在一个案例，因此同一 finding 重复提交，或不同扫描运行再次发现同一市场同一天时，都会打开既有案例。
 
-案例保存来源 finding（删除保护）、案例标题、市场身份、UTC事件时间、异常信号、OHLC、成交量、涨跌幅、振幅及计算快照。列表和详情优先展示中文异常类型与人类可读摘要；英文枚举、精确参数和 JSON 位于折叠明细。衍生品证据、新闻证据、历史类似与 AI 报告目前仍只展示“待建设”空状态。
+案例保存来源 finding（删除保护）、案例标题、市场身份、UTC事件时间、异常信号、OHLC、成交量、涨跌幅、振幅及计算快照。列表和详情优先展示中文异常类型与人类可读摘要；英文枚举、精确参数和 JSON 位于折叠明细。第一类价格证据默认展开，第二类衍生品证据默认折叠；新闻证据、历史类似与 AI 报告仍为待建设结构。
 
 ## 价格证据 V1
 
@@ -113,7 +117,15 @@ V1规则：
 
 内置任务固定处理 Binance USD-M Futures 的 ETHUSDT 1d、1h K线。页面只能配置启用状态、Asia/Shanghai 每日执行时间和 1 至 30 天回看范围，不接受 Cron 表达式。
 
-每次运行动态取当前 UTC 日期的 `00:00` 为 `range_end`，并以 `range_end - lookback_days` 为 `range_start`，范围是左闭右开的 `[range_start, range_end)`。四个步骤固定顺序执行；某一步失败后仍继续执行后续步骤，采集失败后也会巡检数据库当前真实质量。工作流 JSON 只保存子运行 ID、步骤状态和安全错误摘要，详细统计仍以 `CollectionRun` 和 `KlineInspectionRun` 为准。
+每次运行动态取当前 UTC 日期的 `00:00` 为 `range_end`，并以 `range_end - lookback_days` 为 `range_start`。K线与Funding范围是左闭右开的 `[range_start, range_end)`；OI有效范围额外延伸到 `range_end + 1h`（不包含），以纳入完整日所需的次日 `00:00` 边界。四类数据分别执行采集与原始质量检查，共八个步骤；某一数据类型失败后仍继续后续类型。工作流只有在1d K线、1h K线、OI、Funding四项检查全部完成且通过时才显示整体质量通过。采集执行状态与质量状态独立保存。
+
+## OI / Funding 衍生品证据 V1
+
+衍生品证据只在案例详情页显式生成或重新生成。OI 固定使用 `sumOpenInterest` 数量作为方向主口径：异常日从 `D 00:00` 到 `D+1 00:00` 必须存在25个连续整点边界，起点非零，才输出完整日方向。数量绝对变化不足1%为不明显，达到 `+1%` 为扩张，达到 `-1%` 为收缩。名义价值仅为辅助事实；它与数量方向相反时会明确记录分歧并抑制方向性联合描述。
+
+价格方向以案例日开收盘计算，`±0.5%` 进入上涨/下跌；最大绝对涨跌1h K线并列时固定选择最早小时，并保存同小时起止 OI 边界。只有价格方向明确、OI完整且方向明确、数量与名义价值不分歧时，才输出固定的保守仓位行为描述；该描述不是价格异常的因果结论。
+
+Funding 仅使用实际结算记录，按 `[D-1,D)`、`[D,D+1)`、`[D+1,D+2)` 三段独立计算。V1 检查每段 `00:00`、`08:00`、`16:00` 三个 UTC 结算点；Binance 原始结算时间可能带毫秒级正偏移，因此从预期整点（包含）到其后1分钟（不包含）视为命中，但快照始终保留原始时间。缺失只影响所在区间；部分覆盖时保留计数与已有原始值，但不输出平均、净变化、趋势、方向或拥挤判断。完整覆盖时，`funding_rate >= 0.0003` 标记明显正 Funding，`<= -0.0003` 标记明显负 Funding。页面将原始小数乘以100后按百分比展示，数据库与快照仍保留原始小数。OI 接口只保留最近约一个月；更早案例没有 OI 时显示“来源不可用”，绝不以零值代替。
 
 启动独立调度执行器：
 
@@ -148,6 +160,7 @@ uv run python manage.py run_scheduler --once
 - `inserted_count`：新增数据库记录数。
 - `updated_count`：已有记录字段实际变化的数量。
 - `skipped_count`：范围外、未闭合、分页重复或数据库中完全相同的数据数量。
+- `failed_count`：该子采集运行发生的失败次数（V1 同步运行至多为1）。
 
 ## 手工数据质量检查
 
@@ -170,6 +183,8 @@ uv run python manage.py run_scheduler --once
 - 检查 OHLC 正数与高低价关系。
 - 检查成交量、成交笔数和主动买入量不得为负。
 - 检查 close_time 等于下一个周期边界减 1 毫秒。
+- OI按1h周期检查空范围、重复、非递增、缺口、时间对齐及数量/名义价值合法性。
+- Funding按Binance实际8小时结算口径检查空范围、重复结算、非递增、缺口、时间偏移及数值合法性。
 
 异常统计始终保持完整；保存的异常详情全局最多 200 项，超过时标记为已截断。
 
@@ -185,4 +200,4 @@ uv run --env-file .env python manage.py makemigrations --check --dry-run
 
 ## 当前未实现
 
-当前没有实现通用 Cron 平台、Celery、Redis、消息队列、APScheduler、实时 WebSocket、自动补采或修复、技术指标、行情原因分析、未来收益、历史相似样本、衍生品证据、新闻证据、AI报告、人工反馈、登录权限或 Django Admin 页面。没有采集 1m、OI、Funding、订单簿、成交明细、新闻或链上数据。市场异常巡检尚未接入自动调度。
+当前没有实现通用 Cron 平台、Celery、Redis、消息队列、APScheduler、实时 WebSocket、自动补采或修复、技术指标、确定性行情原因、未来收益、历史相似样本、新闻证据、AI报告、人工反馈、登录权限或 Django Admin 页面。没有采集 1m、清算、多空比、基差、订单流、订单簿、成交明细、新闻或链上数据。市场异常巡检尚未接入自动调度。

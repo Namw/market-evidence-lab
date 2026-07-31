@@ -32,6 +32,8 @@ class CollectionForm(forms.Form):
             raise forms.ValidationError("单次采集范围最长为 366 天。")
         if start_date > timezone.now().date():
             raise forms.ValidationError("开始日期不能是未来日期。")
+        if end_date > timezone.now().date():
+            raise forms.ValidationError("结束日期不得超过当前 UTC 日期 00:00。")
         return cleaned_data
 
     @property
@@ -41,3 +43,13 @@ class CollectionForm(forms.Form):
     @property
     def range_end(self) -> datetime:
         return datetime.combine(self.cleaned_data["end_date"], datetime.min.time(), UTC)
+
+
+class DerivativesCollectionForm(CollectionForm):
+    data_types = forms.MultipleChoiceField(
+        label="衍生品数据",
+        choices=(("open_interest", "OI（1h）"), ("funding", "Funding（实际结算）")),
+        widget=forms.CheckboxSelectMultiple,
+        error_messages={"required": "请至少选择一种衍生品数据。"},
+    )
+    intervals = None

@@ -4,6 +4,8 @@ from django.db import models
 class CollectionRun(models.Model):
     class DataType(models.TextChoices):
         KLINE = "kline", "K线"
+        OPEN_INTEREST = "open_interest", "OI"
+        FUNDING = "funding", "Funding"
 
     class Exchange(models.TextChoices):
         BINANCE = "binance", "Binance"
@@ -14,6 +16,7 @@ class CollectionRun(models.Model):
     class Interval(models.TextChoices):
         ONE_DAY = "1d", "1d"
         ONE_HOUR = "1h", "1h"
+        ACTUAL = "actual", "实际结算"
 
     class Trigger(models.TextChoices):
         SCHEDULED = "scheduled", "定时"
@@ -33,7 +36,7 @@ class CollectionRun(models.Model):
     exchange = models.CharField(max_length=20, choices=Exchange.choices)
     market_type = models.CharField(max_length=30, choices=MarketType.choices)
     symbol = models.CharField(max_length=20)
-    interval = models.CharField(max_length=5, choices=Interval.choices)
+    interval = models.CharField(max_length=10, choices=Interval.choices)
     range_start = models.DateTimeField()
     range_end = models.DateTimeField()
     trigger = models.CharField(
@@ -53,6 +56,7 @@ class CollectionRun(models.Model):
     inserted_count = models.PositiveIntegerField(default=0)
     updated_count = models.PositiveIntegerField(default=0)
     skipped_count = models.PositiveIntegerField(default=0)
+    failed_count = models.PositiveIntegerField(default=0)
     error_message = models.TextField(blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
 

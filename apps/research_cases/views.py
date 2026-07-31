@@ -4,6 +4,8 @@ from django.urls import reverse
 from django.views.decorators.http import require_POST
 
 from apps.market_monitoring.models import MarketAnomalyFinding
+from apps.derivatives_evidence.models import DerivativesEvidence
+from apps.derivatives_evidence.presentation import prepare_derivatives_evidence_for_display
 from apps.price_evidence.models import PriceEvidence
 from apps.price_evidence.presentation import prepare_price_evidence_for_display
 
@@ -23,7 +25,11 @@ def case_list(request):
 
 def case_detail(request, case_id):
     research_case = get_object_or_404(
-        ResearchCase.objects.select_related("source_finding__run", "price_evidence"),
+        ResearchCase.objects.select_related(
+            "source_finding__run",
+            "price_evidence",
+            "derivatives_evidence",
+        ),
         pk=case_id,
     )
     prepare_case_for_display(research_case)
@@ -33,12 +39,19 @@ def case_detail(request, case_id):
         price_evidence = None
     if price_evidence is not None:
         prepare_price_evidence_for_display(price_evidence)
+    try:
+        derivatives_evidence = research_case.derivatives_evidence
+    except DerivativesEvidence.DoesNotExist:
+        derivatives_evidence = None
+    if derivatives_evidence is not None:
+        prepare_derivatives_evidence_for_display(derivatives_evidence)
     return render(
         request,
         "research_cases/detail.html",
         {
             "research_case": research_case,
             "price_evidence": price_evidence,
+            "derivatives_evidence": derivatives_evidence,
         },
     )
 

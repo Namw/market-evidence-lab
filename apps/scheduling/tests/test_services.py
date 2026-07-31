@@ -2,7 +2,7 @@ from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime, time, timedelta
 from threading import Barrier
 from types import SimpleNamespace
-from unittest.mock import Mock, call, patch
+from unittest.mock import patch
 
 from django.db import close_old_connections
 from django.test import TestCase, TransactionTestCase
@@ -35,6 +35,24 @@ def inspection_result(
     quality_status=KlineInspectionRun.QualityStatus.PASSED,
 ):
     return SimpleNamespace(pk=run_id, status=status, quality_status=quality_status)
+
+
+def pipeline_result(
+    collection_id,
+    inspection_id,
+    *,
+    collection_status=CollectionRun.Status.SUCCESS,
+    inspection_status=KlineInspectionRun.Status.SUCCESS,
+    quality_status=KlineInspectionRun.QualityStatus.PASSED,
+):
+    return SimpleNamespace(
+        collection_run=collection_result(collection_id, collection_status),
+        inspection_run=inspection_result(
+            inspection_id,
+            inspection_status,
+            quality_status,
+        ),
+    )
 
 
 class TimeCalculationTests(TestCase):
@@ -142,56 +160,61 @@ class ConcurrentScheduleClaimTests(TransactionTestCase):
         self.assertEqual(WorkflowRun.objects.count(), 1)
 
 
-@patch("apps.scheduling.services.inspect_klines")
-@patch("apps.scheduling.services.collect_klines")
+@patch("apps.scheduling.services.collect_and_inspect")
 class WorkflowExecutionTests(TestCase):
-    def test_four_existing_services_run_in_required_order(self, collect, inspect):
-        parent = Mock()
-        parent.attach_mock(collect, "collect")
-        parent.attach_mock(inspect, "inspect")
-        collect.side_effect = [collection_result(11), collection_result(13)]
-        inspect.side_effect = [inspection_result(12), inspection_result(14)]
+    def test_four_collection_and_inspection_pipelines_run_in_required_order(self, pipeline):
+        pipeline.side_effect = [
+            pipeline_result(11, 12),
+            pipeline_result(13, 14),
+            pipeline_result(15, 16),
+            pipeline_result(17, 18),
+        ]
 
         run = execute_workflow(lookback_days=3, now=FIXED_NOW)
 
         self.assertEqual(
-            [item[0] for item in parent.mock_calls],
-            ["collect", "inspect", "collect", "inspect"],
+            [item.kwargs["data_type"] for item in pipeline.call_args_list],
+            ["kline", "kline", "open_interest", "funding"],
         )
-        self.assertEqual(collect.call_args_list[0].args[:2], ("ETHUSDT", "1d"))
-        self.assertEqual(inspect.call_args_list[0].args[:2], ("ETHUSDT", "1d"))
-        self.assertEqual(collect.call_args_list[1].args[:2], ("ETHUSDT", "1h"))
-        self.assertEqual(inspect.call_args_list[1].args[:2], ("ETHUSDT", "1h"))
+        self.assertEqual(pipeline.call_args_list[0].kwargs["interval"], "1d")
+        self.assertEqual(pipeline.call_args_list[1].kwargs["interval"], "1h")
         self.assertEqual(run.status, WorkflowRun.Status.SUCCESS)
+        self.assertEqual(run.quality_status, WorkflowRun.QualityStatus.PASSED)
 
-    def test_1d_failure_does_not_block_1h(self, collect, inspect):
-        collect.side_effect = [RuntimeError("1d failed"), collection_result(23)]
-        inspect.side_effect = [inspection_result(22), inspection_result(24)]
+    def test_1d_failure_does_not_block_remaining_pipelines(self, pipeline):
+        pipeline.side_effect = [
+            RuntimeError("1d failed"),
+            pipeline_result(23, 24),
+            pipeline_result(25, 26),
+            pipeline_result(27, 28),
+        ]
 
         run = execute_workflow(lookback_days=3, now=FIXED_NOW)
 
-        self.assertEqual(collect.call_count, 2)
-        self.assertEqual(inspect.call_count, 2)
+        self.assertEqual(pipeline.call_count, 4)
         self.assertEqual(run.status, WorkflowRun.Status.PARTIAL)
         self.assertEqual(run.details["collection_1h_run_id"], 23)
+        self.assertEqual(run.quality_status, WorkflowRun.QualityStatus.UNKNOWN)
 
-    def test_collection_failure_still_runs_matching_inspection(self, collect, inspect):
-        collect.side_effect = [RuntimeError("secret response body"), collection_result(33)]
-        inspect.side_effect = [inspection_result(32), inspection_result(34)]
+    def test_pipeline_exception_is_safely_summarized(self, pipeline):
+        pipeline.side_effect = [
+            RuntimeError("secret response body"),
+            pipeline_result(33, 34),
+            pipeline_result(35, 36),
+            pipeline_result(37, 38),
+        ]
 
         run = execute_workflow(lookback_days=3, now=FIXED_NOW)
 
-        self.assertEqual(inspect.call_args_list[0].args[1], "1d")
         self.assertNotIn("secret response body", run.error_message)
         self.assertIn("RuntimeError", run.error_message)
 
-    def test_quality_issues_do_not_turn_success_into_execution_failure(
-        self, collect, inspect
-    ):
-        collect.side_effect = [collection_result(41), collection_result(43)]
-        inspect.side_effect = [
-            inspection_result(42, quality_status=KlineInspectionRun.QualityStatus.ISSUES),
-            inspection_result(44),
+    def test_quality_issues_do_not_turn_collection_success_into_failure(self, pipeline):
+        pipeline.side_effect = [
+            pipeline_result(41, 42, quality_status=KlineInspectionRun.QualityStatus.ISSUES),
+            pipeline_result(43, 44),
+            pipeline_result(45, 46),
+            pipeline_result(47, 48),
         ]
 
         run = execute_workflow(lookback_days=3, now=FIXED_NOW)
@@ -199,65 +222,60 @@ class WorkflowExecutionTests(TestCase):
         self.assertEqual(run.status, WorkflowRun.Status.SUCCESS)
         self.assertEqual(run.quality_status, WorkflowRun.QualityStatus.ISSUES)
 
-    def test_success_partial_and_failed_status_semantics(self, collect, inspect):
-        cases = (
-            (
-                [collection_result(51), collection_result(53)],
-                [inspection_result(52), inspection_result(54)],
-                WorkflowRun.Status.SUCCESS,
-            ),
-            (
-                [collection_result(61, CollectionRun.Status.FAILED), collection_result(63)],
-                [inspection_result(62), inspection_result(64)],
-                WorkflowRun.Status.PARTIAL,
-            ),
-            (
-                [collection_result(71, CollectionRun.Status.FAILED), collection_result(73, CollectionRun.Status.FAILED)],
-                [
-                    inspection_result(72, KlineInspectionRun.Status.FAILED),
-                    inspection_result(74, KlineInspectionRun.Status.FAILED),
-                ],
-                WorkflowRun.Status.FAILED,
-            ),
-        )
-        for collection_runs, inspection_runs, expected in cases:
-            with self.subTest(expected=expected):
-                collect.side_effect = collection_runs
-                inspect.side_effect = inspection_runs
-                run = execute_workflow(lookback_days=3, now=FIXED_NOW)
-                self.assertEqual(run.status, expected)
+    def test_all_execution_steps_failed_sets_workflow_failed(self, pipeline):
+        pipeline.side_effect = [
+            pipeline_result(
+                index,
+                index + 1,
+                collection_status=CollectionRun.Status.FAILED,
+                inspection_status=KlineInspectionRun.Status.FAILED,
+            )
+            for index in (51, 53, 55, 57)
+        ]
 
-    def test_passed_issues_and_unknown_quality_semantics(self, collect, inspect):
+        run = execute_workflow(lookback_days=3, now=FIXED_NOW)
+
+        self.assertEqual(run.status, WorkflowRun.Status.FAILED)
+        self.assertEqual(run.quality_status, WorkflowRun.QualityStatus.UNKNOWN)
+
+    def test_four_checks_must_all_complete_and_pass_for_overall_passed(self, pipeline):
         cases = (
             (
-                [inspection_result(82), inspection_result(84)],
+                [pipeline_result(index, index + 1) for index in (81, 83, 85, 87)],
                 WorkflowRun.QualityStatus.PASSED,
             ),
             (
                 [
-                    inspection_result(92, quality_status=KlineInspectionRun.QualityStatus.ISSUES),
-                    inspection_result(94),
+                    pipeline_result(91, 92, quality_status=KlineInspectionRun.QualityStatus.ISSUES),
+                    pipeline_result(93, 94),
+                    pipeline_result(95, 96),
+                    pipeline_result(97, 98),
                 ],
                 WorkflowRun.QualityStatus.ISSUES,
             ),
             (
                 [
-                    inspection_result(102, KlineInspectionRun.Status.FAILED),
-                    inspection_result(104, KlineInspectionRun.Status.FAILED),
+                    pipeline_result(101, 102, inspection_status=KlineInspectionRun.Status.FAILED),
+                    pipeline_result(103, 104),
+                    pipeline_result(105, 106),
+                    pipeline_result(107, 108),
                 ],
                 WorkflowRun.QualityStatus.UNKNOWN,
             ),
         )
-        for inspection_runs, expected in cases:
+        for pipeline_runs, expected in cases:
             with self.subTest(expected=expected):
-                collect.side_effect = [collection_result(81), collection_result(83)]
-                inspect.side_effect = inspection_runs
+                pipeline.side_effect = pipeline_runs
                 run = execute_workflow(lookback_days=3, now=FIXED_NOW)
                 self.assertEqual(run.quality_status, expected)
 
-    def test_all_child_run_ids_are_written_to_details(self, collect, inspect):
-        collect.side_effect = [collection_result(111), collection_result(113)]
-        inspect.side_effect = [inspection_result(112), inspection_result(114)]
+    def test_all_child_run_ids_are_written_to_details(self, pipeline):
+        pipeline.side_effect = [
+            pipeline_result(111, 112),
+            pipeline_result(113, 114),
+            pipeline_result(115, 116),
+            pipeline_result(117, 118),
+        ]
 
         run = execute_workflow(lookback_days=3, now=FIXED_NOW)
 
@@ -265,21 +283,28 @@ class WorkflowExecutionTests(TestCase):
         self.assertEqual(run.details["inspection_1d_run_id"], 112)
         self.assertEqual(run.details["collection_1h_run_id"], 113)
         self.assertEqual(run.details["inspection_1h_run_id"], 114)
+        self.assertEqual(run.details["collection_oi_run_id"], 115)
+        self.assertEqual(run.details["inspection_oi_run_id"], 116)
+        self.assertEqual(run.details["collection_funding_run_id"], 117)
+        self.assertEqual(run.details["inspection_funding_run_id"], 118)
         self.assertEqual(set(run.details["steps"]), {
-            "collection_1d", "inspection_1d", "collection_1h", "inspection_1h"
+            "collection_1d", "inspection_1d", "collection_1h", "inspection_1h",
+            "collection_oi", "inspection_oi", "collection_funding", "inspection_funding",
         })
 
-    def test_manual_workflow_has_no_schedule_and_uses_manual_child_trigger(
-        self, collect, inspect
-    ):
-        collect.side_effect = [collection_result(121), collection_result(123)]
-        inspect.side_effect = [inspection_result(122), inspection_result(124)]
+    def test_manual_workflow_has_no_schedule_and_uses_manual_child_trigger(self, pipeline):
+        pipeline.side_effect = [
+            pipeline_result(121, 122),
+            pipeline_result(123, 124),
+            pipeline_result(125, 126),
+            pipeline_result(127, 128),
+        ]
 
         run = execute_workflow(lookback_days=3, now=FIXED_NOW)
 
         self.assertIsNone(run.schedule)
         self.assertEqual(run.trigger, WorkflowRun.Trigger.MANUAL)
-        self.assertEqual(collect.call_args_list[0].kwargs["trigger"], "manual")
+        self.assertEqual(pipeline.call_args_list[0].kwargs["trigger"], "manual")
 
 
 class HeartbeatTests(TestCase):

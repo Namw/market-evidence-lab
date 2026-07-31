@@ -8,9 +8,8 @@ from django.db import transaction
 from django.utils import timezone
 
 from apps.collection.models import CollectionRun
-from apps.collection.services import collect_klines
+from apps.collection.pipeline import collect_and_inspect
 from apps.inspection.models import KlineInspectionRun
-from apps.inspection.services import inspect_klines
 
 from .models import (
     SCHEDULE_TIMEZONE,
@@ -135,7 +134,7 @@ def execute_workflow(
 
     details = empty_workflow_details()
     step_statuses: list[str] = []
-    successful_inspections: list[str] = []
+    inspection_results: list[tuple[str, str]] = []
 
     def beat() -> None:
         if heartbeat_callback is not None:
@@ -145,69 +144,91 @@ def execute_workflow(
                 # Monitoring must not turn a data workflow step into a failure.
                 pass
 
-    def run_collection(interval: str) -> None:
-        key = f"collection_{interval}"
-        run_id_key = f"collection_{interval}_run_id"
+    def run_collection_pipeline(
+        *,
+        data_type: str,
+        key_suffix: str,
+        collection_label: str,
+        inspection_label: str,
+        interval: str | None = None,
+    ) -> None:
+        collection_key = f"collection_{key_suffix}"
+        inspection_key = f"inspection_{key_suffix}"
         beat()
         try:
-            child = collect_klines(
-                SYMBOL,
-                interval,
-                workflow_run.range_start,
-                workflow_run.range_end,
+            result = collect_and_inspect(
+                data_type=data_type,
+                symbol=SYMBOL,
+                interval=interval,
+                range_start=workflow_run.range_start,
+                range_end=workflow_run.range_end,
                 trigger=workflow_run.trigger,
+                between_steps_callback=beat,
             )
-            child_status = child.status
-            details[run_id_key] = child.pk
-            error_summary = ""
-            if child_status != CollectionRun.Status.SUCCESS:
-                error_summary = _returned_error("CollectionRun", child.pk, child_status)
-        except Exception as exc:
-            child_status = "failed"
-            error_summary = _safe_step_exception(exc)
-        details["steps"][key] = {
-            "status": child_status,
-            "error_summary": error_summary,
-        }
-        step_statuses.append(child_status)
-
-    def run_inspection(interval: str) -> None:
-        key = f"inspection_{interval}"
-        run_id_key = f"inspection_{interval}_run_id"
-        beat()
-        try:
-            child = inspect_klines(
-                SYMBOL,
-                interval,
-                workflow_run.range_start,
-                workflow_run.range_end,
-                trigger=workflow_run.trigger,
-            )
-            child_status = child.status
-            details[run_id_key] = child.pk
-            error_summary = ""
-            if child_status == KlineInspectionRun.Status.SUCCESS:
-                successful_inspections.append(child.quality_status)
-            else:
-                error_summary = _returned_error(
-                    "KlineInspectionRun",
-                    child.pk,
-                    child_status,
+            collection_run = result.collection_run
+            inspection_run = result.inspection_run
+            details[f"{collection_key}_run_id"] = collection_run.pk
+            details[f"{inspection_key}_run_id"] = inspection_run.pk
+            collection_error = ""
+            if collection_run.status != CollectionRun.Status.SUCCESS:
+                collection_error = _returned_error(
+                    collection_label,
+                    collection_run.pk,
+                    collection_run.status,
                 )
+            inspection_error = ""
+            if inspection_run.status != KlineInspectionRun.Status.SUCCESS:
+                inspection_error = _returned_error(
+                    inspection_label,
+                    inspection_run.pk,
+                    inspection_run.status,
+                )
+            details["steps"][collection_key] = {
+                "status": collection_run.status,
+                "error_summary": collection_error,
+            }
+            details["steps"][inspection_key] = {
+                "status": inspection_run.status,
+                "error_summary": inspection_error,
+            }
+            step_statuses.extend((collection_run.status, inspection_run.status))
+            inspection_results.append(
+                (inspection_run.status, inspection_run.quality_status)
+            )
         except Exception as exc:
-            child_status = "failed"
             error_summary = _safe_step_exception(exc)
-        details["steps"][key] = {
-            "status": child_status,
-            "error_summary": error_summary,
-        }
-        step_statuses.append(child_status)
+            details["steps"][collection_key] = {
+                "status": "failed",
+                "error_summary": error_summary,
+            }
+            details["steps"][inspection_key] = {
+                "status": "failed",
+                "error_summary": error_summary,
+            }
+            step_statuses.extend(("failed", "failed"))
 
-    for interval in INTERVALS:
-        run_collection(interval)
-        run_inspection(interval)
+    for kline_interval in INTERVALS:
+        run_collection_pipeline(
+            data_type=CollectionRun.DataType.KLINE,
+            key_suffix=kline_interval,
+            interval=kline_interval,
+            collection_label="Kline CollectionRun",
+            inspection_label="KlineInspectionRun",
+        )
+    run_collection_pipeline(
+        data_type=CollectionRun.DataType.OPEN_INTEREST,
+        key_suffix="oi",
+        collection_label="OI CollectionRun",
+        inspection_label="OI DerivativesInspectionRun",
+    )
+    run_collection_pipeline(
+        data_type=CollectionRun.DataType.FUNDING,
+        key_suffix="funding",
+        collection_label="Funding CollectionRun",
+        inspection_label="Funding DerivativesInspectionRun",
+    )
 
-    all_successful = len(step_statuses) == 4 and all(
+    all_successful = len(step_statuses) == 8 and all(
         status == "success" for status in step_statuses
     )
     made_progress = any(status in {"success", "partial"} for status in step_statuses)
@@ -218,11 +239,16 @@ def execute_workflow(
     else:
         workflow_run.status = WorkflowRun.Status.FAILED
 
-    if KlineInspectionRun.QualityStatus.ISSUES in successful_inspections:
+    if any(
+        status == KlineInspectionRun.Status.SUCCESS
+        and quality_status == KlineInspectionRun.QualityStatus.ISSUES
+        for status, quality_status in inspection_results
+    ):
         workflow_run.quality_status = WorkflowRun.QualityStatus.ISSUES
-    elif successful_inspections and all(
-        status == KlineInspectionRun.QualityStatus.PASSED
-        for status in successful_inspections
+    elif len(inspection_results) == 4 and all(
+        status == KlineInspectionRun.Status.SUCCESS
+        and quality_status == KlineInspectionRun.QualityStatus.PASSED
+        for status, quality_status in inspection_results
     ):
         workflow_run.quality_status = WorkflowRun.QualityStatus.PASSED
     else:

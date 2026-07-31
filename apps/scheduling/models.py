@@ -13,11 +13,19 @@ def empty_workflow_details():
         "inspection_1d_run_id": None,
         "collection_1h_run_id": None,
         "inspection_1h_run_id": None,
+        "collection_oi_run_id": None,
+        "inspection_oi_run_id": None,
+        "collection_funding_run_id": None,
+        "inspection_funding_run_id": None,
         "steps": {
             "collection_1d": {"status": "pending", "error_summary": ""},
             "inspection_1d": {"status": "pending", "error_summary": ""},
             "collection_1h": {"status": "pending", "error_summary": ""},
             "inspection_1h": {"status": "pending", "error_summary": ""},
+            "collection_oi": {"status": "pending", "error_summary": ""},
+            "inspection_oi": {"status": "pending", "error_summary": ""},
+            "collection_funding": {"status": "pending", "error_summary": ""},
+            "inspection_funding": {"status": "pending", "error_summary": ""},
         },
     }
 
@@ -119,4 +127,3 @@ class SchedulerHeartbeat(models.Model):
 
     def __str__(self) -> str:
         return f"{self.executor_id}:{self.last_heartbeat_at.isoformat()}"
-

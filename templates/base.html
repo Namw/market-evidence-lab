@@ -5,7 +5,7 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>{% block title %}Market Evidence Lab{% endblock %}</title>
-    <link rel="stylesheet" href="{% static 'core/css/styles.css' %}">
+    <link rel="stylesheet" href="{% static 'core/css/styles.css' %}?v=8">
 </head>
 <body>
     <div class="app-shell">
@@ -33,15 +33,25 @@
                 <a class="nav-item{% if request.resolver_match.namespace == 'inspection' %} is-active{% endif %}" href="{% url 'inspection:index' %}"{% if request.resolver_match.namespace == 'inspection' %} aria-current="page"{% endif %}>
                     <span>数据质量检查</span><small>已建设</small>
                 </a>
-                <a class="nav-item{% if request.resolver_match.namespace == 'collection' %} is-active{% endif %}" href="{% url 'collection:index' %}"{% if request.resolver_match.namespace == 'collection' %} aria-current="page"{% endif %}>
-                    <span>采集</span><small>已建设</small>
-                </a>
+                <details class="nav-group{% if request.resolver_match.namespace == 'collection' %} is-active{% endif %}"{% if request.resolver_match.namespace == 'collection' %} open{% endif %}>
+                    <summary class="nav-item">
+                        <span>采集</span><small>2 种方式</small>
+                    </summary>
+                    <div class="nav-submenu" aria-label="采集方式">
+                        <a class="nav-subitem{% if request.resolver_match.namespace == 'collection' and request.resolver_match.url_name == 'index' %} is-active{% endif %}" href="{% url 'collection:index' %}"{% if request.resolver_match.namespace == 'collection' and request.resolver_match.url_name == 'index' %} aria-current="page"{% endif %}>
+                            <span>K线采集</span><small>1d / 1h</small>
+                        </a>
+                        <a class="nav-subitem{% if request.resolver_match.namespace == 'collection' and request.resolver_match.url_name == 'derivatives' %} is-active{% endif %}" href="{% url 'collection:derivatives' %}"{% if request.resolver_match.namespace == 'collection' and request.resolver_match.url_name == 'derivatives' %} aria-current="page"{% endif %}>
+                            <span>OI / Funding</span><small>衍生品</small>
+                        </a>
+                    </div>
+                </details>
                 <a class="nav-item{% if request.resolver_match.namespace == 'scheduling' %} is-active{% endif %}" href="{% url 'scheduling:index' %}"{% if request.resolver_match.namespace == 'scheduling' %} aria-current="page"{% endif %}>
                     <span>系统管理</span><small>自动调度</small>
                 </a>
             </nav>
 
-            <div class="sidebar-footer">阶段 7 · 价格证据 V1</div>
+            <div class="sidebar-footer">阶段 8 · OI / Funding 证据 V1</div>
         </aside>
 
         <main class="main-content">

@@ -158,7 +158,69 @@
     {% endif %}
 </section>
 
-<section class="panel future-evidence-panel" id="derivatives-evidence" aria-labelledby="derivatives-evidence-title"><div><p class="eyebrow">后续研究结构</p><h2 id="derivatives-evidence-title">衍生品证据</h2><p>待建设</p></div></section>
+<details class="panel derivatives-evidence-panel" id="derivatives-evidence">
+    <summary><span><span class="eyebrow">第二类案例证据</span><strong id="derivatives-evidence-title">衍生品证据</strong></span><span class="details-hint">OI / Funding · 默认折叠</span></summary>
+    <div class="derivatives-evidence-content">
+        <div class="panel-heading">
+            <div><p class="boundary-note">Binance USD-M Futures · ETHUSDT · UTC · OI 1h / Funding 实际结算</p></div>
+            <form method="post" action="{% url 'derivatives_evidence:generate' research_case.id %}">{% csrf_token %}<button class="primary-button" type="submit">{% if derivatives_evidence %}重新生成衍生品证据{% else %}生成衍生品证据{% endif %}</button></form>
+        </div>
+
+        {% if not derivatives_evidence %}
+        <div class="evidence-empty-state"><strong>尚未生成衍生品证据</strong><p>生成操作只读取数据库中已保存的 OI、Funding 与 1h K线；不会补零、伪造历史数据或生成交易判断。</p><a class="text-link" href="{% url 'collection:derivatives' %}">前往衍生品采集页面 →</a></div>
+        {% else %}
+        <div class="price-quality-banner quality-{{ derivatives_evidence.status }}">
+            <div><span>整体数据状态</span><strong>{{ derivatives_evidence.get_status_display }}</strong></div>
+            <div><span>规则版本</span><strong>{{ derivatives_evidence.rule_version }}</strong></div>
+            <p>{{ derivatives_evidence.status_reason|default:"所需 OI 和三段 Funding 数据完整。" }}</p>
+        </div>
+
+        {% if derivatives_evidence.status == 'failed' %}
+        <div class="message message-error"><strong>证据计算失败：</strong>{{ derivatives_evidence.status_reason }}</div>
+        {% else %}
+        {% with snapshot=derivatives_evidence.display_snapshot oi=derivatives_evidence.display_snapshot.oi price=derivatives_evidence.display_snapshot.price %}
+        <section class="derivatives-facts-block">
+            <div class="panel-heading"><div><p class="eyebrow">OI 日级事实</p><h3>{{ research_case.event_time|date:"Y-m-d" }} UTC</h3></div><span class="run-status status-{{ oi.status }}">{{ oi.actual_count }}/{{ oi.expected_count }} 边界</span></div>
+            <div class="price-path-overview">
+                <article><span>日初 OI 数量</span><strong>{{ oi.start.sum_open_interest|human_volume }}</strong><small>{{ oi.start.timestamp|utc_hour }}</small></article>
+                <article><span>日末 OI 数量</span><strong>{{ oi.end.sum_open_interest|human_volume }}</strong><small>{{ oi.end.timestamp|utc_hour }}</small></article>
+                <article><span>净变化</span><strong>{{ oi.quantity_change|human_volume }}</strong><small>{{ oi.quantity_change_pct|human_pct }}% · {{ oi.direction_label }}</small></article>
+                <article><span>名义价值方向</span><strong>{{ oi.value_direction_label }}</strong><small>{% if oi.quantity_value_divergence %}数量与名义价值方向分歧{% else %}仅作为辅助事实{% endif %}</small></article>
+            </div>
+            {% if oi.status_reasons %}<div class="message message-warning"><strong>OI 限制：</strong><ul>{% for reason in oi.status_reasons %}<li>{{ reason }}</li>{% endfor %}</ul></div>{% endif %}
+            <div class="formation-detail-grid">
+                <article><h3>日内最高 OI</h3><strong>{{ oi.highest.sum_open_interest|human_volume }}</strong><p>{{ oi.highest.timestamp|utc_hour }}</p></article>
+                <article><h3>日内最低 OI</h3><strong>{{ oi.lowest.sum_open_interest|human_volume }}</strong><p>{{ oi.lowest.timestamp|utc_hour }}</p></article>
+                <article><h3>最大相邻小时增加</h3><strong>{{ oi.maximum_hourly_increase.change|human_volume }}</strong><p>{{ oi.maximum_hourly_increase.start_time|utc_hour }} → {{ oi.maximum_hourly_increase.end_time|utc_hour }}</p></article>
+                <article><h3>最大相邻小时减少</h3><strong>{{ oi.maximum_hourly_decrease.change|human_volume }}</strong><p>{{ oi.maximum_hourly_decrease.start_time|utc_hour }} → {{ oi.maximum_hourly_decrease.end_time|utc_hour }}</p></article>
+            </div>
+        </section>
+
+        <section class="derivatives-facts-block">
+            <div class="panel-heading"><div><p class="eyebrow">价格与仓位联合事实</p><h3>最大绝对涨跌 1h K线</h3></div><span class="run-status status-{{ price.status }}">{{ price.direction_label }}</span></div>
+            {% if price.largest_absolute_hour %}
+            <dl class="case-market-grid"><div><dt>小时</dt><dd>{{ price.largest_absolute_hour.open_time|utc_hour }}</dd></div><div><dt>价格变化</dt><dd>{{ price.largest_absolute_hour.change_pct|human_pct }}%</dd></div><div><dt>小时起始 OI</dt><dd>{{ price.largest_absolute_hour.oi_start|human_volume }}</dd></div><div><dt>小时结束 OI</dt><dd>{{ price.largest_absolute_hour.oi_end|human_volume }}</dd></div><div><dt>同期 OI 变化</dt><dd>{{ price.largest_absolute_hour.oi_change|human_volume }}（{{ price.largest_absolute_hour.oi_change_pct|human_pct }}%）</dd></div></dl>
+            {% else %}<p class="muted">没有可安全计算的 1h K线。</p>{% endif %}
+            {% if snapshot.joint_description %}<div class="message message-info"><strong>{{ snapshot.joint_description }}</strong><p>{{ snapshot.causality_notice }}</p></div>{% else %}<div class="message message-warning"><strong>不生成方向性联合描述：</strong>{{ snapshot.joint_limitation }}</div>{% endif %}
+        </section>
+
+        <section class="derivatives-facts-block">
+            <div class="panel-heading"><div><p class="eyebrow">Funding 补充证据</p><h3>异常前 / 当日 / 异常后</h3></div><span class="boundary-note">三段独立判断</span></div>
+            <div class="formation-detail-grid funding-interval-grid">
+                {% for interval in snapshot.funding_intervals %}
+                <article><div class="workflow-step-heading"><h3>{% if interval.label == 'before' %}异常前{% elif interval.label == 'event_day' %}异常当日{% else %}异常后{% endif %}</h3><span class="run-status status-{{ interval.status }}">{{ interval.status_label }}</span></div><dl><div><dt>实际结算数</dt><dd>{{ interval.actual_count }}</dd></div><div><dt>第一笔</dt><dd>{{ interval.first.funding_rate|human_funding }}<br>{{ interval.first.funding_time|utc_hour }}</dd></div><div><dt>最后一笔</dt><dd>{{ interval.last.funding_rate|human_funding }}<br>{{ interval.last.funding_time|utc_hour }}</dd></div><div><dt>最低 / 最高</dt><dd>{{ interval.minimum.funding_rate|human_funding }} / {{ interval.maximum.funding_rate|human_funding }}</dd></div><div><dt>平均</dt><dd>{{ interval.average|human_funding }}</dd></div><div><dt>净变化 / 趋势</dt><dd>{{ interval.net_change|human_funding }} · {{ interval.trend_label }}</dd></div><div><dt>最大绝对 Funding</dt><dd>{{ interval.largest_absolute.funding_rate|human_funding }}</dd></div><div><dt>方向</dt><dd>{{ interval.average_direction_label }}</dd></div></dl>{% if interval.status != 'complete' %}<p class="step-error">{{ interval.status_reason }}</p>{% endif %}</article>
+                {% endfor %}
+            </div>
+            <p class="boundary-note">Funding 仅作独立补充证据，不据此判断多空持仓数量或行情原因。</p>
+        </section>
+        {% endwith %}
+        {% endif %}
+
+        {% if derivatives_evidence.status != 'complete' %}<p><a class="text-link" href="{% url 'collection:derivatives' %}">数据不足，前往衍生品采集页面 →</a></p>{% endif %}
+        <details class="raw-calculation-details"><summary>衍生品证据计算、规则、来源与审计</summary><h3>coverage_snapshot JSON</h3><pre class="json-snapshot">{{ derivatives_evidence.coverage_snapshot|json_pretty }}</pre><h3>calculation_snapshot JSON</h3><pre class="json-snapshot">{{ derivatives_evidence.calculation_snapshot|json_pretty }}</pre><h3>rule_snapshot JSON</h3><pre class="json-snapshot">{{ derivatives_evidence.rule_snapshot|json_pretty }}</pre><h3>source_snapshot JSON</h3><pre class="json-snapshot">{{ derivatives_evidence.source_snapshot|json_pretty }}</pre></details>
+        {% endif %}
+    </div>
+</details>
 <section class="panel future-evidence-panel" id="news-evidence" aria-labelledby="news-evidence-title"><div><p class="eyebrow">后续研究结构</p><h2 id="news-evidence-title">新闻证据</h2><p>待建设</p></div></section>
 <section class="panel future-evidence-panel" id="historical-evidence" aria-labelledby="historical-evidence-title"><div><p class="eyebrow">后续研究结构</p><h2 id="historical-evidence-title">历史类似</h2><p>待建设</p></div></section>
 <section class="panel future-evidence-panel" id="ai-report" aria-labelledby="ai-report-title"><div><p class="eyebrow">后续研究结构</p><h2 id="ai-report-title">AI报告</h2><p>待建设</p></div></section>

@@ -10,7 +10,7 @@
         <h1>ETHUSDT K线采集</h1>
         <p class="page-intro">从 Binance USD-M Futures 获取已闭合的 1d 与 1h K线，所有日期和时间均按 UTC 解释。</p>
     </div>
-    <span class="phase-badge">同步执行</span>
+    <div><a class="text-link" href="{% url 'collection:derivatives' %}">前往 OI / Funding 采集 →</a> <span class="phase-badge">同步执行</span></div>
 </header>
 
 {% if messages %}
@@ -65,7 +65,7 @@
             </fieldset>
 
             <div class="form-note">
-                单次范围最长 366 天。提交后将在当前请求内同步采集，请保持页面连接并耐心等待。
+                单次范围最长 366 天。提交后将在当前请求内依次采集并检查本次有效范围，请保持页面连接并耐心等待。
             </div>
             <button class="primary-button" type="submit" id="collection-submit" data-waiting-text="采集中，请稍候…">开始采集</button>
         </form>

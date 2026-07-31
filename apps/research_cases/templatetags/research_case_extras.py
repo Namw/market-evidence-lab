@@ -45,6 +45,14 @@ def human_volume(value):
 
 
 @register.filter
+def human_funding(value):
+    number = _decimal(value)
+    if number is None:
+        return "—"
+    return f"{number * Decimal('100'):.6f}%"
+
+
+@register.filter
 def utc_hour(value):
     if not value:
         return "—"

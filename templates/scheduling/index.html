@@ -7,10 +7,10 @@
 <header class="page-header">
     <div>
         <p class="eyebrow">系统管理</p>
-        <h1>K线自动调度与运行监控</h1>
-        <p class="page-intro">每日编排现有 ETHUSDT K线采集与数据质量检查服务。执行范围始终是最近若干个完整 UTC 自然日。</p>
+        <h1>市场原始数据自动调度与运行监控</h1>
+        <p class="page-intro">每日编排 ETHUSDT K线、OI 与 Funding 的采集和原始质量检查。执行范围基于最近若干个完整 UTC 自然日。</p>
     </div>
-    <span class="phase-badge">阶段 4 · 独立执行器</span>
+    <span class="phase-badge">阶段 8 · 独立执行器</span>
 </header>
 
 {% if messages %}
@@ -127,7 +127,7 @@
     <div class="panel-heading">
         <div>
             <p class="eyebrow">工作流 #{{ selected_run.id }}</p>
-            <h2 id="workflow-details-title">四步执行详情</h2>
+            <h2 id="workflow-details-title">八步执行详情</h2>
         </div>
         <div class="status-pair">
             <span class="run-status status-{{ selected_run.status }}">{{ selected_run.get_status_display }}</span>
@@ -156,7 +156,7 @@
                     <div><dt>质量</dt><dd>{{ item.run.get_quality_status_display }}</dd></div>
                     <div><dt>预期 / 实际</dt><dd>{{ item.run.expected_count }} / {{ item.run.actual_count }}</dd></div>
                     <div><dt>缺失</dt><dd>{{ item.run.missing_count }}</dd></div>
-                    <div><dt>其他问题</dt><dd>{{ item.run.duplicate_count|add:item.run.misaligned_count|add:item.run.invalid_ohlc_count|add:item.run.invalid_numeric_count|add:item.run.invalid_close_time_count }}</dd></div>
+                    <div><dt>其他问题</dt><dd>{{ item.other_issue_count }}</dd></div>
                 </dl>
                 {% endif %}
             {% else %}
