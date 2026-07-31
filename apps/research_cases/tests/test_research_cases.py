@@ -245,7 +245,7 @@ class ResearchCasePageTests(TestCase):
             self.assertContains(response, "长上影线")
             self.assertContains(response, "ETHUSDT")
         self.assertContains(list_response, f"巡检 #{self.run.pk}")
-        self.assertContains(detail_response, "原始计算明细")
+        self.assertContains(detail_response, "来源与审计")
         self.assertContains(detail_response, "abnormal_change_up")
         self.assertContains(
             detail_response,

@@ -20,8 +20,8 @@ def signal_badges(signals):
     ]
 
 
-def _plain_decimal(value):
-    return format(value.normalize(), "f")
+def _human_percentage(value):
+    return f"{value:.2f}"
 
 
 def prepare_case_for_display(case):
@@ -29,7 +29,7 @@ def prepare_case_for_display(case):
     labels = "、".join(badge["label"] for badge in case.signal_badges)
     case.anomaly_summary = (
         f"{case.event_time:%Y-%m-%d} UTC，{case.symbol} 日K线触发{labels or '未知异常'}；"
-        f"当日涨跌幅 {_plain_decimal(case.price_change_pct)}%、"
-        f"振幅 {_plain_decimal(case.amplitude_pct)}%。"
+        f"当日涨跌幅 {_human_percentage(case.price_change_pct)}%、"
+        f"振幅 {_human_percentage(case.amplitude_pct)}%。"
     )
     return case

@@ -41,7 +41,7 @@
                             {% for badge in research_case.signal_badges %}<span class="anomaly-tag anomaly-tag-{{ badge.type }}">{{ badge.label }}</span>{% endfor %}
                         </div>
                     </td>
-                    <td>{{ research_case.price_change_pct|floatformat:4 }}%</td>
+                    <td>{{ research_case.price_change_pct|floatformat:2 }}%</td>
                     <td><a class="table-link" href="{% url 'market_monitoring:index' %}?run={{ research_case.source_finding.run_id }}#market-run-details">巡检 #{{ research_case.source_finding.run_id }}</a></td>
                     <td class="nowrap">{{ research_case.created_at|date:"Y-m-d H:i:s" }} UTC</td>
                     <td><a class="table-link" href="{% url 'research_cases:detail' research_case.id %}">查看详情</a></td>

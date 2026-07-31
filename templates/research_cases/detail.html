@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% load research_case_extras %}
+{% load static research_case_extras %}
 
 {% block title %}{{ research_case.title }} · Market Evidence Lab{% endblock %}
 
@@ -19,7 +19,7 @@
 </div>
 {% endif %}
 
-<section class="panel case-overview" aria-labelledby="case-overview-title">
+<section class="panel case-overview" id="anomaly-overview" aria-labelledby="case-overview-title">
     <div class="panel-heading">
         <div><p class="eyebrow">创建时快照</p><h2 id="case-overview-title">异常概览</h2></div>
         <div class="anomaly-tags">
@@ -28,30 +28,153 @@
     </div>
     <p class="case-summary">{{ research_case.anomaly_summary }}</p>
     <dl class="case-market-grid">
-        <div><dt>开盘价</dt><dd>{{ research_case.open|floatformat:8 }}</dd></div>
-        <div><dt>最高价</dt><dd>{{ research_case.high|floatformat:8 }}</dd></div>
-        <div><dt>最低价</dt><dd>{{ research_case.low|floatformat:8 }}</dd></div>
-        <div><dt>收盘价</dt><dd>{{ research_case.close|floatformat:8 }}</dd></div>
-        <div><dt>成交量</dt><dd>{{ research_case.volume|floatformat:8 }}</dd></div>
-        <div><dt>当日涨跌幅</dt><dd>{{ research_case.price_change_pct|floatformat:6 }}%</dd></div>
-        <div><dt>当日振幅</dt><dd>{{ research_case.amplitude_pct|floatformat:6 }}%</dd></div>
+        <div><dt>开盘价</dt><dd>{{ research_case.open|human_price }}</dd></div>
+        <div><dt>最高价</dt><dd>{{ research_case.high|human_price }}</dd></div>
+        <div><dt>最低价</dt><dd>{{ research_case.low|human_price }}</dd></div>
+        <div><dt>收盘价</dt><dd>{{ research_case.close|human_price }}</dd></div>
+        <div><dt>成交量</dt><dd>{{ research_case.volume|human_volume }}</dd></div>
+        <div><dt>当日涨跌幅</dt><dd>{{ research_case.price_change_pct|human_pct }}%</dd></div>
+        <div><dt>当日振幅</dt><dd>{{ research_case.amplitude_pct|human_pct }}%</dd></div>
     </dl>
 </section>
 
-<section class="panel" aria-labelledby="case-source-title">
-    <div class="panel-heading"><div><p class="eyebrow">可追溯来源</p><h2 id="case-source-title">来源巡检</h2></div></div>
-    <dl class="case-source-grid">
-        <div><dt>来源巡检运行</dt><dd><a class="table-link" href="{% url 'market_monitoring:index' %}?run={{ research_case.source_finding.run_id }}#market-run-details">巡检 #{{ research_case.source_finding.run_id }}</a></dd></div>
-        <div><dt>规则版本</dt><dd>{{ research_case.source_finding.run.rules_version }}</dd></div>
-        <div><dt>来源 finding</dt><dd>#{{ research_case.source_finding_id }}</dd></div>
-        <div><dt>案例建立时间</dt><dd>{{ research_case.created_at|date:"Y-m-d H:i:s" }} UTC</dd></div>
-    </dl>
+<section class="panel price-evidence-panel" id="price-evidence" aria-labelledby="price-evidence-title">
+    <div class="panel-heading">
+        <div><p class="eyebrow">第一类案例证据</p><h2 id="price-evidence-title">价格证据</h2></div>
+        <form method="post" action="{% url 'price_evidence:generate' research_case.id %}">
+            {% csrf_token %}
+            <button class="primary-button" type="submit">{% if price_evidence %}重新生成价格证据{% else %}生成价格证据{% endif %}</button>
+        </form>
+    </div>
 
-    <details class="raw-calculation-details">
-        <summary>原始计算明细</summary>
+    {% if not price_evidence %}
+    <div class="evidence-empty-state">
+        <strong>尚未生成价格证据</strong>
+        <p>生成时将严格读取该 UTC 自然日的24个预期1h时间点，冻结实际数据并核对案例日K快照。打开页面不会静默生成或修改数据。</p>
+    </div>
+    {% else %}
+    <div class="price-quality-banner quality-{{ price_evidence.quality_status }}">
+        <div><span>数据状态</span><strong>{{ price_evidence.get_quality_status_display }}</strong></div>
+        <div><span>覆盖</span><strong>{{ price_evidence.actual_count }}/{{ price_evidence.expected_count }}</strong></div>
+        <p>{{ price_evidence.quality_message }}</p>
+    </div>
+
+    {% if price_evidence.quality_status != 'complete' %}
+    <div class="message message-warning price-quality-warning">
+        <strong>数据质量门槛未通过：</strong>以下内容仅用于排查实际数据，不展示完整日价格路径结论。
+    </div>
+    {% if price_evidence.missing_open_times %}
+    <div class="quality-detail-block">
+        <h3>缺失的1h open_time</h3>
+        <ul>{% for open_time in price_evidence.missing_open_times %}<li><code>{{ open_time }}</code></li>{% endfor %}</ul>
+    </div>
+    {% endif %}
+    {% if price_evidence.daily_consistency_snapshot.safety_issues %}
+    <div class="quality-detail-block">
+        <h3>无法安全计算的数据</h3>
+        <ul>{% for issue in price_evidence.daily_consistency_snapshot.safety_issues %}<li><code>{{ issue }}</code></li>{% endfor %}</ul>
+    </div>
+    {% endif %}
+    {% if price_evidence.quality_status == 'inconsistent' %}
+    <div class="quality-detail-block">
+        <h3>日K快照与1h聚合差异</h3>
+        <ul>
+            {% if not price_evidence.daily_consistency_snapshot.open.matches %}<li><code>open: {{ price_evidence.daily_consistency_snapshot.open.daily_snapshot_value }} ≠ {{ price_evidence.daily_consistency_snapshot.open.hourly_aggregate_value }}</code></li>{% endif %}
+            {% if not price_evidence.daily_consistency_snapshot.high.matches %}<li><code>high: {{ price_evidence.daily_consistency_snapshot.high.daily_snapshot_value }} ≠ {{ price_evidence.daily_consistency_snapshot.high.hourly_aggregate_value }}</code></li>{% endif %}
+            {% if not price_evidence.daily_consistency_snapshot.low.matches %}<li><code>low: {{ price_evidence.daily_consistency_snapshot.low.daily_snapshot_value }} ≠ {{ price_evidence.daily_consistency_snapshot.low.hourly_aggregate_value }}</code></li>{% endif %}
+            {% if not price_evidence.daily_consistency_snapshot.close.matches %}<li><code>close: {{ price_evidence.daily_consistency_snapshot.close.daily_snapshot_value }} ≠ {{ price_evidence.daily_consistency_snapshot.close.hourly_aggregate_value }}</code></li>{% endif %}
+            {% if not price_evidence.daily_consistency_snapshot.volume.matches %}<li><code>volume: {{ price_evidence.daily_consistency_snapshot.volume.daily_snapshot_value }} ≠ {{ price_evidence.daily_consistency_snapshot.volume.hourly_aggregate_value }}</code></li>{% endif %}
+        </ul>
+    </div>
+    {% endif %}
+    {% endif %}
+
+    {% if price_evidence.hourly_klines_snapshot %}
+    <div class="price-chart-area" data-price-evidence-chart>
+        <div class="chart-heading"><h3>24根1h价格路径</h3><span>UTC · 缺口不以前值或零值填充</span></div>
+        <canvas class="price-chart" data-chart="candles" role="img" aria-label="1小时蜡烛图"></canvas>
+        <div class="chart-heading volume-heading"><h3>1h成交量</h3><span>与上方蜡烛按UTC小时对齐</span></div>
+        <canvas class="volume-chart" data-chart="volume" role="img" aria-label="1小时成交量图"></canvas>
+        {{ price_evidence.hourly_klines_snapshot|json_script:"price-evidence-chart-data" }}
+    </div>
+    {% endif %}
+
+    {% if price_evidence.quality_status == 'complete' %}
+    {% with metrics=price_evidence.display_metrics %}
+    <div class="price-path-overview">
+        <article><span>高低点顺序</span><strong>{{ metrics.high_low.order_label }}</strong><small>仅按1h区间定位，不推测单根1h内部顺序</small></article>
+        <article>
+            <span>首次达到最终净涨跌80%的价位</span>
+            {% if metrics.net_change_eighty_percent.available %}
+            <strong>{{ metrics.net_change_eighty_percent.close_observed_at|utc_hour }}</strong>
+            <small>目标价 {{ metrics.net_change_eighty_percent.target_price|human_price }}；对应1h open_time 为 {{ metrics.net_change_eighty_percent.hourly_open_time|utc_hour }}</small>
+            {% else %}<strong>不适用</strong><small>平盘日没有最终净涨跌方向</small>{% endif %}
+        </article>
+        <article><span>最大单小时涨跌</span><strong>{{ metrics.largest_hourly_change.change_pct|human_pct }}%</strong><small>{{ metrics.largest_hourly_change.open_time|utc_hour }} · {{ metrics.largest_hourly_change.direction_label }}</small></article>
+        <article>
+            <span>收盘保留率</span>
+            {% if metrics.close_retention.rate_pct != None %}<strong>{{ metrics.close_retention.rate_pct|human_pct }}%</strong><small>收盘保留了最大方向性波动的多少</small>{% else %}<strong>不适用</strong><small>平盘或分母无法安全计算</small>{% endif %}
+        </article>
+    </div>
+
+    <div class="formation-detail-grid">
+        <article><h3>日内高低点</h3><dl><div><dt>最高价</dt><dd>{{ metrics.high_low.highest.price|human_price }}<br>{{ metrics.high_low.highest.open_time|utc_hour }}</dd></div><div><dt>最低价</dt><dd>{{ metrics.high_low.lowest.price|human_price }}<br>{{ metrics.high_low.lowest.open_time|utc_hour }}</dd></div></dl></article>
+        <article><h3>小时方向计数</h3><dl><div><dt>上涨</dt><dd>{{ metrics.hour_counts.up }}小时</dd></div><div><dt>下跌</dt><dd>{{ metrics.hour_counts.down }}小时</dd></div><div><dt>平盘</dt><dd>{{ metrics.hour_counts.flat }}小时</dd></div></dl></article>
+        <article><h3>最大收盘序列回撤</h3><strong>{{ metrics.max_drawdown.amount|human_price }}</strong><p>{{ metrics.max_drawdown.percentage|human_pct }}% · {{ metrics.max_drawdown.from_time|utc_hour }} → {{ metrics.max_drawdown.to_time|utc_hour }}</p></article>
+        <article><h3>最大收盘序列反弹</h3><strong>{{ metrics.max_rebound.amount|human_price }}</strong><p>{{ metrics.max_rebound.percentage|human_pct }}% · {{ metrics.max_rebound.from_time|utc_hour }} → {{ metrics.max_rebound.to_time|utc_hour }}</p></article>
+        <article>
+            <h3>成交量最大小时</h3>
+            {% if metrics.volume_distribution.available %}<strong>{{ metrics.volume_distribution.maximum_hour.volume|human_volume }}</strong><p>{{ metrics.volume_distribution.maximum_hour.open_time|utc_hour }}</p>{% else %}<strong>不可用</strong><p>全天成交量无法安全计算</p>{% endif %}
+        </article>
+        <article>
+            <h3>前3小时成交量集中度</h3>
+            {% if metrics.volume_distribution.available %}<strong>{{ metrics.volume_distribution.top_three_share_pct|human_pct }}%</strong><p>最高3个小时成交量占全天成交量比例</p>{% else %}<strong>不可用</strong><p>全天成交量无法安全计算</p>{% endif %}
+        </article>
+    </div>
+    {% endwith %}
+    {% endif %}
+
+    <details class="raw-calculation-details price-calculation-details">
+        <summary>价格证据计算和日K一致性明细</summary>
+        <div class="consistency-table-wrap">
+            <table class="consistency-table">
+                <thead><tr><th>字段</th><th>案例日K快照</th><th>1h聚合</th><th>一致</th></tr></thead>
+                <tbody>
+                    <tr><td>open</td><td>{{ price_evidence.daily_consistency_snapshot.open.daily_snapshot_value }}</td><td>{{ price_evidence.daily_consistency_snapshot.open.hourly_aggregate_value|default_if_none:"—" }}</td><td>{{ price_evidence.daily_consistency_snapshot.open.matches|yesno:"是,否" }}</td></tr>
+                    <tr><td>high</td><td>{{ price_evidence.daily_consistency_snapshot.high.daily_snapshot_value }}</td><td>{{ price_evidence.daily_consistency_snapshot.high.hourly_aggregate_value|default_if_none:"—" }}</td><td>{{ price_evidence.daily_consistency_snapshot.high.matches|yesno:"是,否" }}</td></tr>
+                    <tr><td>low</td><td>{{ price_evidence.daily_consistency_snapshot.low.daily_snapshot_value }}</td><td>{{ price_evidence.daily_consistency_snapshot.low.hourly_aggregate_value|default_if_none:"—" }}</td><td>{{ price_evidence.daily_consistency_snapshot.low.matches|yesno:"是,否" }}</td></tr>
+                    <tr><td>close</td><td>{{ price_evidence.daily_consistency_snapshot.close.daily_snapshot_value }}</td><td>{{ price_evidence.daily_consistency_snapshot.close.hourly_aggregate_value|default_if_none:"—" }}</td><td>{{ price_evidence.daily_consistency_snapshot.close.matches|yesno:"是,否" }}</td></tr>
+                    <tr><td>volume</td><td>{{ price_evidence.daily_consistency_snapshot.volume.daily_snapshot_value }}</td><td>{{ price_evidence.daily_consistency_snapshot.volume.hourly_aggregate_value|default_if_none:"—" }}</td><td>{{ price_evidence.daily_consistency_snapshot.volume.matches|yesno:"是,否" }}</td></tr>
+                </tbody>
+            </table>
+        </div>
+        <h3>metrics_snapshot JSON</h3>
+        <pre class="json-snapshot">{{ price_evidence.metrics_snapshot|json_pretty }}</pre>
+        <h3>daily_consistency_snapshot JSON</h3>
+        <pre class="json-snapshot">{{ price_evidence.daily_consistency_snapshot|json_pretty }}</pre>
+        <h3>hourly_klines_snapshot JSON</h3>
+        <pre class="json-snapshot">{{ price_evidence.hourly_klines_snapshot|json_pretty }}</pre>
+    </details>
+    {% endif %}
+</section>
+
+<section class="panel future-evidence-panel" id="derivatives-evidence" aria-labelledby="derivatives-evidence-title"><div><p class="eyebrow">后续研究结构</p><h2 id="derivatives-evidence-title">衍生品证据</h2><p>待建设</p></div></section>
+<section class="panel future-evidence-panel" id="news-evidence" aria-labelledby="news-evidence-title"><div><p class="eyebrow">后续研究结构</p><h2 id="news-evidence-title">新闻证据</h2><p>待建设</p></div></section>
+<section class="panel future-evidence-panel" id="historical-evidence" aria-labelledby="historical-evidence-title"><div><p class="eyebrow">后续研究结构</p><h2 id="historical-evidence-title">历史类似</h2><p>待建设</p></div></section>
+<section class="panel future-evidence-panel" id="ai-report" aria-labelledby="ai-report-title"><div><p class="eyebrow">后续研究结构</p><h2 id="ai-report-title">AI报告</h2><p>待建设</p></div></section>
+
+<section class="panel source-audit-panel" id="source-audit" aria-label="来源与审计">
+    <details class="source-audit-details">
+        <summary>来源与审计</summary>
+        <dl class="case-source-grid">
+            <div><dt>来源巡检运行</dt><dd><a class="table-link" href="{% url 'market_monitoring:index' %}?run={{ research_case.source_finding.run_id }}#market-run-details">巡检 #{{ research_case.source_finding.run_id }}</a></dd></div>
+            <div><dt>规则版本</dt><dd>{{ research_case.source_finding.run.rules_version }}</dd></div>
+            <div><dt>来源 finding</dt><dd>#{{ research_case.source_finding_id }}</dd></div>
+            <div><dt>案例建立时间</dt><dd>{{ research_case.created_at|date:"Y-m-d H:i:s" }} UTC</dd></div>
+        </dl>
         <div class="raw-detail-grid">
             <article>
-                <h3>市场身份与派生指标</h3>
+                <h3>市场身份与精确派生指标</h3>
                 <dl>
                     <div><dt>exchange</dt><dd>{{ research_case.exchange }}</dd></div>
                     <div><dt>market_type</dt><dd>{{ research_case.market_type }}</dd></div>
@@ -60,35 +183,10 @@
                     {% for key, value in research_case.calculation_snapshot.items %}<div><dt>{{ key }}</dt><dd>{{ value|default_if_none:"null" }}</dd></div>{% endfor %}
                 </dl>
             </article>
-            <article>
-                <h3>异常信号精确参数</h3>
-                {% for signal in research_case.anomaly_signals_snapshot %}
-                <div class="raw-signal">
-                    <strong>{{ signal.type }}</strong>{% if signal.direction %}<small>{{ signal.direction }}</small>{% endif %}
-                    <dl>
-                        <div><dt>metric</dt><dd>{% for key, value in signal.metric.items %}{{ key }}={{ value }}{% if not forloop.last %}<br>{% endif %}{% endfor %}</dd></div>
-                        <div><dt>threshold</dt><dd>{% for key, value in signal.threshold.items %}{{ key }}={{ value }}{% if not forloop.last %}<br>{% endif %}{% endfor %}</dd></div>
-                    </dl>
-                </div>
-                {% endfor %}
-            </article>
+            <article><h3>anomaly_signals_snapshot JSON</h3><pre class="json-snapshot">{{ research_case.anomaly_signals_snapshot|json_pretty }}</pre></article>
         </div>
-        <h3>anomaly_signals_snapshot JSON</h3>
-        <pre class="json-snapshot">{{ research_case.anomaly_signals_snapshot|json_pretty }}</pre>
     </details>
 </section>
-
-<section class="panel" aria-labelledby="evidence-assembly-title">
-    <div class="panel-heading">
-        <div><p class="eyebrow">后续研究结构</p><h2 id="evidence-assembly-title">证据组装区</h2></div>
-        <span class="status-label">本阶段仅展示空状态</span>
-    </div>
-    <div class="evidence-placeholder-grid">
-        <article><h3>价格证据</h3><p>待建设</p></article>
-        <article><h3>衍生品证据</h3><p>待建设</p></article>
-        <article><h3>新闻证据</h3><p>待建设</p></article>
-        <article><h3>历史类似</h3><p>待建设</p></article>
-        <article><h3>AI报告</h3><p>待建设</p></article>
-    </div>
-</section>
 {% endblock %}
+
+{% block extra_js %}<script src="{% static 'price_evidence/js/charts.js' %}" defer></script>{% endblock %}
