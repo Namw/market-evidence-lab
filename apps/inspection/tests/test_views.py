@@ -70,7 +70,7 @@ class InspectionPageTests(TestCase):
         response = self.client.post(self.url, {**self.valid_data, "intervals": []})
 
         self.assertEqual(response.status_code, 200)
-        self.assertContains(response, "请至少选择一个巡检周期")
+        self.assertContains(response, "请至少选择一个检查周期")
         inspect.assert_not_called()
 
     @patch("apps.inspection.views.inspect_klines")
@@ -94,7 +94,7 @@ class InspectionPageTests(TestCase):
             },
         )
 
-        self.assertContains(response, "单次巡检范围最长为 366 天")
+        self.assertContains(response, "单次数据质量检查范围最长为 366 天")
         inspect.assert_not_called()
 
     @patch("apps.inspection.views.inspect_klines")
@@ -128,7 +128,7 @@ class InspectionPageTests(TestCase):
         response = self.client.post(self.url, self.valid_data, follow=True)
 
         self.assertEqual(inspect.call_count, 2)
-        self.assertContains(response, "部分周期巡检执行失败")
+        self.assertContains(response, "部分周期数据质量检查执行失败")
 
     def test_page_displays_only_20_most_recent_runs(self):
         for index in range(21):
@@ -185,12 +185,29 @@ class InspectionPageTests(TestCase):
 
         self.assertEqual(response.status_code, 403)
 
-    def test_navigation_links_to_inspection_and_collection(self):
+    def test_navigation_matches_value_order_and_only_links_built_features(self):
         response = self.client.get(self.url)
 
         self.assertContains(response, 'href="/inspection/"')
         self.assertContains(response, 'href="/collection/"')
         self.assertContains(response, "inspection/js/form.js")
+        self.assertContains(response, "市场异常巡检")
+        self.assertNotContains(response, 'href="/market-anomaly/"')
+        self.assertNotContains(response, ">人工反馈<")
+
+        html = response.content.decode()
+        menu_labels = (
+            "总览",
+            "AI 报告",
+            "研究案例",
+            "市场异常巡检",
+            "分析",
+            "数据质量检查",
+            "采集",
+            "系统管理",
+        )
+        positions = [html.index(f">{label}<") for label in menu_labels]
+        self.assertEqual(positions, sorted(positions))
 
     def test_other_unbuilt_routes_remain_unavailable(self):
         for path in (
@@ -205,5 +222,5 @@ class InspectionPageTests(TestCase):
     def test_home_page_has_real_inspection_entry(self):
         response = self.client.get(reverse("core:home"))
 
-        self.assertContains(response, "进入巡检层")
+        self.assertContains(response, "进入数据质量检查")
         self.assertContains(response, 'href="/inspection/"')

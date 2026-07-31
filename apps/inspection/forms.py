@@ -14,10 +14,10 @@ class InspectionForm(forms.Form):
         widget=forms.DateInput(attrs={"type": "date"}),
     )
     intervals = forms.MultipleChoiceField(
-        label="巡检周期",
+        label="检查周期",
         choices=(("1d", "1d 日线"), ("1h", "1h 小时线")),
         widget=forms.CheckboxSelectMultiple,
-        error_messages={"required": "请至少选择一个巡检周期。"},
+        error_messages={"required": "请至少选择一个检查周期。"},
     )
 
     def clean(self):
@@ -29,7 +29,7 @@ class InspectionForm(forms.Form):
         if start_date >= end_date:
             raise forms.ValidationError("开始日期必须早于结束日期。")
         if (end_date - start_date).days > 366:
-            raise forms.ValidationError("单次巡检范围最长为 366 天。")
+            raise forms.ValidationError("单次数据质量检查范围最长为 366 天。")
         if end_date > timezone.now().date():
             raise forms.ValidationError("结束日期不得超过当前 UTC 日期 00:00。")
         return cleaned_data

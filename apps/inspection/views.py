@@ -39,13 +39,13 @@ def inspection_index(request):
                 for run in runs
             )
             if failed_count == len(runs):
-                messages.error(request, "所选周期巡检执行失败，请查看错误摘要。")
+                messages.error(request, "所选周期数据质量检查执行失败，请查看错误摘要。")
             elif failed_count:
-                messages.warning(request, "部分周期巡检执行失败，其余周期已完成。")
+                messages.warning(request, "部分周期数据质量检查执行失败，其余周期已完成。")
             elif issue_count:
-                messages.warning(request, "巡检完成并发现数据质量问题，请查看详情。")
+                messages.warning(request, "数据质量检查完成并发现问题，请查看详情。")
             else:
-                messages.success(request, "巡检完成，所选范围未发现质量问题。")
+                messages.success(request, "数据质量检查完成，所选范围未发现问题。")
             return redirect("inspection:index")
     else:
         form = InspectionForm()

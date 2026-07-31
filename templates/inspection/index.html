@@ -1,13 +1,13 @@
 {% extends "base.html" %}
 {% load static %}
 
-{% block title %}巡检 · Market Evidence Lab{% endblock %}
+{% block title %}数据质量检查 · Market Evidence Lab{% endblock %}
 
 {% block content %}
 <header class="page-header">
     <div>
-        <p class="eyebrow">巡检</p>
-        <h1>ETHUSDT K线质量巡检</h1>
+        <p class="eyebrow">数据质量</p>
+        <h1>ETHUSDT K线数据质量检查</h1>
         <p class="page-intro">检查 PostgreSQL 中 Binance USD-M Futures 的 1d 与 1h 已闭合K线，只报告问题，不自动修复或补采。</p>
     </div>
     <span class="phase-badge">UTC · 手工执行</span>
@@ -24,7 +24,7 @@
 <section class="panel inspection-form-panel" aria-labelledby="inspection-form-title">
     <div class="panel-heading">
         <div>
-            <p class="eyebrow">手工巡检</p>
+            <p class="eyebrow">手工检查</p>
             <h2 id="inspection-form-title">提交已闭合 UTC 日期范围</h2>
         </div>
         <a class="text-link" href="{% url 'collection:index' %}">前往采集页面 →</a>
@@ -55,7 +55,7 @@
             </fieldset>
             <div class="inspection-action">
                 <div class="form-note">单次范围最长 366 天。每个周期独立同步执行，一个周期失败不会阻止另一个周期。</div>
-                <button class="primary-button" type="submit" id="inspection-submit" data-waiting-text="巡检中，请稍候…">开始巡检</button>
+                <button class="primary-button" type="submit" id="inspection-submit" data-waiting-text="检查中，请稍候…">开始检查</button>
             </div>
         </div>
     </form>
@@ -65,7 +65,7 @@
     <div class="panel-heading">
         <div>
             <p class="eyebrow">运行历史</p>
-            <h2 id="inspection-runs-title">最近 20 次巡检</h2>
+            <h2 id="inspection-runs-title">最近 20 次数据质量检查</h2>
         </div>
     </div>
     <div class="table-scroll">
@@ -92,7 +92,7 @@
                     <td><a class="table-link" href="?run={{ run.id }}">查看</a></td>
                 </tr>
                 {% empty %}
-                <tr><td colspan="15" class="empty-state">尚无巡检运行记录。</td></tr>
+                <tr><td colspan="15" class="empty-state">尚无数据质量检查运行记录。</td></tr>
                 {% endfor %}
             </tbody>
         </table>
@@ -112,7 +112,7 @@
     {% if selected_run.status == 'success' and selected_run.quality_status == 'passed' %}
     <div class="no-issues">本次范围未发现质量问题。</div>
     {% elif selected_run.status == 'failed' %}
-    <div class="message message-error">巡检执行失败：{{ selected_run.error_message|default:"未提供错误摘要" }}</div>
+    <div class="message message-error">数据质量检查执行失败：{{ selected_run.error_message|default:"未提供错误摘要" }}</div>
     {% else %}
     <div class="detail-grid">
         <article class="detail-card">
