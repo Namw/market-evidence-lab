@@ -185,29 +185,23 @@ class InspectionPageTests(TestCase):
 
         self.assertEqual(response.status_code, 403)
 
-    def test_navigation_matches_value_order_and_only_links_built_features(self):
+    def test_navigation_places_data_check_under_kline_observation(self):
         response = self.client.get(self.url)
 
         self.assertContains(response, 'href="/inspection/"')
         self.assertContains(response, 'href="/collection/"')
         self.assertContains(response, "inspection/js/form.js")
-        self.assertContains(response, "市场异常巡检")
+        self.assertContains(response, "今日价值巡检")
         self.assertNotContains(response, 'href="/market-anomaly/"')
         self.assertNotContains(response, ">人工反馈<")
-
-        html = response.content.decode()
-        menu_labels = (
-            "总览",
-            "AI 报告",
-            "研究案例",
-            "分析",
-            "市场异常巡检",
-            "数据质量检查",
-            "采集",
-            "系统管理",
+        self.assertContains(
+            response,
+            '<details class="nav-group is-active" data-nav-group="kline" open>',
         )
-        positions = [html.index(f">{label}<") for label in menu_labels]
-        self.assertEqual(positions, sorted(positions))
+        self.assertContains(
+            response,
+            '<a class="nav-subitem is-active" href="/inspection/" aria-current="page">数据检查</a>',
+        )
 
     def test_other_unbuilt_routes_remain_unavailable(self):
         for path in (

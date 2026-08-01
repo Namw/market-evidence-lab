@@ -44,5 +44,8 @@ class NewsCollectionViewTests(TestCase):
     def test_navigation_marks_news_collection_active(self):
         response = self.client.get(reverse("news_data:index"))
 
-        self.assertContains(response, '<details class="nav-group is-active" open>')
+        self.assertContains(
+            response,
+            '<details class="nav-group is-active" data-nav-group="news" open>',
+        )
         self.assertContains(response, 'href="/collection/news/" aria-current="page"')

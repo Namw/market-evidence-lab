@@ -203,16 +203,17 @@ class MarketInspectionPageTests(TestCase):
         self.assertContains(response, "扫描覆盖不完整")
         self.assertContains(response, "异常结果不代表这些日期已完成全部V1规则判断")
 
-    def test_navigation_order_is_unchanged_and_quality_link_is_real(self):
+    def test_navigation_uses_value_inspection_group_and_quality_link_is_real(self):
         response = self.client.get(self.url)
         html = response.content.decode()
-        menu_labels = (
-            "总览", "AI 报告", "研究案例", "分析", "市场异常巡检",
-            "数据质量检查", "采集", "系统管理",
+        self.assertIn(
+            '<details class="nav-group is-active" data-nav-group="market-monitoring" open>',
+            html,
         )
-
-        positions = [html.index(f">{label}<") for label in menu_labels]
-        self.assertEqual(positions, sorted(positions))
+        self.assertIn(
+            '<a class="nav-subitem is-active" href="/market-inspection/" aria-current="page">今日巡检结果</a>',
+            html,
+        )
         self.assertIn('href="/market-inspection/"', html)
         self.assertIn('href="/inspection/"', html)
         self.assertIn("前往数据质量检查", html)

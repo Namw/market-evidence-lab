@@ -204,12 +204,15 @@ class CollectionPageTests(TestCase):
 
         self.assertContains(response, 'href="/collection/"')
         self.assertContains(response, 'href="/collection/derivatives/"')
-        self.assertContains(response, "K线采集")
-        self.assertContains(response, "OI / Funding")
-        self.assertContains(response, '<details class="nav-group is-active" open>')
+        self.assertContains(response, "K 线观察")
+        self.assertContains(response, "OI / Funding 观察")
         self.assertContains(
             response,
-            '<a class="nav-subitem is-active" href="/collection/" aria-current="page">',
+            '<details class="nav-group is-active" data-nav-group="kline" open>',
+        )
+        self.assertContains(
+            response,
+            '<a class="nav-subitem is-active" href="/collection/" aria-current="page">数据采集</a>',
         )
         self.assertNotContains(response, 'href="/analysis/"')
         self.assertContains(response, "form.js")

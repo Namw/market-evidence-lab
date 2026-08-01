@@ -132,22 +132,17 @@ class SchedulingPageTests(TestCase):
         self.assertNotContains(response, "workflow marker 0")
         self.assertContains(response, "八步执行详情")
 
-    def test_navigation_order_is_unchanged_and_unbuilt_pages_have_no_links(self):
+    def test_navigation_places_scheduler_under_system_group(self):
         response = self.client.get(self.url)
         html = response.content.decode()
-        menu_labels = (
-            "总览",
-            "AI 报告",
-            "研究案例",
-            "分析",
-            "市场异常巡检",
-            "数据质量检查",
-            "采集",
-            "系统管理",
+        self.assertIn(
+            '<details class="nav-group is-active" data-nav-group="system" open>',
+            html,
         )
-
-        positions = [html.index(f">{label}<") for label in menu_labels]
-        self.assertEqual(positions, sorted(positions))
+        self.assertIn(
+            '<a class="nav-subitem is-active" href="/system/schedules/" aria-current="page">自动调度</a>',
+            html,
+        )
         self.assertIn('href="/system/schedules/"', html)
         self.assertNotIn('href="/market-anomaly/"', html)
         self.assertNotIn('href="/analysis/"', html)

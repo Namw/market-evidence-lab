@@ -153,7 +153,11 @@ class NewsObservationViewTests(TestCase):
         run_analysis.assert_not_called()
         self.assertContains(response, "DeepSeek API 未配置")
 
-    def test_navigation_places_news_observation_under_analysis(self):
+    def test_navigation_places_daily_results_under_news_observation(self):
         response = self.client.get(reverse("news_analysis:index"))
-        self.assertContains(response, 'aria-label="分析功能"')
+        self.assertContains(response, 'aria-label="新闻观察"')
+        self.assertContains(
+            response,
+            '<details class="nav-group is-active" data-nav-group="news" open>',
+        )
         self.assertContains(response, 'href="/analysis/news/" aria-current="page"')

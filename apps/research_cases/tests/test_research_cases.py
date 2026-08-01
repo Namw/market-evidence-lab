@@ -284,15 +284,20 @@ class ResearchCasePageTests(TestCase):
             reverse("research_cases:detail", args=[research_case.pk]),
         )
 
-    def test_sidebar_keeps_order_and_enables_research_cases(self):
-        response = self.client.get(reverse("research_cases:list"))
-        html = response.content.decode()
-        menu_labels = (
-            "总览", "AI 报告", "研究案例", "分析", "市场异常巡检",
-            "数据质量检查", "采集", "系统管理",
-        )
+    def test_sidebar_maps_case_list_and_detail_to_research_group(self):
+        research_case, _ = get_or_create_case_from_finding(self.finding)
 
-        positions = [html.index(f">{label}<") for label in menu_labels]
-        self.assertEqual(positions, sorted(positions))
-        self.assertIn('href="/research-cases/"', html)
-        self.assertIn('aria-current="page"', html)
+        for url in (
+            reverse("research_cases:list"),
+            reverse("research_cases:detail", args=[research_case.pk]),
+        ):
+            with self.subTest(url=url):
+                response = self.client.get(url)
+                self.assertContains(
+                    response,
+                    '<details class="nav-group is-active" data-nav-group="research-cases" open>',
+                )
+                self.assertContains(
+                    response,
+                    '<a class="nav-subitem is-active" href="/research-cases/" aria-current="page">案例列表</a>',
+                )

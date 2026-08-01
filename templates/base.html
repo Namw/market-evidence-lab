@@ -5,7 +5,7 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>{% block title %}Market Evidence Lab{% endblock %}</title>
-    <link rel="stylesheet" href="{% static 'core/css/styles.css' %}?v=9">
+    <link rel="stylesheet" href="{% static 'core/css/styles.css' %}?v=10">
 </head>
 <body>
     <div class="app-shell">
@@ -22,52 +22,52 @@
                 <a class="nav-item{% if request.resolver_match.namespace == 'core' %} is-active{% endif %}" href="{% url 'core:home' %}"{% if request.resolver_match.namespace == 'core' %} aria-current="page"{% endif %}>
                     <span>总览</span>
                 </a>
-                <span class="nav-item is-disabled" aria-disabled="true"><span>AI 报告</span><small>待建设</small></span>
-                <a class="nav-item{% if request.resolver_match.namespace == 'research_cases' %} is-active{% endif %}" href="{% url 'research_cases:list' %}"{% if request.resolver_match.namespace == 'research_cases' %} aria-current="page"{% endif %}>
-                    <span>研究案例</span><small>案例容器</small>
-                </a>
-                <details class="nav-group{% if request.resolver_match.namespace == 'news_analysis' %} is-active{% endif %}"{% if request.resolver_match.namespace == 'news_analysis' %} open{% endif %}>
-                    <summary class="nav-item"><span>分析</span><small>独立链路</small></summary>
-                    <div class="nav-submenu" aria-label="分析功能">
-                        <a class="nav-subitem{% if request.resolver_match.namespace == 'news_analysis' %} is-active{% endif %}" href="{% url 'news_analysis:index' %}"{% if request.resolver_match.namespace == 'news_analysis' %} aria-current="page"{% endif %}>
-                            <span>新闻观察</span><small>V1</small>
-                        </a>
+                <details class="nav-group{% if request.resolver_match.namespace == 'market_monitoring' %} is-active{% endif %}" data-nav-group="market-monitoring"{% if request.resolver_match.namespace == 'market_monitoring' %} open{% endif %}>
+                    <summary class="nav-item"><span>今日价值巡检</span><span class="nav-chevron" aria-hidden="true"></span></summary>
+                    <div class="nav-submenu" aria-label="今日价值巡检">
+                        <a class="nav-subitem{% if request.resolver_match.namespace == 'market_monitoring' %} is-active{% endif %}" href="{% url 'market_monitoring:index' %}"{% if request.resolver_match.namespace == 'market_monitoring' %} aria-current="page"{% endif %}>今日巡检结果</a>
                     </div>
                 </details>
-                <a class="nav-item{% if request.resolver_match.namespace == 'market_monitoring' %} is-active{% endif %}" href="{% url 'market_monitoring:index' %}"{% if request.resolver_match.namespace == 'market_monitoring' %} aria-current="page"{% endif %}>
-                    <span>市场异常巡检</span><small>候选发现</small>
-                </a>
-                <a class="nav-item{% if request.resolver_match.namespace == 'inspection' %} is-active{% endif %}" href="{% url 'inspection:index' %}"{% if request.resolver_match.namespace == 'inspection' %} aria-current="page"{% endif %}>
-                    <span>数据质量检查</span><small>已建设</small>
-                </a>
-                <details class="nav-group{% if request.resolver_match.namespace == 'collection' or request.resolver_match.namespace == 'news_data' %} is-active{% endif %}"{% if request.resolver_match.namespace == 'collection' or request.resolver_match.namespace == 'news_data' %} open{% endif %}>
-                    <summary class="nav-item">
-                        <span>采集</span><small>3 种方式</small>
-                    </summary>
-                    <div class="nav-submenu" aria-label="采集方式">
-                        <a class="nav-subitem{% if request.resolver_match.namespace == 'collection' and request.resolver_match.url_name == 'index' %} is-active{% endif %}" href="{% url 'collection:index' %}"{% if request.resolver_match.namespace == 'collection' and request.resolver_match.url_name == 'index' %} aria-current="page"{% endif %}>
-                            <span>K线采集</span><small>1d / 1h</small>
-                        </a>
-                        <a class="nav-subitem{% if request.resolver_match.namespace == 'collection' and request.resolver_match.url_name == 'derivatives' %} is-active{% endif %}" href="{% url 'collection:derivatives' %}"{% if request.resolver_match.namespace == 'collection' and request.resolver_match.url_name == 'derivatives' %} aria-current="page"{% endif %}>
-                            <span>OI / Funding</span><small>衍生品</small>
-                        </a>
-                        <a class="nav-subitem{% if request.resolver_match.namespace == 'news_data' %} is-active{% endif %}" href="{% url 'news_data:index' %}"{% if request.resolver_match.namespace == 'news_data' %} aria-current="page"{% endif %}>
-                            <span>新闻数据采集</span><small>官方来源</small>
-                        </a>
+                <details class="nav-group{% if request.resolver_match.namespace == 'research_cases' %} is-active{% endif %}" data-nav-group="research-cases"{% if request.resolver_match.namespace == 'research_cases' %} open{% endif %}>
+                    <summary class="nav-item"><span>研究案例</span><span class="nav-chevron" aria-hidden="true"></span></summary>
+                    <div class="nav-submenu" aria-label="研究案例">
+                        <a class="nav-subitem{% if request.resolver_match.namespace == 'research_cases' %} is-active{% endif %}" href="{% url 'research_cases:list' %}"{% if request.resolver_match.namespace == 'research_cases' %} aria-current="page"{% endif %}>案例列表</a>
                     </div>
                 </details>
-                <a class="nav-item{% if request.resolver_match.namespace == 'scheduling' %} is-active{% endif %}" href="{% url 'scheduling:index' %}"{% if request.resolver_match.namespace == 'scheduling' %} aria-current="page"{% endif %}>
-                    <span>系统管理</span><small>自动调度</small>
-                </a>
+                <details class="nav-group{% if request.resolver_match.namespace == 'inspection' or request.resolver_match.namespace == 'collection' and request.resolver_match.url_name == 'index' %} is-active{% endif %}" data-nav-group="kline"{% if request.resolver_match.namespace == 'inspection' or request.resolver_match.namespace == 'collection' and request.resolver_match.url_name == 'index' %} open{% endif %}>
+                    <summary class="nav-item"><span>K 线观察</span><span class="nav-chevron" aria-hidden="true"></span></summary>
+                    <div class="nav-submenu" aria-label="K 线观察">
+                        <a class="nav-subitem{% if request.resolver_match.namespace == 'inspection' %} is-active{% endif %}" href="{% url 'inspection:index' %}"{% if request.resolver_match.namespace == 'inspection' %} aria-current="page"{% endif %}>数据检查</a>
+                        <a class="nav-subitem{% if request.resolver_match.namespace == 'collection' and request.resolver_match.url_name == 'index' %} is-active{% endif %}" href="{% url 'collection:index' %}"{% if request.resolver_match.namespace == 'collection' and request.resolver_match.url_name == 'index' %} aria-current="page"{% endif %}>数据采集</a>
+                    </div>
+                </details>
+                <details class="nav-group{% if request.resolver_match.namespace == 'collection' and request.resolver_match.url_name == 'derivatives' %} is-active{% endif %}" data-nav-group="derivatives"{% if request.resolver_match.namespace == 'collection' and request.resolver_match.url_name == 'derivatives' %} open{% endif %}>
+                    <summary class="nav-item"><span>OI / Funding 观察</span><span class="nav-chevron" aria-hidden="true"></span></summary>
+                    <div class="nav-submenu" aria-label="OI / Funding 观察">
+                        <a class="nav-subitem{% if request.resolver_match.namespace == 'collection' and request.resolver_match.url_name == 'derivatives' %} is-active{% endif %}" href="{% url 'collection:derivatives' %}"{% if request.resolver_match.namespace == 'collection' and request.resolver_match.url_name == 'derivatives' %} aria-current="page"{% endif %}>数据采集</a>
+                    </div>
+                </details>
+                <details class="nav-group{% if request.resolver_match.namespace == 'news_analysis' or request.resolver_match.namespace == 'news_data' %} is-active{% endif %}" data-nav-group="news"{% if request.resolver_match.namespace == 'news_analysis' or request.resolver_match.namespace == 'news_data' %} open{% endif %}>
+                    <summary class="nav-item"><span>新闻观察</span><span class="nav-chevron" aria-hidden="true"></span></summary>
+                    <div class="nav-submenu" aria-label="新闻观察">
+                        <a class="nav-subitem{% if request.resolver_match.namespace == 'news_analysis' %} is-active{% endif %}" href="{% url 'news_analysis:index' %}"{% if request.resolver_match.namespace == 'news_analysis' %} aria-current="page"{% endif %}>每日分析结果</a>
+                        <a class="nav-subitem{% if request.resolver_match.namespace == 'news_data' %} is-active{% endif %}" href="{% url 'news_data:index' %}"{% if request.resolver_match.namespace == 'news_data' %} aria-current="page"{% endif %}>数据采集</a>
+                    </div>
+                </details>
+                <details class="nav-group{% if request.resolver_match.namespace == 'scheduling' %} is-active{% endif %}" data-nav-group="system"{% if request.resolver_match.namespace == 'scheduling' %} open{% endif %}>
+                    <summary class="nav-item"><span>系统管理</span><span class="nav-chevron" aria-hidden="true"></span></summary>
+                    <div class="nav-submenu" aria-label="系统管理">
+                        <a class="nav-subitem{% if request.resolver_match.namespace == 'scheduling' %} is-active{% endif %}" href="{% url 'scheduling:index' %}"{% if request.resolver_match.namespace == 'scheduling' %} aria-current="page"{% endif %}>自动调度</a>
+                    </div>
+                </details>
             </nav>
-
-            <div class="sidebar-footer">新闻独立分析 V1</div>
         </aside>
 
         <main class="main-content">
             {% block content %}{% endblock %}
         </main>
     </div>
+    <script src="{% static 'core/js/navigation.js' %}?v=1" defer></script>
     {% block extra_js %}{% endblock %}
 </body>
 </html>
