@@ -127,3 +127,155 @@ class SchedulerHeartbeat(models.Model):
 
     def __str__(self) -> str:
         return f"{self.executor_id}:{self.last_heartbeat_at.isoformat()}"
+
+
+class NewsWorkflowSchedule(models.Model):
+    name = models.CharField(max_length=120, unique=True)
+    enabled = models.BooleanField(default=False)
+    run_time = models.TimeField(default=time(8, 35))
+    timezone = models.CharField(max_length=64, default=SCHEDULE_TIMEZONE, editable=False)
+    next_run_at = models.DateTimeField()
+    last_run_at = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["name"]
+
+    def __str__(self) -> str:
+        return self.name
+
+
+class NewsWorkflowRun(models.Model):
+    class Trigger(models.TextChoices):
+        SCHEDULED = "scheduled", "定时"
+        MANUAL = "manual", "手工"
+
+    class Status(models.TextChoices):
+        RUNNING = "running", "运行中"
+        SUCCESS = "success", "成功"
+        PARTIAL = "partial", "部分成功"
+        FAILED = "failed", "失败"
+
+    class StepStatus(models.TextChoices):
+        PENDING = "pending", "待执行"
+        SUCCESS = "success", "成功"
+        PARTIAL = "partial", "部分成功"
+        FAILED = "failed", "失败"
+        NOT_RUN = "not_run", "未执行"
+
+    class QualityStatus(models.TextChoices):
+        PENDING = "pending", "待检查"
+        PASSED = "passed", "通过"
+        WARNING = "warning", "警告"
+        FAILED = "failed", "失败"
+        NOT_RUN = "not_run", "未执行"
+
+    schedule = models.ForeignKey(
+        NewsWorkflowSchedule,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="workflow_runs",
+    )
+    trigger = models.CharField(max_length=20, choices=Trigger.choices)
+    status = models.CharField(
+        max_length=20,
+        choices=Status.choices,
+        default=Status.RUNNING,
+    )
+    ethereum_collection_run = models.ForeignKey(
+        "collection.CollectionRun",
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="ethereum_news_workflows",
+    )
+    ethereum_collection_status = models.CharField(
+        max_length=20,
+        choices=StepStatus.choices,
+        default=StepStatus.PENDING,
+    )
+    binance_collection_run = models.ForeignKey(
+        "collection.CollectionRun",
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="binance_news_workflows",
+    )
+    binance_collection_status = models.CharField(
+        max_length=20,
+        choices=StepStatus.choices,
+        default=StepStatus.PENDING,
+    )
+    ethereum_inspection_run = models.ForeignKey(
+        "inspection.NewsInspectionRun",
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="ethereum_news_workflows",
+    )
+    ethereum_quality_status = models.CharField(
+        max_length=20,
+        choices=QualityStatus.choices,
+        default=QualityStatus.PENDING,
+    )
+    binance_inspection_run = models.ForeignKey(
+        "inspection.NewsInspectionRun",
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="binance_news_workflows",
+    )
+    binance_quality_status = models.CharField(
+        max_length=20,
+        choices=QualityStatus.choices,
+        default=QualityStatus.PENDING,
+    )
+    analysis_run = models.ForeignKey(
+        "news_analysis.NewsAnalysisRun",
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="news_workflows",
+    )
+    analysis_status = models.CharField(
+        max_length=20,
+        choices=StepStatus.choices,
+        default=StepStatus.PENDING,
+    )
+    inserted_count = models.PositiveIntegerField(default=0)
+    updated_count = models.PositiveIntegerField(default=0)
+    skipped_count = models.PositiveIntegerField(default=0)
+    quality_issue_count = models.PositiveIntegerField(default=0)
+    analysis_candidate_count = models.PositiveIntegerField(default=0)
+    analysis_success_count = models.PositiveIntegerField(default=0)
+    analysis_failure_count = models.PositiveIntegerField(default=0)
+    analysis_skipped_count = models.PositiveIntegerField(default=0)
+    safe_error_summary = models.TextField(blank=True)
+    started_at = models.DateTimeField()
+    finished_at = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["-started_at", "-id"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["status"],
+                condition=models.Q(status="running"),
+                name="news_workflow_one_running",
+            )
+        ]
+        indexes = [
+            models.Index(
+                fields=["-started_at"],
+                name="news_workflow_start_idx",
+            ),
+            models.Index(
+                fields=["schedule", "-started_at"],
+                name="news_workflow_sched_idx",
+            ),
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.trigger}:{self.status}:{self.started_at.isoformat()}"

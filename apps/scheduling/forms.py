@@ -1,6 +1,6 @@
 from django import forms
 
-from .models import KlineSchedule
+from .models import KlineSchedule, NewsWorkflowSchedule
 
 
 class KlineScheduleForm(forms.ModelForm):
@@ -17,6 +17,23 @@ class KlineScheduleForm(forms.ModelForm):
         fields = ["enabled", "run_time", "lookback_days"]
         labels = {
             "enabled": "启用每日自动任务",
+            "run_time": "每日执行时间",
+        }
+        help_texts = {
+            "run_time": "Asia/Shanghai，本地每日执行，不需要填写 Cron。",
+        }
+        widgets = {
+            "enabled": forms.CheckboxInput(),
+            "run_time": forms.TimeInput(attrs={"type": "time", "step": "60"}),
+        }
+
+
+class NewsWorkflowScheduleForm(forms.ModelForm):
+    class Meta:
+        model = NewsWorkflowSchedule
+        fields = ["enabled", "run_time"]
+        labels = {
+            "enabled": "启用新闻每日工作流",
             "run_time": "每日执行时间",
         }
         help_texts = {

@@ -10,10 +10,15 @@ from apps.scheduling.services import (
     get_builtin_schedule,
     record_heartbeat,
 )
+from apps.scheduling.news_workflow import (
+    claim_due_news_schedules,
+    execute_claimed_news_workflow,
+    get_builtin_news_schedule,
+)
 
 
 class Command(BaseCommand):
-    help = "Run the built-in Kline schedule executor."
+    help = "Run the built-in market-data and news workflow schedule executor."
 
     def add_arguments(self, parser):
         parser.add_argument(
@@ -35,6 +40,7 @@ class Command(BaseCommand):
             raise CommandError("--poll-interval must be between 1 and 3600 seconds")
 
         get_builtin_schedule()
+        get_builtin_news_schedule()
         executor_id = str(uuid4())
         stop_event = threading.Event()
 
@@ -67,6 +73,16 @@ class Command(BaseCommand):
                     )
                     claimed_ids = []
 
+                try:
+                    claimed_news_ids = claim_due_news_schedules()
+                except Exception as exc:
+                    self.stderr.write(
+                        self.style.ERROR(
+                            f"News schedule claim failed ({exc.__class__.__name__}); retrying."
+                        )
+                    )
+                    claimed_news_ids = []
+
                 for workflow_run_id in claimed_ids:
                     try:
                         execute_claimed_workflow(
@@ -77,6 +93,21 @@ class Command(BaseCommand):
                         self.stderr.write(
                             self.style.ERROR(
                                 f"WorkflowRun #{workflow_run_id} failed unexpectedly "
+                                f"({exc.__class__.__name__}); continuing."
+                            )
+                        )
+                    heartbeat()
+
+                for workflow_run_id in claimed_news_ids:
+                    try:
+                        execute_claimed_news_workflow(
+                            workflow_run_id,
+                            heartbeat_callback=heartbeat,
+                        )
+                    except Exception as exc:
+                        self.stderr.write(
+                            self.style.ERROR(
+                                f"NewsWorkflowRun #{workflow_run_id} failed unexpectedly "
                                 f"({exc.__class__.__name__}); continuing."
                             )
                         )

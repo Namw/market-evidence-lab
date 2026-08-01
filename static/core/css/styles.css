@@ -783,6 +783,12 @@ h2 {
     background: var(--blue-soft);
 }
 
+.status-pending,
+.status-not_run {
+    color: var(--muted);
+    background: #f2f4f7;
+}
+
 .status-passed,
 .status-healthy {
     color: var(--green) !important;
@@ -1110,6 +1116,22 @@ h2 {
     justify-content: space-between;
     gap: 12px;
     font-size: 12px;
+}
+
+.section-heading {
+    margin: 36px 0 18px;
+}
+
+.section-heading h2 {
+    margin: 0;
+}
+
+.news-schedule-form-grid {
+    grid-template-columns: 1.4fr 1fr;
+}
+
+.news-workflow-step-grid {
+    grid-template-columns: repeat(5, minmax(0, 1fr));
 }
 
 .child-run-link {

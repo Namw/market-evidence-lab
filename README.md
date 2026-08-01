@@ -115,9 +115,11 @@ V1规则：
 
 ## 自动调度与工作流
 
-内置任务固定处理 Binance USD-M Futures 的 ETHUSDT 1d、1h K线。页面只能配置启用状态、Asia/Shanghai 每日执行时间和 1 至 30 天回看范围，不接受 Cron 表达式。
+调度页包含两项独立内置任务。市场数据任务固定处理 Binance USD-M Futures 的 ETHUSDT 1d、1h K线、OI 与 Funding；新闻每日工作流依次运行 Ethereum Foundation、Binance 的既有新闻采集与精确范围质量检查，再运行当前分析版本的全量增量分析。两项任务都只接受启用状态和 Asia/Shanghai 每日执行时间，不接受 Cron 表达式；市场数据任务另可配置 1 至 30 天回看范围。
 
 每次运行动态取当前 UTC 日期的 `00:00` 为 `range_end`，并以 `range_end - lookback_days` 为 `range_start`。K线与Funding范围是左闭右开的 `[range_start, range_end)`；OI有效范围额外延伸到 `range_end + 1h`（不包含），以纳入完整日所需的次日 `00:00` 边界。四类数据分别执行采集与原始质量检查，共八个步骤；某一数据类型失败后仍继续后续类型。工作流只有在1d K线、1h K线、OI、Funding四项检查全部完成且通过时才显示整体质量通过。采集执行状态与质量状态独立保存。
+
+新闻工作流的两个来源互不阻塞；采集、质量和分析状态分别保存，并通过外键关联既有 `CollectionRun`、`NewsInspectionRun` 与 `NewsAnalysisRun`。质量异常只影响工作流汇总，不删除原始新闻或阻止合法记录进入分析。增量分析会扫描当前版本下没有成功结果的全部原始新闻；候选为零时成功结束且不调用 DeepSeek，未配置 API 且存在候选时记录为“未执行”。手动按钮和调度执行器调用同一个服务，并由数据库唯一约束共用单运行并发保护。
 
 ## OI / Funding 衍生品证据 V1
 
@@ -196,8 +198,8 @@ uv run --env-file .env python manage.py test
 uv run --env-file .env python manage.py makemigrations --check --dry-run
 ```
 
-自动化测试使用 mock HTTP 响应，不会真实访问 Binance。
+自动化测试使用 mock HTTP 响应，不会真实访问新闻来源、Binance 或 DeepSeek，也不会产生 API 费用。
 
 ## 当前未实现
 
-当前没有实现通用 Cron 平台、Celery、Redis、消息队列、APScheduler、实时 WebSocket、自动补采或修复、技术指标、确定性行情原因、未来收益、历史相似样本、新闻证据、AI报告、人工反馈、登录权限或 Django Admin 页面。没有采集 1m、清算、多空比、基差、订单流、订单簿、成交明细、新闻或链上数据。市场异常巡检尚未接入自动调度。
+当前没有实现通用 Cron 平台、Celery、Redis、消息队列、APScheduler、实时 WebSocket、自动补采或修复、技术指标、确定性行情原因、未来收益、历史相似样本、新闻证据、AI报告、人工反馈、登录权限或 Django Admin 页面。没有采集 1m、清算、多空比、基差、订单流、订单簿、成交明细或链上数据。市场异常巡检尚未接入自动调度。

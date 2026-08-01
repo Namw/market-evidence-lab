@@ -34,3 +34,22 @@ class SchedulerCommandTests(TestCase):
     def test_poll_interval_is_validated(self):
         with self.assertRaisesMessage(Exception, "between 1 and 3600"):
             call_command("run_scheduler", "--once", "--poll-interval", "0")
+
+    @patch(
+        "apps.scheduling.management.commands.run_scheduler.execute_claimed_news_workflow"
+    )
+    @patch("apps.scheduling.management.commands.run_scheduler.claim_due_news_schedules")
+    @patch("apps.scheduling.management.commands.run_scheduler.claim_due_schedules")
+    def test_once_executes_claimed_news_workflow_in_same_executor(
+        self,
+        claim_market,
+        claim_news,
+        execute_news,
+    ):
+        claim_market.return_value = []
+        claim_news.return_value = [30]
+
+        call_command("run_scheduler", "--once")
+
+        execute_news.assert_called_once()
+        self.assertEqual(execute_news.call_args.args, (30,))

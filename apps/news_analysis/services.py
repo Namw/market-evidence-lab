@@ -18,6 +18,12 @@ class AnalysisAlreadyRunning(Exception):
     pass
 
 
+class AnalysisExecutionFailed(Exception):
+    def __init__(self, run: NewsAnalysisRun):
+        super().__init__("新闻分析运行发生内部错误。")
+        self.run = run
+
+
 @dataclass(frozen=True, slots=True)
 class AnalysisConfig:
     base_url: str
@@ -304,6 +310,21 @@ def run_news_analysis(
         run.save(update_fields=["candidate_count", "updated_at"])
         if not candidates:
             return _finish_run(run)
+        if client is None and not config.api_key:
+            run.status = NewsAnalysisRun.Status.NOT_RUN
+            run.skipped_count = len(candidates)
+            run.safe_error_summary = "DeepSeek API 未配置，新闻增量分析未执行。"
+            run.finished_at = timezone.now()
+            run.save(
+                update_fields=[
+                    "status",
+                    "skipped_count",
+                    "safe_error_summary",
+                    "finished_at",
+                    "updated_at",
+                ]
+            )
+            return run
 
         rule_items: list[tuple[NewsRawRecord, RuleDecision]] = []
         ai_records: list[NewsRawRecord] = []
@@ -404,4 +425,4 @@ def run_news_analysis(
                 "updated_at",
             ]
         )
-        raise
+        raise AnalysisExecutionFailed(run) from None

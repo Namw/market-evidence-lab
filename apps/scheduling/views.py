@@ -7,8 +7,13 @@ from django.views.decorators.http import require_http_methods
 from apps.collection.models import CollectionRun
 from apps.inspection.models import DerivativesInspectionRun, KlineInspectionRun
 
-from .forms import KlineScheduleForm
-from .models import SCHEDULE_TIMEZONE, WorkflowRun
+from .forms import KlineScheduleForm, NewsWorkflowScheduleForm
+from .models import NewsWorkflowRun, SCHEDULE_TIMEZONE, WorkflowRun
+from .news_workflow import (
+    NewsWorkflowAlreadyRunning,
+    execute_news_workflow,
+    get_builtin_news_schedule,
+)
 from .services import (
     calculate_next_run_at,
     execute_workflow,
@@ -18,6 +23,7 @@ from .services import (
 
 
 RUN_TOKEN_SESSION_KEY = "scheduling_manual_run_token"
+NEWS_RUN_TOKEN_SESSION_KEY = "scheduling_news_manual_run_token"
 
 
 def _selected_run(request):
@@ -25,6 +31,24 @@ def _selected_run(request):
     if not run_id or not run_id.isdigit():
         return None
     return WorkflowRun.objects.select_related("schedule").filter(pk=int(run_id)).first()
+
+
+def _selected_news_run(request):
+    run_id = request.GET.get("news_run")
+    if not run_id or not run_id.isdigit():
+        return None
+    return (
+        NewsWorkflowRun.objects.select_related(
+            "schedule",
+            "ethereum_collection_run",
+            "binance_collection_run",
+            "ethereum_inspection_run",
+            "binance_inspection_run",
+            "analysis_run",
+        )
+        .filter(pk=int(run_id))
+        .first()
+    )
 
 
 def _step_runs(workflow_run):
@@ -67,15 +91,18 @@ def _step_runs(workflow_run):
     return result
 
 
-def _new_run_token(request) -> str:
+def _new_run_token(request, session_key: str) -> str:
     token = secrets.token_urlsafe(24)
-    request.session[RUN_TOKEN_SESSION_KEY] = token
+    request.session[session_key] = token
     return token
 
 
 @require_http_methods(["GET", "POST"])
 def schedule_index(request):
     schedule = get_builtin_schedule()
+    news_schedule = get_builtin_news_schedule()
+    form = KlineScheduleForm(instance=schedule)
+    news_form = NewsWorkflowScheduleForm(instance=news_schedule)
     if request.method == "POST":
         action = request.POST.get("action")
         if action == "save":
@@ -86,6 +113,15 @@ def schedule_index(request):
                 updated.next_run_at = calculate_next_run_at(updated.run_time)
                 updated.save()
                 messages.success(request, "自动任务配置已保存。")
+                return redirect("scheduling:index")
+        elif action == "save_news":
+            news_form = NewsWorkflowScheduleForm(request.POST, instance=news_schedule)
+            if news_form.is_valid():
+                updated = news_form.save(commit=False)
+                updated.timezone = SCHEDULE_TIMEZONE
+                updated.next_run_at = calculate_next_run_at(updated.run_time)
+                updated.save()
+                messages.success(request, "新闻每日工作流配置已保存。")
                 return redirect("scheduling:index")
         elif action == "run":
             submitted_token = request.POST.get("run_token", "")
@@ -110,20 +146,57 @@ def schedule_index(request):
             else:
                 messages.success(request, "工作流执行成功，数据质量巡检通过。")
             return redirect(f"/system/schedules/?run={run.pk}")
+        elif action == "run_news":
+            submitted_token = request.POST.get("news_run_token", "")
+            expected_token = request.session.pop(NEWS_RUN_TOKEN_SESSION_KEY, "")
+            if not submitted_token or not secrets.compare_digest(
+                submitted_token,
+                expected_token,
+            ):
+                messages.warning(request, "该新闻工作流请求已处理或已失效，未重复执行。")
+                return redirect("scheduling:index")
+            try:
+                run = execute_news_workflow(
+                    trigger=NewsWorkflowRun.Trigger.MANUAL,
+                    schedule=None,
+                )
+            except NewsWorkflowAlreadyRunning:
+                messages.warning(request, "已有新闻每日工作流正在运行，未重复启动。")
+                return redirect("scheduling:index")
+            except Exception:
+                messages.error(request, "新闻每日工作流发生内部错误，未输出外部响应详情。")
+                return redirect("scheduling:index")
+            if run.status == NewsWorkflowRun.Status.SUCCESS:
+                messages.success(request, "新闻每日工作流执行成功。")
+            elif run.status == NewsWorkflowRun.Status.PARTIAL:
+                messages.warning(request, "新闻每日工作流部分成功，请分别查看三个环节。")
+            else:
+                messages.error(request, "新闻每日工作流失败，请分别查看三个环节。")
+            return redirect(f"/system/schedules/?news_run={run.pk}#news-workflow-details")
         else:
-            form = KlineScheduleForm(instance=schedule)
             messages.error(request, "无法识别的操作。")
-    else:
-        form = KlineScheduleForm(instance=schedule)
 
     selected_run = _selected_run(request)
+    selected_news_run = _selected_news_run(request)
     context = {
         "schedule": schedule,
         "form": form,
+        "news_schedule": news_schedule,
+        "news_form": news_form,
         "scheduler": scheduler_status(),
-        "run_token": _new_run_token(request),
+        "run_token": _new_run_token(request, RUN_TOKEN_SESSION_KEY),
+        "news_run_token": _new_run_token(request, NEWS_RUN_TOKEN_SESSION_KEY),
         "recent_runs": WorkflowRun.objects.select_related("schedule")[:20],
+        "recent_news_runs": NewsWorkflowRun.objects.select_related(
+            "schedule",
+            "ethereum_collection_run",
+            "binance_collection_run",
+            "ethereum_inspection_run",
+            "binance_inspection_run",
+            "analysis_run",
+        )[:20],
         "selected_run": selected_run,
         "selected_steps": _step_runs(selected_run),
+        "selected_news_run": selected_news_run,
     }
     return render(request, "scheduling/index.html", context)

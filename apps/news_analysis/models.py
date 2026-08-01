@@ -7,6 +7,7 @@ from django.db import models
 class NewsAnalysisRun(models.Model):
     class Trigger(models.TextChoices):
         MANUAL = "manual", "页面手动"
+        SCHEDULED = "scheduled", "定时工作流"
         COMMAND = "command", "命令行"
 
     class Mode(models.TextChoices):
@@ -19,6 +20,7 @@ class NewsAnalysisRun(models.Model):
         SUCCESS = "success", "成功"
         PARTIAL = "partial", "部分成功"
         FAILED = "failed", "失败"
+        NOT_RUN = "not_run", "未执行"
 
     trigger = models.CharField(max_length=20, choices=Trigger.choices)
     mode = models.CharField(max_length=20, choices=Mode.choices)

@@ -92,6 +92,121 @@
     </section>
 </div>
 
+<header class="section-heading">
+    <div>
+        <p class="eyebrow">新闻每日自动工作流 V1</p>
+        <h2>采集、数据质量与增量分析</h2>
+        <p class="page-intro">Ethereum Foundation 与 Binance 独立采集并检查，随后扫描当前分析版本下尚无成功结果的全部合法新闻。三个环节状态独立保存，后续失败不会覆盖前序结果。</p>
+    </div>
+</header>
+
+<div class="scheduling-grid">
+    <section class="panel" aria-labelledby="news-schedule-title">
+        <div class="panel-heading">
+            <div><p class="eyebrow">内置任务</p><h2 id="news-schedule-title">{{ news_schedule.name }}</h2></div>
+            {% if news_schedule.enabled %}<span class="status-label online-label">已启用</span>{% else %}<span class="status-label offline-label">已停用</span>{% endif %}
+        </div>
+        <dl class="source-facts schedule-facts">
+            <div><dt>新闻来源</dt><dd>Ethereum Foundation · Binance</dd></div>
+            <div><dt>执行顺序</dt><dd>逐来源采集与质检 → 全量增量分析</dd></div>
+            <div><dt>固定时区</dt><dd>{{ news_schedule.timezone }}</dd></div>
+        </dl>
+        <form method="post" class="collection-form" id="news-schedule-config-form">
+            {% csrf_token %}
+            <input type="hidden" name="action" value="save_news">
+            {% if news_form.non_field_errors %}<div class="form-errors" role="alert">{{ news_form.non_field_errors }}</div>{% endif %}
+            <div class="schedule-form-grid news-schedule-form-grid">
+                <div class="form-field checkbox-field">
+                    <label for="{{ news_form.enabled.id_for_label }}">{{ news_form.enabled }} {{ news_form.enabled.label }}</label>
+                    {% if news_form.enabled.errors %}<div class="field-errors">{{ news_form.enabled.errors }}</div>{% endif %}
+                    <small>停用后调度执行器不会领取；手动运行不改变此状态。</small>
+                </div>
+                <div class="form-field">
+                    <label for="{{ news_form.run_time.id_for_label }}">{{ news_form.run_time.label }}</label>
+                    {{ news_form.run_time }}
+                    {% if news_form.run_time.errors %}<div class="field-errors">{{ news_form.run_time.errors }}</div>{% endif %}
+                    <small>{{ news_form.run_time.help_text }}</small>
+                </div>
+            </div>
+            <button class="primary-button" type="submit" data-waiting-text="保存中…">保存新闻工作流配置</button>
+        </form>
+    </section>
+
+    <section class="panel" aria-labelledby="news-runtime-title">
+        <div class="panel-heading"><div><p class="eyebrow">任务状态</p><h2 id="news-runtime-title">新闻工作流调度与手动入口</h2></div></div>
+        <dl class="runtime-facts">
+            <div><dt>上次计划运行</dt><dd>{% if news_schedule.last_run_at %}{{ news_schedule.last_run_at|date:"Y-m-d H:i:s" }} UTC{% else %}尚未运行{% endif %}</dd></div>
+            <div><dt>下次计划运行</dt><dd>{% timezone news_schedule.timezone %}{{ news_schedule.next_run_at|date:"Y-m-d H:i:s" }} {{ news_schedule.timezone }}{% endtimezone %}</dd></div>
+            <div><dt>并发保护</dt><dd>手动与定时共用单一运行锁</dd></div>
+        </dl>
+        <form method="post" id="news-schedule-run-form" class="manual-run-form">
+            {% csrf_token %}
+            <input type="hidden" name="action" value="run_news">
+            <input type="hidden" name="news_run_token" value="{{ news_run_token }}">
+            <button class="primary-button" type="submit" data-waiting-text="新闻工作流执行中，请稍候…">手动运行一次完整新闻工作流</button>
+            <small>不要求启用自动任务，也不会修改每日启用状态。</small>
+        </form>
+    </section>
+</div>
+
+<section class="panel runs-panel" aria-labelledby="news-workflow-runs-title">
+    <div class="panel-heading"><div><p class="eyebrow">新闻工作流历史</p><h2 id="news-workflow-runs-title">最近 20 次完整新闻编排</h2></div></div>
+    <div class="table-scroll">
+        <table class="runs-table scheduling-table">
+            <thead><tr><th>运行</th><th>总体</th><th>Ethereum 采集</th><th>Ethereum 质量</th><th>Binance 采集</th><th>Binance 质量</th><th>分析</th><th>新增 / 更新 / 跳过</th><th>质量问题</th><th>分析候选 / 成功 / 失败 / 跳过</th><th>详情</th></tr></thead>
+            <tbody>
+            {% for run in recent_news_runs %}<tr>
+                <td>#{{ run.id }} · {{ run.get_trigger_display }}<br><span class="nowrap">{{ run.started_at|date:"Y-m-d H:i:s" }} UTC</span></td>
+                <td><span class="run-status status-{{ run.status }}">{{ run.get_status_display }}</span></td>
+                <td><span class="run-status status-{{ run.ethereum_collection_status }}">{{ run.get_ethereum_collection_status_display }}</span>{% if run.ethereum_collection_run_id %}<br>#{{ run.ethereum_collection_run_id }}{% endif %}</td>
+                <td><span class="run-status status-{{ run.ethereum_quality_status }}">{{ run.get_ethereum_quality_status_display }}</span>{% if run.ethereum_inspection_run_id %}<br>#{{ run.ethereum_inspection_run_id }}{% endif %}</td>
+                <td><span class="run-status status-{{ run.binance_collection_status }}">{{ run.get_binance_collection_status_display }}</span>{% if run.binance_collection_run_id %}<br>#{{ run.binance_collection_run_id }}{% endif %}</td>
+                <td><span class="run-status status-{{ run.binance_quality_status }}">{{ run.get_binance_quality_status_display }}</span>{% if run.binance_inspection_run_id %}<br>#{{ run.binance_inspection_run_id }}{% endif %}</td>
+                <td><span class="run-status status-{{ run.analysis_status }}">{{ run.get_analysis_status_display }}</span>{% if run.analysis_run_id %}<br>#{{ run.analysis_run_id }}{% endif %}</td>
+                <td>{{ run.inserted_count }} / {{ run.updated_count }} / {{ run.skipped_count }}</td>
+                <td>{{ run.quality_issue_count }}</td>
+                <td>{{ run.analysis_candidate_count }} / {{ run.analysis_success_count }} / {{ run.analysis_failure_count }} / {{ run.analysis_skipped_count }}</td>
+                <td><a class="table-link" href="?news_run={{ run.id }}#news-workflow-details">查看</a></td>
+            </tr>{% empty %}<tr><td colspan="11" class="empty-state">尚无新闻每日工作流运行记录。</td></tr>{% endfor %}
+            </tbody>
+        </table>
+    </div>
+</section>
+
+{% if selected_news_run %}
+<section class="panel workflow-details" id="news-workflow-details" aria-labelledby="news-workflow-details-title">
+    <div class="panel-heading">
+        <div><p class="eyebrow">新闻工作流 #{{ selected_news_run.id }}</p><h2 id="news-workflow-details-title">三个环节的独立状态</h2></div>
+        <span class="run-status status-{{ selected_news_run.status }}">总体：{{ selected_news_run.get_status_display }}</span>
+    </div>
+    <p class="boundary-note">开始 {{ selected_news_run.started_at|date:"Y-m-d H:i:s" }} UTC{% if selected_news_run.finished_at %}，完成 {{ selected_news_run.finished_at|date:"Y-m-d H:i:s" }} UTC{% endif %}。详情来自关联的既有子运行，工作流只保存关联、状态与汇总统计。</p>
+    <div class="workflow-step-grid news-workflow-step-grid">
+        <article class="workflow-step-card">
+            <div class="workflow-step-heading"><h3>Ethereum Foundation 采集</h3><span class="run-status status-{{ selected_news_run.ethereum_collection_status }}">{{ selected_news_run.get_ethereum_collection_status_display }}</span></div>
+            {% if selected_news_run.ethereum_collection_run %}<p class="child-run-link">CollectionRun #{{ selected_news_run.ethereum_collection_run_id }}</p><dl><div><dt>新增</dt><dd>{{ selected_news_run.ethereum_collection_run.inserted_count }}</dd></div><div><dt>更新</dt><dd>{{ selected_news_run.ethereum_collection_run.updated_count }}</dd></div><div><dt>跳过</dt><dd>{{ selected_news_run.ethereum_collection_run.skipped_count }}</dd></div></dl>{% else %}<p class="muted">未产生采集子运行。</p>{% endif %}
+        </article>
+        <article class="workflow-step-card">
+            <div class="workflow-step-heading"><h3>Ethereum Foundation 质量</h3><span class="run-status status-{{ selected_news_run.ethereum_quality_status }}">{{ selected_news_run.get_ethereum_quality_status_display }}</span></div>
+            {% if selected_news_run.ethereum_inspection_run %}<p class="child-run-link">NewsInspectionRun #{{ selected_news_run.ethereum_inspection_run_id }}</p><dl><div><dt>检查执行</dt><dd>{{ selected_news_run.ethereum_inspection_run.get_status_display }}</dd></div><div><dt>无效候选</dt><dd>{{ selected_news_run.ethereum_inspection_run.invalid_count }}</dd></div><div><dt>覆盖完整</dt><dd>{{ selected_news_run.ethereum_inspection_run.coverage_complete|yesno:"是,否" }}</dd></div></dl>{% else %}<p class="muted">未产生质量子运行。</p>{% endif %}
+        </article>
+        <article class="workflow-step-card">
+            <div class="workflow-step-heading"><h3>Binance 采集</h3><span class="run-status status-{{ selected_news_run.binance_collection_status }}">{{ selected_news_run.get_binance_collection_status_display }}</span></div>
+            {% if selected_news_run.binance_collection_run %}<p class="child-run-link">CollectionRun #{{ selected_news_run.binance_collection_run_id }}</p><dl><div><dt>新增</dt><dd>{{ selected_news_run.binance_collection_run.inserted_count }}</dd></div><div><dt>更新</dt><dd>{{ selected_news_run.binance_collection_run.updated_count }}</dd></div><div><dt>跳过</dt><dd>{{ selected_news_run.binance_collection_run.skipped_count }}</dd></div></dl>{% else %}<p class="muted">未产生采集子运行。</p>{% endif %}
+        </article>
+        <article class="workflow-step-card">
+            <div class="workflow-step-heading"><h3>Binance 质量</h3><span class="run-status status-{{ selected_news_run.binance_quality_status }}">{{ selected_news_run.get_binance_quality_status_display }}</span></div>
+            {% if selected_news_run.binance_inspection_run %}<p class="child-run-link">NewsInspectionRun #{{ selected_news_run.binance_inspection_run_id }}</p><dl><div><dt>检查执行</dt><dd>{{ selected_news_run.binance_inspection_run.get_status_display }}</dd></div><div><dt>无效候选</dt><dd>{{ selected_news_run.binance_inspection_run.invalid_count }}</dd></div><div><dt>覆盖完整</dt><dd>{{ selected_news_run.binance_inspection_run.coverage_complete|yesno:"是,否" }}</dd></div></dl>{% else %}<p class="muted">未产生质量子运行。</p>{% endif %}
+        </article>
+        <article class="workflow-step-card">
+            <div class="workflow-step-heading"><h3>当前版本增量分析</h3><span class="run-status status-{{ selected_news_run.analysis_status }}">{{ selected_news_run.get_analysis_status_display }}</span></div>
+            {% if selected_news_run.analysis_run %}<p class="child-run-link">NewsAnalysisRun #{{ selected_news_run.analysis_run_id }}</p><dl><div><dt>候选</dt><dd>{{ selected_news_run.analysis_candidate_count }}</dd></div><div><dt>成功 / 失败</dt><dd>{{ selected_news_run.analysis_success_count }} / {{ selected_news_run.analysis_failure_count }}</dd></div><div><dt>跳过</dt><dd>{{ selected_news_run.analysis_skipped_count }}</dd></div><div><dt>API 请求 / Token</dt><dd>{{ selected_news_run.analysis_run.api_request_count }} / {{ selected_news_run.analysis_run.total_tokens }}</dd></div></dl>{% else %}<p class="muted">未产生分析子运行。</p>{% endif %}
+        </article>
+    </div>
+    <p class="boundary-note"><a class="text-link" href="{% url 'news_data:index' %}">查看现有新闻采集与质量记录 →</a> · <a class="text-link" href="{% url 'news_analysis:index' %}">查看现有新闻分析运行 →</a></p>
+    {% if selected_news_run.safe_error_summary %}<div class="message message-warning"><strong>安全错误摘要：</strong>{{ selected_news_run.safe_error_summary }}</div>{% endif %}
+</section>
+{% endif %}
+
 <section class="panel runs-panel" aria-labelledby="workflow-runs-title">
     <div class="panel-heading">
         <div>

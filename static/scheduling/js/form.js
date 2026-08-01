@@ -1,4 +1,4 @@
-document.querySelectorAll("#schedule-config-form, #schedule-run-form").forEach((form) => {
+document.querySelectorAll("#schedule-config-form, #schedule-run-form, #news-schedule-config-form, #news-schedule-run-form").forEach((form) => {
     form.addEventListener("submit", () => {
         const button = form.querySelector("button[type='submit']");
         if (!button || button.disabled) return;
