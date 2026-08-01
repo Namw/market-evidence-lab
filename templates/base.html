@@ -26,7 +26,14 @@
                 <a class="nav-item{% if request.resolver_match.namespace == 'research_cases' %} is-active{% endif %}" href="{% url 'research_cases:list' %}"{% if request.resolver_match.namespace == 'research_cases' %} aria-current="page"{% endif %}>
                     <span>研究案例</span><small>案例容器</small>
                 </a>
-                <span class="nav-item is-disabled" aria-disabled="true"><span>分析</span><small>待建设</small></span>
+                <details class="nav-group{% if request.resolver_match.namespace == 'news_analysis' %} is-active{% endif %}"{% if request.resolver_match.namespace == 'news_analysis' %} open{% endif %}>
+                    <summary class="nav-item"><span>分析</span><small>独立链路</small></summary>
+                    <div class="nav-submenu" aria-label="分析功能">
+                        <a class="nav-subitem{% if request.resolver_match.namespace == 'news_analysis' %} is-active{% endif %}" href="{% url 'news_analysis:index' %}"{% if request.resolver_match.namespace == 'news_analysis' %} aria-current="page"{% endif %}>
+                            <span>新闻观察</span><small>V1</small>
+                        </a>
+                    </div>
+                </details>
                 <a class="nav-item{% if request.resolver_match.namespace == 'market_monitoring' %} is-active{% endif %}" href="{% url 'market_monitoring:index' %}"{% if request.resolver_match.namespace == 'market_monitoring' %} aria-current="page"{% endif %}>
                     <span>市场异常巡检</span><small>候选发现</small>
                 </a>
@@ -54,7 +61,7 @@
                 </a>
             </nav>
 
-            <div class="sidebar-footer">阶段 9A · 新闻原始数据 V1</div>
+            <div class="sidebar-footer">新闻独立分析 V1</div>
         </aside>
 
         <main class="main-content">

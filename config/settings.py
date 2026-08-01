@@ -3,8 +3,11 @@
 import os
 from pathlib import Path
 
+from dotenv import load_dotenv
+
 
 BASE_DIR = Path(__file__).resolve().parent.parent
+load_dotenv(BASE_DIR / ".env", override=False)
 
 
 def env_bool(name: str, default: bool = False) -> bool:
@@ -42,6 +45,7 @@ INSTALLED_APPS = [
     "apps.price_evidence.apps.PriceEvidenceConfig",
     "apps.derivatives_evidence.apps.DerivativesEvidenceConfig",
     "apps.news_data.apps.NewsDataConfig",
+    "apps.news_analysis.apps.NewsAnalysisConfig",
 ]
 
 MIDDLEWARE = [
@@ -114,3 +118,15 @@ BINANCE_FUTURES_BASE_URL = os.getenv(
     "BINANCE_FUTURES_BASE_URL",
     "https://fapi.binance.com",
 ).rstrip("/")
+
+NEWS_AI_BASE_URL = os.getenv("NEWS_AI_BASE_URL", "https://api.deepseek.com").rstrip("/")
+NEWS_AI_API_KEY = os.getenv("NEWS_AI_API_KEY") or os.getenv("DEEPSEEK_API_KEY", "")
+NEWS_AI_MODEL = os.getenv("NEWS_AI_MODEL", "deepseek-v4-flash")
+NEWS_AI_TIMEOUT_SECONDS = float(os.getenv("NEWS_AI_TIMEOUT_SECONDS", "60"))
+NEWS_AI_BATCH_SIZE = int(os.getenv("NEWS_AI_BATCH_SIZE", "10"))
+NEWS_AI_MAX_RETRIES = int(os.getenv("NEWS_AI_MAX_RETRIES", "2"))
+NEWS_AI_MAX_REQUESTS_PER_RUN = int(
+    os.getenv("NEWS_AI_MAX_REQUESTS_PER_RUN", "50")
+)
+NEWS_AI_ANALYSIS_VERSION = os.getenv("NEWS_AI_ANALYSIS_VERSION", "news-v1")
+NEWS_AI_PROMPT_VERSION = os.getenv("NEWS_AI_PROMPT_VERSION", "news-screening-v1")

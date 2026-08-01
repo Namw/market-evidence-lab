@@ -1,0 +1,86 @@
+{% extends "base.html" %}
+
+{% block title %}新闻观察 · Market Evidence Lab{% endblock %}
+
+{% block content %}
+<header class="page-header">
+    <div>
+        <p class="eyebrow">分析 / 新闻独立分析</p>
+        <h1>新闻观察</h1>
+        <p class="page-intro">新闻在独立链路中形成结构化观察结果。这里不读取行情或研究案例，不解释价格异常，也不预测新闻发布后的涨跌。</p>
+    </div>
+    <span class="phase-badge">{{ analysis_version }}</span>
+</header>
+
+{% if messages %}<div class="message-stack" aria-live="polite">{% for message in messages %}<div class="message message-{{ message.tags|default:'info' }}">{{ message }}</div>{% endfor %}</div>{% endif %}
+
+<section class="scope-note">
+    <span class="scope-icon">AI</span>
+    <div><h2>当前配置</h2><p>分析版本 {{ analysis_version }} · 提示词版本 {{ prompt_version }} · 模型 {{ model_name }} · API {% if api_configured %}<strong class="success-text">已配置</strong>{% else %}<strong class="danger-text">未配置</strong>{% endif %}</p></div>
+</section>
+
+<section class="analysis-actions" aria-label="运行新闻分析">
+    <form method="post" action="{% url 'news_analysis:run' 'incremental' %}">{% csrf_token %}<button class="primary-button" type="submit"{% if not api_configured or active_run %} disabled{% endif %}>运行增量分析</button></form>
+    <form method="post" action="{% url 'news_analysis:run' 'retry_failed' %}">{% csrf_token %}<button class="compact-button" type="submit"{% if not api_configured or active_run %} disabled{% endif %}>重试失败</button></form>
+    {% if active_run %}<span class="run-status status-running">运行 #{{ active_run.id }} 正在进行</span>{% endif %}
+</section>
+
+<section class="analysis-metrics" aria-label="当前版本统计">
+    <article><span>原始新闻</span><strong>{{ raw_total }}</strong></article>
+    <article><span>已分析</span><strong>{{ success_count }}</strong></article>
+    <article><span>失败</span><strong>{{ failure_count }}</strong></article>
+    <article><span>未分析</span><strong>{{ unanalyzed_count }}</strong></article>
+    <article><span>值得关注</span><strong>{{ observation_counts.noteworthy }}</strong></article>
+    <article><span>常规信息</span><strong>{{ observation_counts.routine }}</strong></article>
+    <article><span>明显噪声</span><strong>{{ observation_counts.noise }}</strong></article>
+    <article><span>信息不足</span><strong>{{ observation_counts.insufficient }}</strong></article>
+    <article><span>固定规则</span><strong>{{ method_counts.rule }}</strong></article>
+    <article><span>AI</span><strong>{{ method_counts.ai }}</strong></article>
+</section>
+
+<section class="panel runs-panel">
+    <div class="panel-heading"><div><p class="eyebrow">来源分布</p><h2>各来源分析结果</h2></div></div>
+    <div class="table-scroll"><table class="runs-table analysis-source-table"><thead><tr><th>来源</th><th>已分析</th><th>值得关注</th><th>常规信息</th><th>明显噪声</th><th>信息不足</th></tr></thead><tbody>
+    {% for source in source_distribution %}<tr><td>{{ source.name }}</td><td>{{ source.analyzed_count }}</td><td>{{ source.noteworthy_count }}</td><td>{{ source.routine_count }}</td><td>{{ source.noise_count }}</td><td>{{ source.insufficient_count }}</td></tr>
+    {% empty %}<tr><td colspan="6" class="empty-state">尚无新闻来源。</td></tr>{% endfor %}
+    </tbody></table></div>
+</section>
+
+<section class="panel runs-panel">
+    <div class="panel-heading"><div><p class="eyebrow">运行审计</p><h2>最近 20 次分析运行</h2></div></div>
+    <div class="table-scroll"><table class="runs-table analysis-runs-table"><thead><tr><th>运行 / 时间</th><th>模式 / 版本</th><th>状态</th><th>候选 / 规则 / AI</th><th>成功 / 失败 / 跳过</th><th>API / 重试</th><th>Token（入 / 出 / 总）</th><th>安全错误摘要</th></tr></thead><tbody>
+    {% for run in recent_runs %}<tr>
+        <td>#{{ run.id }}<br><span class="nowrap">{{ run.started_at|date:"Y-m-d H:i:s" }} UTC</span>{% if run.finished_at %}<br><span class="nowrap">→ {{ run.finished_at|date:"Y-m-d H:i:s" }} UTC</span>{% endif %}</td>
+        <td>{{ run.get_trigger_display }} · {{ run.get_mode_display }}<br>{{ run.analysis_version }} / {{ run.prompt_version }}<br>{{ run.model_name }}</td>
+        <td><span class="run-status status-{{ run.status }}">{{ run.get_status_display }}</span></td>
+        <td>{{ run.candidate_count }} / {{ run.rule_processed_count }} / {{ run.ai_processed_count }}</td>
+        <td>{{ run.success_count }} / {{ run.failure_count }} / {{ run.skipped_count }}</td>
+        <td>{{ run.api_request_count }} / {{ run.retry_count }}</td>
+        <td>{{ run.input_tokens }} / {{ run.output_tokens }} / {{ run.total_tokens }}</td>
+        <td class="error-summary">{{ run.safe_error_summary|default:"—" }}</td>
+    </tr>{% empty %}<tr><td colspan="8" class="empty-state">尚无新闻分析运行记录。</td></tr>{% endfor %}
+    </tbody></table></div>
+</section>
+
+<section class="panel runs-panel">
+    <div class="panel-heading"><div><p class="eyebrow">结构化结果</p><h2>新闻观察列表</h2></div><span class="status-label">每页 100 条</span></div>
+    <form method="get" class="analysis-filter-form">
+        {% for field in filter_form %}<label><span>{{ field.label }}</span>{{ field }}</label>{% endfor %}
+        <div class="analysis-filter-actions"><button class="compact-button" type="submit">筛选</button><a class="text-link" href="{% url 'news_analysis:index' %}">清除</a></div>
+    </form>
+    <div class="table-scroll"><table class="runs-table analysis-results-table"><thead><tr><th>发布时间</th><th>来源 / 原始分类</th><th>标题</th><th>状态 / 观察结果</th><th>事件 / 对象</th><th>重要 / 置信</th><th>方式</th><th>判断依据 / 安全错误</th><th>分析时间</th></tr></thead><tbody>
+    {% for result in page %}<tr>
+        <td class="nowrap">{{ result.news_record.published_at|date:"Y-m-d H:i:s" }} UTC</td>
+        <td>{{ result.news_record.source.name }}<br><small>{{ result.news_record.source_category|default:"未分类" }}</small></td>
+        <td class="analysis-title">{{ result.news_record.title }}</td>
+        <td><span class="run-status status-{{ result.status }}">{{ result.get_status_display }}</span>{% if result.observation_result %}<br><strong>{{ result.get_observation_result_display }}</strong>{% endif %}</td>
+        <td>{% if result.event_type %}{{ result.get_event_type_display }}<br>{{ result.get_impact_scope_display }}{% else %}—{% endif %}</td>
+        <td>{% if result.importance %}{{ result.get_importance_display }} / {{ result.get_confidence_display }}{% else %}—{% endif %}</td>
+        <td>{% if result.method %}{{ result.get_method_display }}{% if result.matched_rule_id %}<br><small>{{ result.matched_rule_id }}</small>{% endif %}{% else %}—{% endif %}</td>
+        <td>{% if result.status == 'success' %}{{ result.rationale }}{% else %}<span class="danger-text">{{ result.safe_error_summary }}</span>{% endif %}</td>
+        <td class="nowrap">{{ result.analyzed_at|date:"Y-m-d H:i:s" }} UTC</td>
+    </tr>{% empty %}<tr><td colspan="9" class="empty-state">当前筛选下没有新闻观察结果。</td></tr>{% endfor %}
+    </tbody></table></div>
+    {% if page.paginator.num_pages > 1 %}<nav class="pagination" aria-label="分页">{% if page.has_previous %}<a class="text-link" href="?page={{ page.previous_page_number }}">上一页</a>{% endif %}<span>第 {{ page.number }} / {{ page.paginator.num_pages }} 页</span>{% if page.has_next %}<a class="text-link" href="?page={{ page.next_page_number }}">下一页</a>{% endif %}</nav>{% endif %}
+</section>
+{% endblock %}
