@@ -10,39 +10,36 @@ from .helpers import make_record
 
 
 class FixedRuleTests(TestCase):
-    def test_high_certainty_binance_marketing_rules_match_with_stable_ids(self):
-        titles_and_rules = (
-            ("Take the WOTD Quiz and Win Rewards", "binance_marketing_quiz_v1"),
-            ("Referral Campaign: Refer Friends and Earn", "binance_marketing_referral_v1"),
-            ("Join the Trading Competition", "binance_marketing_competition_v1"),
-            ("Complete Tasks to Share Rewards", "binance_marketing_rewards_v1"),
-        )
-        for title, rule_id in titles_and_rules:
-            with self.subTest(title=title):
-                decision = match_fixed_rule(make_record(title=title))
-                self.assertIsNotNone(decision)
-                self.assertEqual(decision.rule_id, rule_id)
-                self.assertEqual(decision.observation_result, "noise")
-                self.assertEqual(decision.confidence, "high")
-
-    def test_broad_words_and_material_other_asset_events_are_not_false_positives(self):
+    def test_binance_marketing_titles_are_irrelevant(self):
         titles = (
-            "Binance Will Support the Ethereum Network Upgrade",
-            "New Activity Is Now Live",
-            "Binance Adds Support for Asset X",
-            "Asset X Listing and Trading Rule Update",
-            "Airdrop Distribution Following Protocol Governance Vote",
+            "Take the WOTD Quiz and Win Rewards",
+            "Referral Campaign: Refer Friends and Earn",
+            "Join the Trading Competition",
+            "Complete Tasks to Share Rewards",
         )
         for title in titles:
             with self.subTest(title=title):
-                self.assertIsNone(match_fixed_rule(make_record(title=title)))
+                decision = match_fixed_rule(make_record(title=title))
+                self.assertIsNotNone(decision)
+                self.assertEqual(decision.conclusion, "irrelevant")
 
-    def test_ethereum_foundation_never_uses_binance_marketing_rules(self):
-        record = make_record(
-            source_code="ethereum_foundation",
-            title="Trading Competition Quiz Giveaway",
+    def test_high_certainty_eth_etf_title_rules_return_direction(self):
+        cases = (
+            ("SEC Approves Spot Ethereum ETF", "bullish"),
+            ("Regulator Rejects Spot ETH ETF", "bearish"),
         )
-        self.assertIsNone(match_fixed_rule(record))
+        for title, conclusion in cases:
+            with self.subTest(title=title):
+                self.assertEqual(
+                    match_fixed_rule(make_record(title=title)).conclusion, conclusion
+                )
+
+    def test_ambiguous_title_is_left_for_ai(self):
+        self.assertIsNone(
+            match_fixed_rule(
+                make_record(title="Binance Will Support the Ethereum Network Upgrade")
+            )
+        )
 
 
 class ModelConstraintTests(TestCase):
@@ -51,8 +48,8 @@ class ModelConstraintTests(TestCase):
         self.run = NewsAnalysisRun.objects.create(
             trigger="manual",
             mode="incremental",
-            analysis_version="news-v1",
-            prompt_version="prompt-v1",
+            analysis_version="news-eth-v2",
+            prompt_version="prompt-v2",
             model_name="test-model",
             started_at=timezone.now(),
         )
@@ -60,15 +57,13 @@ class ModelConstraintTests(TestCase):
     def result_values(self):
         return {
             "news_record": self.record,
-            "analysis_version": "news-v1",
-            "prompt_version": "prompt-v1",
+            "analysis_version": "news-eth-v2",
+            "prompt_version": "prompt-v2",
             "status": "success",
-            "observation_result": "noteworthy",
-            "event_type": "security_incident",
-            "impact_scope": "crypto_market",
-            "importance": "high",
-            "rationale": "值得观察。",
-            "confidence": "high",
+            "conclusion": "bullish",
+            "classification_stage": "title_ai",
+            "rationale": "ETH 合规入口明确增加。",
+            "content_summary": "正文摘要。",
             "method": "ai",
             "analysis_run": self.run,
             "analyzed_at": timezone.now(),
@@ -79,12 +74,11 @@ class ModelConstraintTests(TestCase):
         with self.assertRaises(IntegrityError), transaction.atomic():
             NewsAnalysisResult.objects.create(**self.result_values())
 
-    def test_model_validation_rejects_invalid_choices_and_incomplete_success(self):
+    def test_model_validation_rejects_invalid_or_incomplete_success(self):
         values = self.result_values()
-        values["event_type"] = "bullish"
-        result = NewsAnalysisResult(**values)
+        values["conclusion"] = "maybe"
         with self.assertRaises(ValidationError):
-            result.full_clean()
+            NewsAnalysisResult(**values).full_clean()
 
         values = self.result_values()
         values["rationale"] = ""
@@ -102,8 +96,8 @@ class ModelConstraintTests(TestCase):
             NewsAnalysisRun.objects.create(
                 trigger="manual",
                 mode="incremental",
-                analysis_version="news-v1",
-                prompt_version="prompt-v1",
+                analysis_version="news-eth-v2",
+                prompt_version="prompt-v2",
                 model_name="test-model",
                 started_at=timezone.now(),
             )

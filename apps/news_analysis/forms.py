@@ -9,29 +9,50 @@ def _with_blank(choices, label="全部"):
     return [("", label), *choices]
 
 
-class NewsObservationFilterForm(forms.Form):
+class NewsClassificationFilterForm(forms.Form):
     source = forms.ModelChoiceField(
-        queryset=NewsSource.objects.all(), required=False, empty_label="全部来源"
+        label="来源",
+        queryset=NewsSource.objects.all(),
+        required=False,
+        empty_label="全部来源",
     )
-    observation_result = forms.ChoiceField(
-        choices=_with_blank(NewsAnalysisResult.ObservationResult.choices),
+    conclusion = forms.ChoiceField(
+        label="ETH 结论",
+        choices=_with_blank(
+            [
+                choice
+                for choice in NewsAnalysisResult.Conclusion.choices
+                if choice[0] != NewsAnalysisResult.Conclusion.IRRELEVANT
+            ]
+        ),
         required=False,
     )
-    event_type = forms.ChoiceField(
-        choices=_with_blank(NewsAnalysisResult.EventType.choices), required=False
+    classification_stage = forms.ChoiceField(
+        label="判断阶段",
+        choices=_with_blank(NewsAnalysisResult.ClassificationStage.choices),
+        required=False,
     )
-    impact_scope = forms.ChoiceField(
-        choices=_with_blank(NewsAnalysisResult.ImpactScope.choices), required=False
+    start_time = forms.DateTimeField(
+        label="分类开始时间",
+        required=False,
+        input_formats=["%Y-%m-%dT%H:%M"],
+        widget=forms.DateTimeInput(
+            format="%Y-%m-%dT%H:%M", attrs={"type": "datetime-local"}
+        ),
     )
-    importance = forms.ChoiceField(
-        choices=_with_blank(NewsAnalysisResult.Level.choices), required=False
+    end_time = forms.DateTimeField(
+        label="分类结束时间",
+        required=False,
+        input_formats=["%Y-%m-%dT%H:%M"],
+        widget=forms.DateTimeInput(
+            format="%Y-%m-%dT%H:%M", attrs={"type": "datetime-local"}
+        ),
     )
-    confidence = forms.ChoiceField(
-        choices=_with_blank(NewsAnalysisResult.Level.choices), required=False
-    )
-    method = forms.ChoiceField(
-        choices=_with_blank(NewsAnalysisResult.Method.choices), required=False
-    )
-    status = forms.ChoiceField(
-        choices=_with_blank(NewsAnalysisResult.Status.choices), required=False
-    )
+
+    def clean(self):
+        cleaned = super().clean()
+        start_time = cleaned.get("start_time")
+        end_time = cleaned.get("end_time")
+        if start_time and end_time and start_time > end_time:
+            raise forms.ValidationError("分类开始时间不能晚于结束时间。")
+        return cleaned

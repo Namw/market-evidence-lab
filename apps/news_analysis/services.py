@@ -1,17 +1,23 @@
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass
+from datetime import timedelta
 
 from django.conf import settings
 from django.db import IntegrityError, transaction
-from django.db.models import Exists, OuterRef, QuerySet
+from django.db.models import Exists, OuterRef, Q, QuerySet
 from django.utils import timezone
 
 from apps.news_data.models import NewsRawRecord
 
 from .ai import AIItem, BatchAnalysisError, DeepSeekNewsClient, TokenUsage
+from .content import ArticleContent, fetch_source_article, summarize_article_text
 from .models import NewsAnalysisResult, NewsAnalysisRun
 from .rules import RuleDecision, match_fixed_rule
+
+
+UNCLEAR_RETENTION = timedelta(days=3)
 
 
 class AnalysisAlreadyRunning(Exception):
@@ -20,7 +26,7 @@ class AnalysisAlreadyRunning(Exception):
 
 class AnalysisExecutionFailed(Exception):
     def __init__(self, run: NewsAnalysisRun):
-        super().__init__("新闻分析运行发生内部错误。")
+        super().__init__("新闻分类运行发生内部错误。")
         self.run = run
 
 
@@ -51,32 +57,50 @@ def get_analysis_config() -> AnalysisConfig:
     )
 
 
+def prune_expired_news(*, now=None) -> int:
+    """Delete irrelevant records and unclear records after their three-day window."""
+    now = now or timezone.now()
+    removable_ids = list(
+        NewsAnalysisResult.objects.filter(status=NewsAnalysisResult.Status.SUCCESS)
+        .filter(
+            Q(conclusion=NewsAnalysisResult.Conclusion.IRRELEVANT)
+            | Q(
+                conclusion=NewsAnalysisResult.Conclusion.UNCLEAR,
+                analyzed_at__lt=now - UNCLEAR_RETENTION,
+            )
+        )
+        .values_list("news_record_id", flat=True)
+        .distinct()
+    )
+    if not removable_ids:
+        return 0
+    with transaction.atomic():
+        NewsAnalysisResult.objects.filter(news_record_id__in=removable_ids).delete()
+        deleted, _ = NewsRawRecord.objects.filter(id__in=removable_ids).delete()
+    return deleted
+
+
 def _candidate_queryset(
     *, mode: str, analysis_version: str, record_ids: list[int] | None
 ) -> QuerySet[NewsRawRecord]:
     current_results = NewsAnalysisResult.objects.filter(
         news_record_id=OuterRef("pk"), analysis_version=analysis_version
     )
-    successful_results = current_results.filter(
-        status=NewsAnalysisResult.Status.SUCCESS
-    )
+    successful_results = current_results.filter(status=NewsAnalysisResult.Status.SUCCESS)
     failed_results = current_results.filter(status=NewsAnalysisResult.Status.FAILED)
     queryset = NewsRawRecord.objects.select_related("source")
     if record_ids is not None:
         queryset = queryset.filter(id__in=record_ids)
-    if mode in {
-        NewsAnalysisRun.Mode.INCREMENTAL,
-        NewsAnalysisRun.Mode.SMOKE,
-    }:
-        queryset = queryset.annotate(
-            has_success=Exists(successful_results)
-        ).filter(has_success=False)
+    if mode in {NewsAnalysisRun.Mode.INCREMENTAL, NewsAnalysisRun.Mode.SMOKE}:
+        queryset = queryset.annotate(has_success=Exists(successful_results)).filter(
+            has_success=False
+        )
     elif mode == NewsAnalysisRun.Mode.RETRY_FAILED:
         queryset = queryset.annotate(has_failure=Exists(failed_results)).filter(
             has_failure=True
         )
     else:
-        raise ValueError("不支持的新闻分析运行模式。")
+        raise ValueError("不支持的新闻分类运行模式。")
     return queryset.order_by("id")
 
 
@@ -97,7 +121,7 @@ def _create_run(*, trigger: str, mode: str, config: AnalysisConfig) -> NewsAnaly
             analysis_version=config.analysis_version,
             status=NewsAnalysisRun.Status.RUNNING,
         ).exists():
-            raise AnalysisAlreadyRunning("当前分析版本已有运行中的任务。") from exc
+            raise AnalysisAlreadyRunning("当前分类版本已有运行中的任务。") from exc
         raise
 
 
@@ -120,17 +144,25 @@ def _distributed_usage(usage: TokenUsage, count: int) -> list[TokenUsage]:
     return [TokenUsage(inputs[i], outputs[i], totals[i]) for i in range(count)]
 
 
+def _decision_summary(decision: RuleDecision | AIItem, fallback: str = "") -> str:
+    if isinstance(decision, AIItem) and decision.content_summary:
+        return decision.content_summary
+    return fallback
+
+
 def _save_success_results(
     *,
     run: NewsAnalysisRun,
     records: list[NewsRawRecord],
     decisions: dict[int, RuleDecision | AIItem],
+    stage: str,
     method: str,
+    summaries: dict[int, str] | None = None,
     rule_ids: dict[int, str] | None = None,
     actual_model_name: str = "",
     usage: TokenUsage | None = None,
 ) -> tuple[int, int]:
-    saved = 0
+    completed = 0
     skipped = 0
     per_item_usage = _distributed_usage(usage or TokenUsage(), len(records))
     now = timezone.now()
@@ -143,24 +175,31 @@ def _save_success_results(
             )
         }
         for index, record in enumerate(records):
+            decision = decisions[record.id]
             result = existing.get(record.id)
             if result and result.status == NewsAnalysisResult.Status.SUCCESS:
                 skipped += 1
                 continue
-            decision = decisions[record.id]
+            if decision.conclusion == NewsAnalysisResult.Conclusion.IRRELEVANT:
+                NewsAnalysisResult.objects.filter(news_record_id=record.id).delete()
+                record.delete()
+                completed += 1
+                continue
             item_usage = per_item_usage[index]
             values = {
                 "prompt_version": run.prompt_version,
                 "status": NewsAnalysisResult.Status.SUCCESS,
-                "observation_result": decision.observation_result,
-                "event_type": decision.event_type,
-                "impact_scope": decision.impact_scope,
-                "importance": decision.importance,
+                "conclusion": decision.conclusion,
+                "classification_stage": stage,
                 "rationale": decision.rationale,
-                "confidence": decision.confidence,
+                "content_summary": _decision_summary(
+                    decision, (summaries or {}).get(record.id, record.summary)
+                ),
                 "method": method,
                 "matched_rule_id": (rule_ids or {}).get(record.id, ""),
-                "actual_model_name": actual_model_name if method == NewsAnalysisResult.Method.AI else "",
+                "actual_model_name": (
+                    actual_model_name if method == NewsAnalysisResult.Method.AI else ""
+                ),
                 "input_tokens": item_usage.input_tokens,
                 "output_tokens": item_usage.output_tokens,
                 "total_tokens": item_usage.total_tokens,
@@ -181,8 +220,8 @@ def _save_success_results(
                 )
                 result.full_clean(validate_unique=False, validate_constraints=False)
                 result.save(force_insert=True)
-            saved += 1
-    return saved, skipped
+            completed += 1
+    return completed, skipped
 
 
 def _save_failed_results(
@@ -212,12 +251,10 @@ def _save_failed_results(
             values = {
                 "prompt_version": run.prompt_version,
                 "status": NewsAnalysisResult.Status.FAILED,
-                "observation_result": "",
-                "event_type": "",
-                "impact_scope": "",
-                "importance": "",
+                "conclusion": "",
+                "classification_stage": "",
                 "rationale": "",
-                "confidence": "",
+                "content_summary": "",
                 "method": "",
                 "matched_rule_id": "",
                 "actual_model_name": "",
@@ -266,11 +303,7 @@ def _sync_run(run: NewsAnalysisRun) -> None:
 
 def _finish_run(run: NewsAnalysisRun) -> NewsAnalysisRun:
     if run.failure_count:
-        run.status = (
-            NewsAnalysisRun.Status.PARTIAL
-            if run.success_count
-            else NewsAnalysisRun.Status.FAILED
-        )
+        run.status = NewsAnalysisRun.Status.PARTIAL if run.success_count else NewsAnalysisRun.Status.FAILED
     elif run.skipped_count and not run.success_count:
         run.status = NewsAnalysisRun.Status.FAILED
     elif run.skipped_count:
@@ -278,15 +311,31 @@ def _finish_run(run: NewsAnalysisRun) -> NewsAnalysisRun:
     else:
         run.status = NewsAnalysisRun.Status.SUCCESS
     run.finished_at = timezone.now()
-    run.save(
-        update_fields=[
-            "status",
-            "finished_at",
-            "safe_error_summary",
-            "updated_at",
-        ]
-    )
+    run.save(update_fields=["status", "finished_at", "safe_error_summary", "updated_at"])
     return run
+
+
+def _load_contents(
+    records: list[NewsRawRecord],
+    loader: Callable[[NewsRawRecord], ArticleContent | str],
+) -> dict[int, str]:
+    contents: dict[int, str] = {}
+    for record in records:
+        try:
+            loaded = loader(record)
+        except Exception:
+            text = record.summary
+        else:
+            text = loaded.text if isinstance(loaded, ArticleContent) else str(loaded)
+        contents[record.id] = text or record.summary or ""
+    return contents
+
+
+def _summary_map(records: list[NewsRawRecord], contents: dict[int, str]) -> dict[int, str]:
+    return {
+        record.id: summarize_article_text(contents.get(record.id, "")) or record.summary
+        for record in records
+    }
 
 
 def run_news_analysis(
@@ -295,8 +344,10 @@ def run_news_analysis(
     trigger: str = NewsAnalysisRun.Trigger.MANUAL,
     record_ids: list[int] | None = None,
     client: DeepSeekNewsClient | None = None,
+    article_loader: Callable[[NewsRawRecord], ArticleContent | str] = fetch_source_article,
 ) -> NewsAnalysisRun:
     config = get_analysis_config()
+    prune_expired_news()
     run = _create_run(trigger=trigger, mode=mode, config=config)
     try:
         candidates = list(
@@ -313,7 +364,7 @@ def run_news_analysis(
         if client is None and not config.api_key:
             run.status = NewsAnalysisRun.Status.NOT_RUN
             run.skipped_count = len(candidates)
-            run.safe_error_summary = "DeepSeek API 未配置，新闻增量分析未执行。"
+            run.safe_error_summary = "DeepSeek API 未配置，ETH 新闻分类未执行。"
             run.finished_at = timezone.now()
             run.save(
                 update_fields=[
@@ -327,27 +378,34 @@ def run_news_analysis(
             return run
 
         rule_items: list[tuple[NewsRawRecord, RuleDecision]] = []
-        ai_records: list[NewsRawRecord] = []
+        title_ai_records: list[NewsRawRecord] = []
         for record in candidates:
             decision = match_fixed_rule(record)
             if decision:
                 rule_items.append((record, decision))
             else:
-                ai_records.append(record)
+                title_ai_records.append(record)
 
         for rule_batch in _chunks(rule_items, config.batch_size):
             records = [item[0] for item in rule_batch]
             decisions = {item[0].id: item[1] for item in rule_batch}
-            rule_ids = {item[0].id: item[1].rule_id for item in rule_batch}
-            saved, skipped = _save_success_results(
+            relevant = [
+                record
+                for record in records
+                if decisions[record.id].conclusion != NewsAnalysisResult.Conclusion.IRRELEVANT
+            ]
+            contents = _load_contents(relevant, article_loader)
+            completed, skipped = _save_success_results(
                 run=run,
                 records=records,
                 decisions=decisions,
+                stage=NewsAnalysisResult.ClassificationStage.TITLE_RULE,
                 method=NewsAnalysisResult.Method.RULE,
-                rule_ids=rule_ids,
+                summaries=_summary_map(relevant, contents),
+                rule_ids={item[0].id: item[1].rule_id for item in rule_batch},
             )
-            run.rule_processed_count += saved
-            run.success_count += saved
+            run.rule_processed_count += len(records)
+            run.success_count += completed
             run.skipped_count += skipped
             _sync_run(run)
 
@@ -358,24 +416,26 @@ def run_news_analysis(
             timeout_seconds=config.timeout_seconds,
             max_retries=config.max_retries,
         )
+        content_records: list[NewsRawRecord] = []
         fatal_error = False
-        for batch_index, records in enumerate(_chunks(ai_records, config.batch_size)):
+
+        for batch_index, records in enumerate(_chunks(title_ai_records, config.batch_size)):
             remaining_requests = config.max_requests_per_run - run.api_request_count
             if remaining_requests <= 0 or fatal_error:
-                remaining_batches = ai_records[batch_index * config.batch_size :]
-                run.skipped_count += len(remaining_batches)
-                if not run.safe_error_summary:
-                    run.safe_error_summary = (
-                        "本次运行已达到 API 请求上限。"
-                        if remaining_requests <= 0
-                        else "因不可重试的 AI 配置或服务错误，已停止后续批次。"
-                    )
+                run.skipped_count += len(title_ai_records[batch_index * config.batch_size :])
+                run.safe_error_summary = (
+                    "本次运行已达到 API 请求上限。"
+                    if remaining_requests <= 0
+                    else "因不可重试的 AI 配置或服务错误，已停止后续批次。"
+                )
                 _sync_run(run)
                 break
             run.ai_processed_count += len(records)
             try:
                 batch = ai_client.analyze_batch(
-                    records, max_requests=remaining_requests
+                    records,
+                    max_requests=remaining_requests,
+                    stage=NewsAnalysisResult.ClassificationStage.TITLE_AI,
                 )
             except BatchAnalysisError as exc:
                 run.api_request_count += exc.request_count
@@ -384,10 +444,7 @@ def run_news_analysis(
                 run.output_tokens += exc.usage.output_tokens
                 run.total_tokens += exc.usage.total_tokens
                 saved, skipped = _save_failed_results(
-                    run=run,
-                    records=records,
-                    safe_summary=exc.safe_summary,
-                    usage=exc.usage,
+                    run=run, records=records, safe_summary=exc.safe_summary, usage=exc.usage
                 )
                 run.failure_count += saved
                 run.skipped_count += skipped
@@ -400,23 +457,97 @@ def run_news_analysis(
                 run.output_tokens += batch.usage.output_tokens
                 run.total_tokens += batch.usage.total_tokens
                 decisions = {item.news_id: item for item in batch.items}
-                saved, skipped = _save_success_results(
-                    run=run,
-                    records=records,
-                    decisions=decisions,
-                    method=NewsAnalysisResult.Method.AI,
-                    actual_model_name=batch.actual_model_name,
-                    usage=batch.usage,
-                )
-                run.success_count += saved
-                run.skipped_count += skipped
+                unclear = [
+                    record
+                    for record in records
+                    if decisions[record.id].conclusion == NewsAnalysisResult.Conclusion.UNCLEAR
+                ]
+                content_records.extend(unclear)
+                resolved = [record for record in records if record not in unclear]
+                relevant = [
+                    record
+                    for record in resolved
+                    if decisions[record.id].conclusion != NewsAnalysisResult.Conclusion.IRRELEVANT
+                ]
+                contents = _load_contents(relevant, article_loader)
+                if resolved:
+                    completed, skipped = _save_success_results(
+                        run=run,
+                        records=resolved,
+                        decisions=decisions,
+                        stage=NewsAnalysisResult.ClassificationStage.TITLE_AI,
+                        method=NewsAnalysisResult.Method.AI,
+                        summaries=_summary_map(relevant, contents),
+                        actual_model_name=batch.actual_model_name,
+                        usage=batch.usage,
+                    )
+                    run.success_count += completed
+                    run.skipped_count += skipped
             _sync_run(run)
+
+        if not fatal_error:
+            for batch_index, records in enumerate(_chunks(content_records, config.batch_size)):
+                remaining_requests = config.max_requests_per_run - run.api_request_count
+                if remaining_requests <= 0:
+                    run.skipped_count += len(content_records[batch_index * config.batch_size :])
+                    run.safe_error_summary = "本次运行已达到 API 请求上限。"
+                    _sync_run(run)
+                    break
+                contents = _load_contents(records, article_loader)
+                run.ai_processed_count += len(records)
+                try:
+                    batch = ai_client.analyze_batch(
+                        records,
+                        max_requests=remaining_requests,
+                        stage=NewsAnalysisResult.ClassificationStage.CONTENT_AI,
+                        contents=contents,
+                    )
+                except BatchAnalysisError as exc:
+                    run.api_request_count += exc.request_count
+                    run.retry_count += exc.retry_count
+                    run.input_tokens += exc.usage.input_tokens
+                    run.output_tokens += exc.usage.output_tokens
+                    run.total_tokens += exc.usage.total_tokens
+                    saved, skipped = _save_failed_results(
+                        run=run,
+                        records=records,
+                        safe_summary=exc.safe_summary,
+                        usage=exc.usage,
+                    )
+                    run.failure_count += saved
+                    run.skipped_count += skipped
+                    run.safe_error_summary = exc.safe_summary
+                    fatal_error = exc.fatal
+                else:
+                    run.api_request_count += batch.request_count
+                    run.retry_count += batch.retry_count
+                    run.input_tokens += batch.usage.input_tokens
+                    run.output_tokens += batch.usage.output_tokens
+                    run.total_tokens += batch.usage.total_tokens
+                    decisions = {item.news_id: item for item in batch.items}
+                    completed, skipped = _save_success_results(
+                        run=run,
+                        records=records,
+                        decisions=decisions,
+                        stage=NewsAnalysisResult.ClassificationStage.CONTENT_AI,
+                        method=NewsAnalysisResult.Method.AI,
+                        summaries=_summary_map(records, contents),
+                        actual_model_name=batch.actual_model_name,
+                        usage=batch.usage,
+                    )
+                    run.success_count += completed
+                    run.skipped_count += skipped
+                _sync_run(run)
+                if fatal_error:
+                    break
+
+        prune_expired_news()
         return _finish_run(run)
     except Exception:
         run.status = NewsAnalysisRun.Status.FAILED
         run.finished_at = timezone.now()
         if not run.safe_error_summary:
-            run.safe_error_summary = "新闻分析运行发生内部错误。"
+            run.safe_error_summary = "新闻分类运行发生内部错误。"
         run.save(
             update_fields=[
                 "status",
@@ -425,4 +556,4 @@ def run_news_analysis(
                 "updated_at",
             ]
         )
-        raise AnalysisExecutionFailed(run) from None
+        raise AnalysisExecutionFailed(run)

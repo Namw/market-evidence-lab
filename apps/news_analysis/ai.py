@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass
-from typing import Iterable
+from typing import Iterable, Mapping
 
 import httpx
 
@@ -12,6 +12,8 @@ from .models import NewsAnalysisResult
 
 
 MAX_RATIONALE_LENGTH = 200
+MAX_SUMMARY_LENGTH = 600
+MAX_CONTENT_LENGTH = 12_000
 
 
 @dataclass(frozen=True, slots=True)
@@ -31,12 +33,9 @@ class TokenUsage:
 @dataclass(frozen=True, slots=True)
 class AIItem:
     news_id: int
-    observation_result: str
-    event_type: str
-    impact_scope: str
-    importance: str
+    conclusion: str
     rationale: str
-    confidence: str
+    content_summary: str
 
 
 @dataclass(frozen=True, slots=True)
@@ -66,47 +65,69 @@ class BatchAnalysisError(Exception):
         self.fatal = fatal
 
 
-SYSTEM_PROMPT = """你是 Market Evidence Lab 的新闻独立分析器。你只判断新闻本身的观察价值，不解释价格，不预测涨跌，不输出利好或利空。
-标题是主要依据，摘要只作辅助。其他资产新闻不能仅因不涉及以太坊就判为噪声。
+SYSTEM_PROMPT = """你是 Market Evidence Lab 的 ETH 新闻方向分类器。目标是判断单个新闻事件对 ETH 的直接或可信系统性影响，不做价格预测，也不能把一般情绪当作方向证据。
 
-观察结果：
-- noteworthy：可能改变市场预期、风险、供需、制度环境或交易条件的真实事件。
-- routine：真实但通常属于日常运营或影响范围有限的信息。
-- noise：明确的奖励任务、返佣、答题、抽奖、交易竞赛、拉新或纯营销内容。
-- insufficient：标题与摘要不足以确认事件、对象或实际变化。
+结论只能是：
+- bullish：事件明确改善 ETH 的需求、采用、合规入口、可用性、安全性或供给结构。
+- bearish：事件明确恶化 ETH 的需求、采用、合规入口、可用性、安全性，或带来直接监管/抛售压力。
+- unclear：证据不足、影响相互抵消，或无法从当前输入确定方向。
+- irrelevant：与 ETH 没有可信的直接或系统性联系，包括纯营销、答题、返佣、抽奖、交易竞赛和仅涉及其他资产的日常公告。
 
-event_type 只能是：protocol_upgrade, security_incident, regulation_policy, institutional_adoption, ecosystem_development, listing_delisting, trading_rule_change, platform_operation, market_activity, marketing_activity, research_report, other, unclear。
-impact_scope 只能是：ethereum, ethereum_ecosystem, crypto_market, exchange, other_asset, unclear。
-importance 和 confidence 只能是：high, medium, low。
-
-必须输出一个 JSON 对象，不要输出 Markdown 或额外说明。JSON 示例：
-{"items":[{"news_id":123,"observation_result":"noteworthy","event_type":"protocol_upgrade","impact_scope":"ethereum","importance":"high","rationale":"协议升级改变网络规则，值得后续观察。","confidence":"high"}]}
-每个输入 ID 必须且只能返回一次；不得增加或遗漏 ID。rationale 使用一句简洁中文，不超过 200 个字符。"""
+保守判断：不要因为新闻语气积极就判 bullish，也不要因为出现风险词就自动判 bearish。只有证据明确时才输出方向。
+必须输出 JSON，不要输出 Markdown。每个输入 ID 必须且只能返回一次。rationale 使用一句简洁中文，不超过 200 字。content_summary 不超过 600 字；标题阶段没有正文，必须返回空字符串。"""
 
 
-def build_input_items(records: Iterable[NewsRawRecord]) -> list[dict]:
-    return [
-        {
+def build_input_items(
+    records: Iterable[NewsRawRecord],
+    *,
+    stage: str,
+    contents: Mapping[int, str] | None = None,
+) -> list[dict]:
+    items = []
+    for record in records:
+        item = {
             "news_id": record.id,
             "source": record.source.code,
             "source_category": record.source_category,
             "published_at": record.published_at.isoformat(),
             "title": record.title,
-            "summary": record.summary,
         }
-        for record in records
-    ]
+        if stage == NewsAnalysisResult.ClassificationStage.CONTENT_AI:
+            item["content"] = (contents or {}).get(record.id, "")[:MAX_CONTENT_LENGTH]
+        items.append(item)
+    return items
 
 
-def build_request_payload(records: Iterable[NewsRawRecord], model: str) -> dict:
-    input_items = build_input_items(records)
+def build_request_payload(
+    records: Iterable[NewsRawRecord],
+    model: str,
+    *,
+    stage: str = NewsAnalysisResult.ClassificationStage.TITLE_AI,
+    contents: Mapping[int, str] | None = None,
+) -> dict:
+    input_items = build_input_items(records, stage=stage, contents=contents)
+    if stage == NewsAnalysisResult.ClassificationStage.TITLE_AI:
+        instruction = (
+            "只根据标题判断。标题不能明确支持 bullish、bearish 或 irrelevant 时，"
+            "必须返回 unclear；不要使用常识补全正文。"
+        )
+    elif stage == NewsAnalysisResult.ClassificationStage.CONTENT_AI:
+        instruction = (
+            "结合标题和正文内容判断。正文仍不足或影响混合时返回 unclear。"
+            "content_summary 用一句或两句中文概括正文中的事件事实。"
+        )
+    else:
+        raise ValueError("不支持的 AI 分类阶段。")
     return {
         "model": model,
         "messages": [
             {"role": "system", "content": SYSTEM_PROMPT},
             {
                 "role": "user",
-                "content": "请分析以下新闻，并按示例输出 JSON：\n"
+                "content": instruction
+                + "\n输出格式："
+                + '{"items":[{"news_id":123,"conclusion":"bullish","rationale":"判断依据。","content_summary":""}]}'
+                + "\n待分类新闻：\n"
                 + json.dumps({"items": input_items}, ensure_ascii=False),
             },
         ],
@@ -114,12 +135,8 @@ def build_request_payload(records: Iterable[NewsRawRecord], model: str) -> dict:
         "thinking": {"type": "disabled"},
         "response_format": {"type": "json_object"},
         "temperature": 0.1,
-        "max_tokens": max(1200, len(input_items) * 320),
+        "max_tokens": max(1000, len(input_items) * 240),
     }
-
-
-def _enum_values(choices) -> set[str]:
-    return {value for value, _ in choices}
 
 
 def validate_response_content(content: str, requested_ids: set[int]) -> tuple[AIItem, ...]:
@@ -132,21 +149,10 @@ def validate_response_content(content: str, requested_ids: set[int]) -> tuple[AI
     if not isinstance(payload, dict) or not isinstance(payload.get("items"), list):
         raise ValueError("AI 返回缺少 items 数组。")
 
-    observation_values = _enum_values(NewsAnalysisResult.ObservationResult.choices)
-    event_values = _enum_values(NewsAnalysisResult.EventType.choices)
-    impact_values = _enum_values(NewsAnalysisResult.ImpactScope.choices)
-    level_values = _enum_values(NewsAnalysisResult.Level.choices)
+    conclusion_values = {value for value, _ in NewsAnalysisResult.Conclusion.choices}
     parsed: list[AIItem] = []
     returned_ids: list[int] = []
-    required = {
-        "news_id",
-        "observation_result",
-        "event_type",
-        "impact_scope",
-        "importance",
-        "rationale",
-        "confidence",
-    }
+    required = {"news_id", "conclusion", "rationale", "content_summary"}
     for raw in payload["items"]:
         if not isinstance(raw, dict) or not required.issubset(raw):
             raise ValueError("AI 返回条目字段不完整。")
@@ -154,31 +160,22 @@ def validate_response_content(content: str, requested_ids: set[int]) -> tuple[AI
         if isinstance(news_id, bool) or not isinstance(news_id, int):
             raise ValueError("AI 返回的 news_id 类型非法。")
         returned_ids.append(news_id)
-        if raw["observation_result"] not in observation_values:
-            raise ValueError("AI 返回的 observation_result 非法。")
-        if raw["event_type"] not in event_values:
-            raise ValueError("AI 返回的 event_type 非法。")
-        if raw["impact_scope"] not in impact_values:
-            raise ValueError("AI 返回的 impact_scope 非法。")
-        if raw["importance"] not in level_values or raw["confidence"] not in level_values:
-            raise ValueError("AI 返回的重要程度或置信度非法。")
+        if raw["conclusion"] not in conclusion_values:
+            raise ValueError("AI 返回的 ETH 结论非法。")
         rationale = raw["rationale"]
         if not isinstance(rationale, str) or not rationale.strip():
             raise ValueError("AI 返回的判断依据为空。")
         rationale = rationale.strip()
         if len(rationale) > MAX_RATIONALE_LENGTH:
             raise ValueError("AI 返回的判断依据过长。")
-        parsed.append(
-            AIItem(
-                news_id=news_id,
-                observation_result=raw["observation_result"],
-                event_type=raw["event_type"],
-                impact_scope=raw["impact_scope"],
-                importance=raw["importance"],
-                rationale=rationale,
-                confidence=raw["confidence"],
-            )
-        )
+        summary = raw["content_summary"]
+        if not isinstance(summary, str):
+            raise ValueError("AI 返回的正文摘要类型非法。")
+        summary = summary.strip()
+        if len(summary) > MAX_SUMMARY_LENGTH:
+            raise ValueError("AI 返回的正文摘要过长。")
+        parsed.append(AIItem(news_id, raw["conclusion"], rationale, summary))
+
     if len(returned_ids) != len(set(returned_ids)):
         raise ValueError("AI 返回了重复 news_id。")
     returned_set = set(returned_ids)
@@ -212,7 +209,11 @@ def _usage_from_payload(payload: object) -> TokenUsage:
     values = []
     for key in ("prompt_tokens", "completion_tokens", "total_tokens"):
         value = usage.get(key, 0)
-        values.append(value if isinstance(value, int) and not isinstance(value, bool) and value >= 0 else 0)
+        values.append(
+            value
+            if isinstance(value, int) and not isinstance(value, bool) and value >= 0
+            else 0
+        )
     return TokenUsage(*values)
 
 
@@ -234,11 +235,18 @@ class DeepSeekNewsClient:
         self.http_client = http_client or httpx.Client(timeout=timeout_seconds)
 
     def analyze_batch(
-        self, records: list[NewsRawRecord], *, max_requests: int
+        self,
+        records: list[NewsRawRecord],
+        *,
+        max_requests: int,
+        stage: str = NewsAnalysisResult.ClassificationStage.TITLE_AI,
+        contents: Mapping[int, str] | None = None,
     ) -> BatchAnalysis:
         if not self.api_key:
             raise BatchAnalysisError("AI 服务未配置。", fatal=True)
-        payload = build_request_payload(records, self.model)
+        payload = build_request_payload(
+            records, self.model, stage=stage, contents=contents
+        )
         requested_ids = {record.id for record in records}
         attempts = 0
         usage = TokenUsage()
@@ -250,7 +258,6 @@ class DeepSeekNewsClient:
 
         while attempts < allowed_attempts:
             attempts += 1
-            response_payload = None
             try:
                 response = self.http_client.post(
                     f"{self.base_url}/chat/completions",
@@ -265,7 +272,9 @@ class DeepSeekNewsClient:
                 retryable = True
             else:
                 if response.status_code >= 400:
-                    last_summary, retryable, last_fatal = _safe_http_error(response.status_code)
+                    last_summary, retryable, last_fatal = _safe_http_error(
+                        response.status_code
+                    )
                 else:
                     retryable = True
                     try:

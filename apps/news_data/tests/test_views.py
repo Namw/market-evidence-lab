@@ -41,11 +41,8 @@ class NewsCollectionViewTests(TestCase):
 
         self.assertEqual(response.status_code, 403)
 
-    def test_navigation_marks_news_collection_active(self):
+    def test_navigation_hides_news_collection_submenu_entry(self):
         response = self.client.get(reverse("news_data:index"))
-
-        self.assertContains(
-            response,
-            '<details class="nav-group is-active" data-nav-group="news" open>',
-        )
-        self.assertContains(response, 'href="/collection/news/" aria-current="page"')
+        navigation = response.content.decode().split('<nav class="navigation">', 1)[1].split("</nav>", 1)[0]
+        self.assertNotIn('href="/collection/news/"', navigation)
+        self.assertEqual(navigation.count("数据分类结果"), 1)

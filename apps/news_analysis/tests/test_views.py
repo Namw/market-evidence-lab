@@ -1,10 +1,12 @@
 from types import SimpleNamespace
 from unittest.mock import patch
+from datetime import timedelta
 
 from django.test import Client, TestCase, override_settings
 from django.urls import reverse
 from django.utils import timezone
 
+from apps.news_analysis.content import ArticleContent, SourceContentError
 from apps.news_analysis.models import NewsAnalysisResult, NewsAnalysisRun
 
 from .helpers import make_record
@@ -14,8 +16,8 @@ def make_run(**overrides):
     values = {
         "trigger": "manual",
         "mode": "incremental",
-        "analysis_version": "news-v1",
-        "prompt_version": "prompt-v1",
+        "analysis_version": "news-eth-v2",
+        "prompt_version": "prompt-v2",
         "model_name": "deepseek-v4-flash",
         "started_at": timezone.now(),
         "finished_at": timezone.now(),
@@ -29,15 +31,13 @@ def make_result(record, **overrides):
     run = overrides.pop("analysis_run", None) or make_run()
     values = {
         "news_record": record,
-        "analysis_version": "news-v1",
-        "prompt_version": "prompt-v1",
+        "analysis_version": "news-eth-v2",
+        "prompt_version": "prompt-v2",
         "status": "success",
-        "observation_result": "noteworthy",
-        "event_type": "security_incident",
-        "impact_scope": "crypto_market",
-        "importance": "high",
-        "rationale": "重大安全事件值得后续观察。",
-        "confidence": "high",
+        "conclusion": "bullish",
+        "classification_stage": "title_ai",
+        "rationale": "ETH 的采用入口明确增加。",
+        "content_summary": "正文说明机构采用 ETH。",
         "method": "ai",
         "actual_model_name": "deepseek-v4-flash",
         "analysis_run": run,
@@ -48,116 +48,120 @@ def make_result(record, **overrides):
 
 
 @override_settings(
-    NEWS_AI_ANALYSIS_VERSION="news-v1",
-    NEWS_AI_PROMPT_VERSION="prompt-v1",
+    NEWS_AI_ANALYSIS_VERSION="news-eth-v2",
+    NEWS_AI_PROMPT_VERSION="prompt-v2",
     NEWS_AI_MODEL="deepseek-v4-flash",
 )
-class NewsObservationViewTests(TestCase):
-    def test_page_works_without_key_and_shows_configuration_and_counts(self):
-        noteworthy = make_record(title="Security incident")
-        make_result(noteworthy)
-        make_record(title="Not analyzed")
-
-        with override_settings(NEWS_AI_API_KEY=""):
-            response = self.client.get(reverse("news_analysis:index"))
-
+class NewsClassificationViewTests(TestCase):
+    def test_page_is_recent_classification_list_with_single_news_submenu(self):
+        record = make_record(title="Ethereum adoption event")
+        make_result(record)
+        response = self.client.get(reverse("news_analysis:index"))
         self.assertEqual(response.status_code, 200)
-        self.assertTemplateUsed(response, "news_analysis/index.html")
-        self.assertContains(response, "未配置")
-        self.assertContains(response, "新闻观察")
-        self.assertEqual(response.context["raw_total"], 2)
-        self.assertEqual(response.context["success_count"], 1)
-        self.assertEqual(response.context["unanalyzed_count"], 1)
-
-    def test_page_lists_results_and_supports_all_filter_dimensions(self):
-        record = make_record(title="Ethereum protocol upgrade", category="Updates")
-        result = make_result(
-            record,
-            event_type="protocol_upgrade",
-            impact_scope="ethereum",
-            importance="high",
-            confidence="medium",
-            method="ai",
-        )
-        filter_query = {
-            "source": record.source_id,
-            "observation_result": "noteworthy",
-            "event_type": "protocol_upgrade",
-            "impact_scope": "ethereum",
-            "importance": "high",
-            "confidence": "medium",
-            "method": "ai",
-            "status": "success",
-        }
-        response = self.client.get(reverse("news_analysis:index"), filter_query)
+        self.assertContains(response, "数据分类结果")
         self.assertContains(response, record.title)
-        self.assertContains(response, "协议升级")
-        self.assertContains(response, "以太坊")
-        self.assertIn(result, list(response.context["page"].object_list))
+        self.assertContains(response, "利好")
+        navigation = response.content.decode().split('<nav class="navigation">', 1)[1].split("</nav>", 1)[0]
+        self.assertEqual(navigation.count('class="nav-subitem'), 6)
+        self.assertNotIn("数据采集", navigation)
 
-        filter_query["event_type"] = "security_incident"
-        response = self.client.get(reverse("news_analysis:index"), filter_query)
+    def test_filters_by_source_conclusion_and_stage(self):
+        record = make_record(title="Ethereum protocol event")
+        result = make_result(record, conclusion="bearish", classification_stage="content_ai")
+        response = self.client.get(
+            reverse("news_analysis:index"),
+            {
+                "source": record.source_id,
+                "conclusion": "bearish",
+                "classification_stage": "content_ai",
+            },
+        )
+        self.assertIn(result, list(response.context["page"].object_list))
+        response = self.client.get(
+            reverse("news_analysis:index"), {"conclusion": "bullish"}
+        )
         self.assertNotContains(response, record.title)
 
-    def test_failed_result_shows_only_safe_error_summary(self):
-        record = make_record(title="Failed item")
-        run = make_run(status="failed", safe_error_summary="AI 服务暂时不可用。")
-        make_result(
-            record,
-            analysis_run=run,
-            status="failed",
-            observation_result="",
-            event_type="",
-            impact_scope="",
-            importance="",
-            rationale="",
-            confidence="",
-            method="",
-            actual_model_name="",
-            safe_error_summary="AI 服务暂时不可用。",
+    def test_custom_classification_time_range_overrides_recent_three_days(self):
+        record = make_record(title="Older retained ETH classification")
+        analyzed_at = timezone.now() - timedelta(days=5)
+        result = make_result(record, analyzed_at=analyzed_at)
+
+        default_response = self.client.get(reverse("news_analysis:index"))
+        self.assertNotContains(default_response, record.title)
+
+        start = timezone.localtime(analyzed_at - timedelta(hours=1)).strftime(
+            "%Y-%m-%dT%H:%M"
         )
-        response = self.client.get(reverse("news_analysis:index"))
-        self.assertContains(response, "AI 服务暂时不可用。")
+        end = timezone.localtime(analyzed_at + timedelta(hours=1)).strftime(
+            "%Y-%m-%dT%H:%M"
+        )
+        response = self.client.get(
+            reverse("news_analysis:index"),
+            {"start_time": start, "end_time": end},
+        )
+        self.assertIn(result, list(response.context["page"].object_list))
+        self.assertEqual(response.context["range_label"], "自定义分类时间")
+        self.assertIn("start_time=", response.context["pagination_query"])
+
+    def test_invalid_classification_time_range_shows_error(self):
+        response = self.client.get(
+            reverse("news_analysis:index"),
+            {
+                "start_time": "2026-08-03T10:00",
+                "end_time": "2026-08-02T10:00",
+            },
+        )
+        self.assertContains(response, "分类开始时间不能晚于结束时间")
+
+    @patch("apps.news_analysis.views.fetch_source_article")
+    def test_detail_endpoint_prefers_live_source_content(self, fetch):
+        result = make_result(make_record(title="Ethereum event"))
+        fetch.return_value = ArticleContent(
+            text="Source article body with enough details to classify ETH.",
+            source_url="https://www.binance.com/source",
+        )
+        response = self.client.get(
+            reverse("news_analysis:result_content", args=[result.id])
+        )
+        self.assertEqual(response.json()["origin"], "source")
+        self.assertIn("Source article body", response.json()["content"])
+
+    @patch("apps.news_analysis.views.fetch_source_article")
+    def test_detail_endpoint_falls_back_to_saved_summary_and_keeps_url(self, fetch):
+        record = make_record(title="Ethereum event")
+        result = make_result(record, content_summary="已保存的正文摘要。")
+        fetch.side_effect = SourceContentError("unavailable")
+        response = self.client.get(
+            reverse("news_analysis:result_content", args=[result.id])
+        )
+        payload = response.json()
+        self.assertEqual(payload["origin"], "saved_summary")
+        self.assertEqual(payload["content"], "已保存的正文摘要。")
+        self.assertEqual(payload["source_url"], record.original_url)
 
     @override_settings(NEWS_AI_API_KEY="configured-for-test")
     @patch("apps.news_analysis.views.run_news_analysis")
-    def test_post_triggers_incremental_and_retry_modes(self, run_analysis):
-        run_analysis.return_value = SimpleNamespace(
-            status=NewsAnalysisRun.Status.SUCCESS
+    def test_post_triggers_incremental_mode(self, run_analysis):
+        run_analysis.return_value = SimpleNamespace(status=NewsAnalysisRun.Status.SUCCESS)
+        response = self.client.post(
+            reverse("news_analysis:run", args=["incremental"])
         )
-        for mode in ("incremental", "retry_failed"):
-            with self.subTest(mode=mode):
-                response = self.client.post(
-                    reverse("news_analysis:run", args=[mode])
-                )
-                self.assertRedirects(response, reverse("news_analysis:index"))
-        self.assertEqual(
-            [call.kwargs["mode"] for call in run_analysis.call_args_list],
-            ["incremental", "retry_failed"],
-        )
+        self.assertRedirects(response, reverse("news_analysis:index"))
+        self.assertEqual(run_analysis.call_args.kwargs["mode"], "incremental")
 
     @override_settings(NEWS_AI_API_KEY="configured-for-test")
     def test_post_keeps_csrf_protection(self):
-        csrf_client = Client(enforce_csrf_checks=True)
-        response = csrf_client.post(
+        response = Client(enforce_csrf_checks=True).post(
             reverse("news_analysis:run", args=["incremental"])
         )
         self.assertEqual(response.status_code, 403)
 
     @override_settings(NEWS_AI_API_KEY="")
     @patch("apps.news_analysis.views.run_news_analysis")
-    def test_missing_key_prevents_run_without_exposing_value(self, run_analysis):
+    def test_missing_key_prevents_run(self, run_analysis):
         response = self.client.post(
             reverse("news_analysis:run", args=["incremental"]), follow=True
         )
         run_analysis.assert_not_called()
         self.assertContains(response, "DeepSeek API 未配置")
-
-    def test_navigation_places_daily_results_under_news_observation(self):
-        response = self.client.get(reverse("news_analysis:index"))
-        self.assertContains(response, 'aria-label="新闻观察"')
-        self.assertContains(
-            response,
-            '<details class="nav-group is-active" data-nav-group="news" open>',
-        )
-        self.assertContains(response, 'href="/analysis/news/" aria-current="page"')

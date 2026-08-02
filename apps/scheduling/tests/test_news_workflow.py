@@ -12,7 +12,7 @@ from apps.collection.models import CollectionRun
 from apps.inspection.models import NewsInspectionRun
 from apps.news_analysis.models import NewsAnalysisResult, NewsAnalysisRun
 from apps.news_analysis.tests.helpers import make_record
-from apps.news_data.models import NewsSource
+from apps.news_data.models import NewsRawRecord, NewsSource
 from apps.news_data.sources import (
     BINANCE_ANNOUNCEMENTS_CODE,
     ETHEREUM_FOUNDATION_CODE,
@@ -324,7 +324,7 @@ class RealAnalysisIntegrationTests(TestCase):
     @override_settings(NEWS_AI_API_KEY="")
     @patch("apps.scheduling.news_workflow.inspect_news_collection")
     @patch("apps.scheduling.news_workflow.collect_news_source")
-    def test_legacy_unanalyzed_rule_item_is_processed_and_success_is_skipped_later(self, collect, inspect):
+    def test_irrelevant_rule_item_is_processed_deleted_and_absent_later(self, collect, inspect):
         collect.side_effect = self.collections
         inspect.side_effect = self.inspections
         record = make_record(title="Join the Trading Competition")
@@ -336,10 +336,8 @@ class RealAnalysisIntegrationTests(TestCase):
 
         self.assertEqual(first.analysis_candidate_count, 1)
         self.assertEqual(first.analysis_success_count, 1)
-        self.assertEqual(
-            NewsAnalysisResult.objects.get(news_record=record).status,
-            NewsAnalysisResult.Status.SUCCESS,
-        )
+        self.assertFalse(NewsAnalysisResult.objects.filter(news_record_id=record.id).exists())
+        self.assertFalse(NewsRawRecord.objects.filter(pk=record.id).exists())
         self.assertEqual(second.analysis_candidate_count, 0)
         self.assertEqual(second.analysis_success_count, 0)
 

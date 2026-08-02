@@ -47,12 +47,9 @@ def make_record(*, source_code="binance_announcements", title="A material update
 def ai_item(news_id, **overrides):
     item = {
         "news_id": news_id,
-        "observation_result": "noteworthy",
-        "event_type": "security_incident",
-        "impact_scope": "crypto_market",
-        "importance": "high",
-        "rationale": "事件可能改变市场风险预期，值得后续观察。",
-        "confidence": "high",
+        "conclusion": "bullish",
+        "rationale": "事件明确增加 ETH 的采用或需求。",
+        "content_summary": "",
     }
     item.update(overrides)
     return item

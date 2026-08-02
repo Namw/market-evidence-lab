@@ -82,7 +82,6 @@ class SidebarNavigationTests(TestCase):
         ("research_cases:list", "research-cases"),
         ("market_data:index", "market-data"),
         ("news_analysis:index", "news"),
-        ("news_data:index", "news"),
         ("scheduling:index", "system"),
         ("scheduling:runs", "system"),
     ]
@@ -109,8 +108,7 @@ class SidebarNavigationTests(TestCase):
                 "行情数据观察",
                 "数据查看",
                 "新闻观察",
-                "每日分析结果",
-                "数据采集",
+                "数据分类结果",
                 "系统管理",
                 "自动调度",
                 "调度情况",
@@ -197,7 +195,6 @@ class SidebarNavigationTests(TestCase):
             (f'{reverse("collection:index")}?run=999999', "market-data"),
             (f'{reverse("collection:derivatives")}?run=999999', "market-data"),
             (f'{reverse("news_analysis:index")}?page=2', "news"),
-            (f'{reverse("news_data:index")}?run=999999', "news"),
             (f'{reverse("scheduling:index")}?run=999999&news_run=999999', "system"),
         )
 

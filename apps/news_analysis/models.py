@@ -72,39 +72,16 @@ class NewsAnalysisResult(models.Model):
         SUCCESS = "success", "成功"
         FAILED = "failed", "失败"
 
-    class ObservationResult(models.TextChoices):
-        NOTEWORTHY = "noteworthy", "值得关注"
-        ROUTINE = "routine", "常规信息"
-        NOISE = "noise", "明显噪声"
-        INSUFFICIENT = "insufficient", "信息不足"
+    class Conclusion(models.TextChoices):
+        BULLISH = "bullish", "利好"
+        BEARISH = "bearish", "利空"
+        UNCLEAR = "unclear", "模糊不清"
+        IRRELEVANT = "irrelevant", "无关"
 
-    class EventType(models.TextChoices):
-        PROTOCOL_UPGRADE = "protocol_upgrade", "协议升级"
-        SECURITY_INCIDENT = "security_incident", "安全事件"
-        REGULATION_POLICY = "regulation_policy", "监管政策"
-        INSTITUTIONAL_ADOPTION = "institutional_adoption", "机构采用"
-        ECOSYSTEM_DEVELOPMENT = "ecosystem_development", "生态发展"
-        LISTING_DELISTING = "listing_delisting", "上币或下币"
-        TRADING_RULE_CHANGE = "trading_rule_change", "交易规则变化"
-        PLATFORM_OPERATION = "platform_operation", "平台运营"
-        MARKET_ACTIVITY = "market_activity", "市场活动"
-        MARKETING_ACTIVITY = "marketing_activity", "营销活动"
-        RESEARCH_REPORT = "research_report", "研究报告"
-        OTHER = "other", "其他"
-        UNCLEAR = "unclear", "无法判断"
-
-    class ImpactScope(models.TextChoices):
-        ETHEREUM = "ethereum", "以太坊"
-        ETHEREUM_ECOSYSTEM = "ethereum_ecosystem", "以太坊生态"
-        CRYPTO_MARKET = "crypto_market", "加密市场"
-        EXCHANGE = "exchange", "交易所"
-        OTHER_ASSET = "other_asset", "其他资产"
-        UNCLEAR = "unclear", "无法判断"
-
-    class Level(models.TextChoices):
-        HIGH = "high", "高"
-        MEDIUM = "medium", "中"
-        LOW = "low", "低"
+    class ClassificationStage(models.TextChoices):
+        TITLE_RULE = "title_rule", "程序判断标题"
+        TITLE_AI = "title_ai", "AI 判断标题"
+        CONTENT_AI = "content_ai", "AI 判断正文"
 
     class Method(models.TextChoices):
         RULE = "rule", "固定规则"
@@ -118,18 +95,14 @@ class NewsAnalysisResult(models.Model):
     analysis_version = models.CharField(max_length=80)
     prompt_version = models.CharField(max_length=80)
     status = models.CharField(max_length=20, choices=Status.choices)
-    observation_result = models.CharField(
-        max_length=20, choices=ObservationResult.choices, blank=True
+    conclusion = models.CharField(
+        max_length=20, choices=Conclusion.choices, blank=True
     )
-    event_type = models.CharField(
-        max_length=40, choices=EventType.choices, blank=True
+    classification_stage = models.CharField(
+        max_length=20, choices=ClassificationStage.choices, blank=True
     )
-    impact_scope = models.CharField(
-        max_length=40, choices=ImpactScope.choices, blank=True
-    )
-    importance = models.CharField(max_length=20, choices=Level.choices, blank=True)
     rationale = models.CharField(max_length=500, blank=True)
-    confidence = models.CharField(max_length=20, choices=Level.choices, blank=True)
+    content_summary = models.TextField(blank=True)
     method = models.CharField(max_length=20, choices=Method.choices, blank=True)
     matched_rule_id = models.CharField(max_length=100, blank=True)
     actual_model_name = models.CharField(max_length=160, blank=True)
@@ -160,20 +133,17 @@ class NewsAnalysisResult(models.Model):
                 name="news_an_res_ver_stat_idx",
             ),
             models.Index(
-                fields=["analysis_version", "observation_result"],
-                name="news_an_res_ver_obs_idx",
+                fields=["analysis_version", "conclusion"],
+                name="news_an_res_ver_concl_idx",
             ),
         ]
 
     def clean(self):
         super().clean()
         classified_fields = (
-            self.observation_result,
-            self.event_type,
-            self.impact_scope,
-            self.importance,
+            self.conclusion,
+            self.classification_stage,
             self.rationale.strip(),
-            self.confidence,
             self.method,
         )
         if self.status == self.Status.SUCCESS and not all(classified_fields):
