@@ -6,5 +6,5 @@ app_name = "news_data"
 
 urlpatterns = [
     path("", views.news_collection, name="index"),
-    path("<slug:source_code>/run/", views.run_news_collection, name="run"),
+    path("feeds/<slug:feed_code>/run/", views.run_news_collection, name="run"),
 ]

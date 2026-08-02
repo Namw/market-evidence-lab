@@ -4,7 +4,7 @@ from django.db.models import Sum
 from django.utils import timezone
 
 from apps.collection.models import CollectionRun
-from apps.news_data.models import NewsCollectionDiagnostic, NewsSource
+from apps.news_data.models import NewsCollectionDiagnostic, NewsFeed, NewsSource
 
 from .models import NewsInspectionRun, empty_news_dimensions
 
@@ -24,8 +24,10 @@ def inspect_news_collection(
     if collection_run.news_source_id is None:
         raise ValueError("News CollectionRun has no source.")
     source = collection_run.news_source
+    feed = collection_run.news_feed
     inspection = NewsInspectionRun.objects.create(
         source=source,
+        feed=feed,
         range_start=collection_run.range_start,
         range_end=collection_run.range_end,
         trigger=collection_run.trigger,
@@ -105,7 +107,7 @@ def inspect_news_collection(
         elif retry_count or invalid_count or any(
             d.stop_reason == NewsCollectionDiagnostic.StopReason.SOURCE_HISTORY_LIMITED
             for d in diagnostics
-        ):
+        ) or any((d.details or {}).get("xml_recovered") for d in diagnostics):
             quality_status = NewsInspectionRun.QualityStatus.WARNING
         else:
             quality_status = NewsInspectionRun.QualityStatus.PASSED
@@ -133,13 +135,45 @@ def inspect_news_collection(
         inspection.finished_at = timezone.now()
         inspection.save()
 
-    source.last_run_at = collection_run.finished_at or collection_run.started_at
-    source.last_inspection_status = inspection.quality_status
-    if inspection.quality_status in {
-        NewsInspectionRun.QualityStatus.PASSED,
-        NewsInspectionRun.QualityStatus.WARNING,
-    } and inspection.coverage_complete:
-        source.trusted_coverage_end = collection_run.range_end
+    if feed is not None:
+        feed.last_run_at = collection_run.finished_at or collection_run.started_at
+        feed.last_inspection_status = inspection.quality_status
+        if inspection.quality_status in {
+            NewsInspectionRun.QualityStatus.PASSED,
+            NewsInspectionRun.QualityStatus.WARNING,
+        } and inspection.coverage_complete:
+            feed.trusted_coverage_end = collection_run.range_end
+        feed.health_status = feed.health_at(inspection.finished_at)
+        feed.save(
+            update_fields=[
+                "last_run_at",
+                "last_inspection_status",
+                "trusted_coverage_end",
+                "health_status",
+                "updated_at",
+            ]
+        )
+
+    enabled_feeds = list(source.feeds.filter(enabled=True))
+    source.last_run_at = max(
+        (item.last_run_at for item in enabled_feeds if item.last_run_at),
+        default=collection_run.finished_at or collection_run.started_at,
+    )
+    statuses = {item.last_inspection_status for item in enabled_feeds}
+    if NewsSource.InspectionStatus.FAILED in statuses:
+        source.last_inspection_status = NewsSource.InspectionStatus.FAILED
+    elif statuses <= {NewsSource.InspectionStatus.PASSED}:
+        source.last_inspection_status = NewsSource.InspectionStatus.PASSED
+    elif statuses & {
+        NewsSource.InspectionStatus.PASSED,
+        NewsSource.InspectionStatus.WARNING,
+    }:
+        source.last_inspection_status = NewsSource.InspectionStatus.WARNING
+    else:
+        source.last_inspection_status = NewsSource.InspectionStatus.NEVER_RUN
+    coverage_values = [item.trusted_coverage_end for item in enabled_feeds]
+    if coverage_values and all(coverage_values):
+        source.trusted_coverage_end = min(coverage_values)
     source.health_status = source.health_at(inspection.finished_at)
     source.save(
         update_fields=[

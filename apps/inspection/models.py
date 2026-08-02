@@ -240,6 +240,13 @@ class NewsInspectionRun(models.Model):
         on_delete=models.PROTECT,
         related_name="inspection_runs",
     )
+    feed = models.ForeignKey(
+        "news_data.NewsFeed",
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="inspection_runs",
+    )
     range_start = models.DateTimeField()
     range_end = models.DateTimeField()
     trigger = models.CharField(

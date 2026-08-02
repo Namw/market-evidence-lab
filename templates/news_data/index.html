@@ -18,22 +18,24 @@
 
 <section class="overview-cards news-source-grid" aria-label="新闻来源">
     {% for source in sources %}
+    {% for feed in source.feeds.all %}
     <article class="overview-card news-source-card">
-        <div class="overview-card-title"><strong>{{ source.name }}</strong><span class="run-status status-{{ source.current_health_status }}">{{ source.current_health_status_display }}</span></div>
+        <div class="overview-card-title"><strong>{{ source.name }} · {{ feed.name }}</strong><span class="run-status status-{{ feed.current_health_status }}">{{ feed.current_health_status_display }}</span></div>
         <p class="source-scope">{{ source.get_source_type_display }} · {{ source.get_collection_method_display }} · {{ source.get_observation_scope_display }}</p>
         <dl>
-            <div><dt>启用状态</dt><dd>{% if source.enabled %}已启用{% else %}已停用{% endif %}</dd></div>
-            <div><dt>activated_at</dt><dd>{{ source.activated_at|date:"Y-m-d H:i:s" }} UTC</dd></div>
-            <div><dt>最近运行</dt><dd>{% if source.last_run_at %}{{ source.last_run_at|date:"Y-m-d H:i:s" }} UTC{% else %}—{% endif %}</dd></div>
-            <div><dt>最近可信覆盖</dt><dd>{% if source.trusted_coverage_end %}{{ source.trusted_coverage_end|date:"Y-m-d H:i:s" }} UTC{% else %}—{% endif %}</dd></div>
-            <div><dt>最近检查</dt><dd><span class="run-status status-{{ source.last_inspection_status }}">{{ source.get_last_inspection_status_display }}</span></dd></div>
-            <div><dt>解析器</dt><dd>{{ source.parser_version }}</dd></div>
+            <div><dt>启用状态</dt><dd>{% if source.enabled and feed.enabled %}已启用{% else %}已停用{% endif %}</dd></div>
+            <div><dt>首次采集</dt><dd>{% if feed.bootstrap_visible_items %}有限初始化当前可见条目{% else %}从 activated_at 开始{% endif %}</dd></div>
+            <div><dt>最近运行</dt><dd>{% if feed.last_run_at %}{{ feed.last_run_at|date:"Y-m-d H:i:s" }} UTC{% else %}—{% endif %}</dd></div>
+            <div><dt>最近可信覆盖</dt><dd>{% if feed.trusted_coverage_end %}{{ feed.trusted_coverage_end|date:"Y-m-d H:i:s" }} UTC{% else %}—{% endif %}</dd></div>
+            <div><dt>最近检查</dt><dd><span class="run-status status-{{ feed.last_inspection_status }}">{{ feed.get_last_inspection_status_display }}</span></dd></div>
+            <div><dt>解析器</dt><dd>{{ feed.parser_version }}</dd></div>
         </dl>
-        <form method="post" action="{% url 'news_data:run' source.code %}" class="inline-collection-form">
+        <form method="post" action="{% url 'news_data:run' feed.code %}" class="inline-collection-form">
             {% csrf_token %}
-            <button class="primary-button" type="submit"{% if not source.enabled %} disabled{% endif %}>采集并检查此来源</button>
+            <button class="primary-button" type="submit"{% if not source.enabled or not feed.enabled %} disabled{% endif %}>采集并检查此栏目</button>
         </form>
     </article>
+    {% endfor %}
     {% empty %}<p class="empty-state">尚未初始化新闻来源。</p>{% endfor %}
 </section>
 
@@ -42,7 +44,7 @@
     <div class="table-scroll"><table class="runs-table news-runs-table"><thead><tr><th>来源 / 范围</th><th>状态</th><th>candidate / parsed / eligible</th><th>新增 / 更新 / 重复 / 无效</th><th>停止原因</th><th>CollectionRun → InspectionRun</th><th>原因与诊断</th></tr></thead><tbody>
     {% for run in recent_runs %}
     <tr>
-        <td><strong>{{ run.news_source.name }}</strong><br><span class="nowrap">{{ run.range_start|date:"Y-m-d H:i:s" }} → {{ run.range_end|date:"Y-m-d H:i:s" }} UTC</span></td>
+        <td><strong>{{ run.news_source.name }}{% if run.news_feed %} · {{ run.news_feed.name }}{% endif %}</strong><br><span class="nowrap">{{ run.range_start|date:"Y-m-d H:i:s" }} → {{ run.range_end|date:"Y-m-d H:i:s" }} UTC</span></td>
         <td><span class="run-status status-{{ run.status }}">{{ run.get_status_display }}</span>{% if run.display_inspection %}<br><span class="run-status status-{{ run.display_inspection.quality_status }}">{{ run.display_inspection.get_quality_status_display }}</span>{% endif %}</td>
         <td>{% if run.display_inspection %}{{ run.display_inspection.candidate_count }} / {{ run.display_inspection.parsed_count }} / {{ run.display_inspection.eligible_count }}{% else %}—{% endif %}{% if run.display_inspection and run.display_inspection.parsed_count == 0 %}<br><strong class="danger-text">零可解析内容</strong>{% elif run.display_inspection and run.display_inspection.inserted_count == 0 and run.display_inspection.updated_count == 0 %}<br><span class="success-text">可解析，零新增</span>{% endif %}</td>
         <td>{% if run.display_inspection %}{{ run.display_inspection.inserted_count }} / {{ run.display_inspection.updated_count }} / {{ run.display_inspection.duplicate_count }} / {{ run.display_inspection.invalid_count }}{% else %}—{% endif %}</td>

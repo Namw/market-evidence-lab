@@ -81,6 +81,7 @@ class NewsAnalysisResult(models.Model):
     class ClassificationStage(models.TextChoices):
         TITLE_RULE = "title_rule", "程序判断标题"
         TITLE_AI = "title_ai", "AI 判断标题"
+        SUMMARY_AI = "summary_ai", "AI 判断 RSS 摘要"
         CONTENT_AI = "content_ai", "AI 判断正文"
 
     class Method(models.TextChoices):

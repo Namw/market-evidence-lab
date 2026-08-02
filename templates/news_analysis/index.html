@@ -32,16 +32,20 @@
     </form>
     <div class="table-scroll">
         <table class="runs-table classification-results-table">
-            <thead><tr><th>ETH 结论</th><th>分类时间</th><th>来源</th><th>标题与正文摘要</th><th>判断阶段</th><th>操作</th></tr></thead>
+            <thead><tr><th>ETH 结论</th><th>分类时间</th><th>来源与权威</th><th>标题与摘要</th><th>判断阶段</th><th>操作</th></tr></thead>
             <tbody>
             {% for result in page %}
                 <tr>
                     <td><span class="conclusion-badge conclusion-{{ result.conclusion }}">{{ result.get_conclusion_display }}</span></td>
                     <td class="nowrap">{{ result.analyzed_at|date:"Y-m-d H:i" }}</td>
-                    <td>{{ result.news_record.source.name }}</td>
+                    <td class="classification-source-cell">
+                        <span>{{ result.news_record.source.name }}</span>
+                        <span class="authority-badge authority-{{ result.news_record.source.authority_level }}">权威：{{ result.news_record.source.get_authority_level_display }}</span>
+                        {% for feed in result.news_record.feeds.all %}<small>{{ feed.name }}</small>{% endfor %}
+                    </td>
                     <td class="classification-copy">
                         <strong>{{ result.news_record.title }}</strong>
-                        <p>{{ result.content_summary|default:result.news_record.summary|default:"暂无正文摘要"|truncatechars:180 }}</p>
+                        <p>{{ result.content_summary|default:result.news_record.summary|default:"暂无摘要"|truncatechars:180 }}</p>
                         <small>{{ result.rationale }}</small>
                     </td>
                     <td>{{ result.get_classification_stage_display }}</td>
@@ -71,7 +75,7 @@
         <div><span class="conclusion-badge" id="news-dialog-conclusion"></span><h2 id="news-dialog-title"></h2></div>
         <button class="dialog-close-button" type="button" data-dialog-close aria-label="关闭">×</button>
     </div>
-    <p class="news-content-status" id="news-content-status" aria-live="polite">正在连接新闻来源…</p>
+    <p class="news-content-status" id="news-content-status" aria-live="polite">正在读取可用的新闻内容…</p>
     <div class="news-content-body" id="news-content-body"></div>
     <div class="news-dialog-footer">
         <a class="primary-button" id="news-source-link" href="#" target="_blank" rel="noreferrer">打开新闻来源</a>

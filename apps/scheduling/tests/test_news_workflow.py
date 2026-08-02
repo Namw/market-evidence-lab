@@ -12,13 +12,14 @@ from apps.collection.models import CollectionRun
 from apps.inspection.models import NewsInspectionRun
 from apps.news_analysis.models import NewsAnalysisResult, NewsAnalysisRun
 from apps.news_analysis.tests.helpers import make_record
-from apps.news_data.models import NewsRawRecord, NewsSource
+from apps.news_data.models import NewsFeed, NewsRawRecord, NewsSource
 from apps.news_data.sources import (
     BINANCE_ANNOUNCEMENTS_CODE,
     ETHEREUM_FOUNDATION_CODE,
+    FEED_DEFINITIONS,
     SOURCE_DEFINITIONS,
 )
-from apps.scheduling.models import NewsWorkflowRun
+from apps.scheduling.models import NewsWorkflowFeedRun, NewsWorkflowRun
 from apps.scheduling.news_workflow import (
     NewsWorkflowAlreadyRunning,
     _create_news_workflow_run,
@@ -115,8 +116,13 @@ def analysis_run(
 
 @patch("apps.scheduling.news_workflow.run_news_analysis")
 @patch("apps.scheduling.news_workflow.inspect_news_collection")
-@patch("apps.scheduling.news_workflow.collect_news_source")
+@patch("apps.scheduling.news_workflow.collect_news_feed")
 class NewsWorkflowExecutionTests(TestCase):
+    def setUp(self):
+        NewsFeed.objects.exclude(
+            code__in=[ETHEREUM_FOUNDATION_CODE, BINANCE_ANNOUNCEMENTS_CODE]
+        ).update(enabled=False)
+
     def test_two_sources_and_analysis_succeed_with_correct_links(self, collect, inspect, analyze):
         ethereum = child_pipeline(ETHEREUM_FOUNDATION_CODE)
         binance = child_pipeline(BINANCE_ANNOUNCEMENTS_CODE, inserted=4, updated=5, skipped=6)
@@ -278,6 +284,9 @@ class NewsWorkflowExecutionTests(TestCase):
 
 class RealAnalysisIntegrationTests(TestCase):
     def setUp(self):
+        NewsFeed.objects.exclude(
+            code__in=[ETHEREUM_FOUNDATION_CODE, BINANCE_ANNOUNCEMENTS_CODE]
+        ).update(enabled=False)
         self.ethereum = child_pipeline(ETHEREUM_FOUNDATION_CODE)
         self.binance = child_pipeline(BINANCE_ANNOUNCEMENTS_CODE)
 
@@ -292,7 +301,7 @@ class RealAnalysisIntegrationTests(TestCase):
 
     @override_settings(NEWS_AI_API_KEY="")
     @patch("apps.scheduling.news_workflow.inspect_news_collection")
-    @patch("apps.scheduling.news_workflow.collect_news_source")
+    @patch("apps.scheduling.news_workflow.collect_news_feed")
     def test_deepseek_unconfigured_creates_linked_not_run_analysis(self, collect, inspect):
         collect.side_effect = self.collections
         inspect.side_effect = self.inspections
@@ -309,7 +318,7 @@ class RealAnalysisIntegrationTests(TestCase):
 
     @override_settings(NEWS_AI_API_KEY="")
     @patch("apps.scheduling.news_workflow.inspect_news_collection")
-    @patch("apps.scheduling.news_workflow.collect_news_source")
+    @patch("apps.scheduling.news_workflow.collect_news_feed")
     def test_zero_candidates_is_success_and_does_not_require_deepseek(self, collect, inspect):
         collect.side_effect = self.collections
         inspect.side_effect = self.inspections
@@ -323,7 +332,7 @@ class RealAnalysisIntegrationTests(TestCase):
 
     @override_settings(NEWS_AI_API_KEY="")
     @patch("apps.scheduling.news_workflow.inspect_news_collection")
-    @patch("apps.scheduling.news_workflow.collect_news_source")
+    @patch("apps.scheduling.news_workflow.collect_news_feed")
     def test_irrelevant_rule_item_is_processed_deleted_and_absent_later(self, collect, inspect):
         collect.side_effect = self.collections
         inspect.side_effect = self.inspections
@@ -342,7 +351,65 @@ class RealAnalysisIntegrationTests(TestCase):
         self.assertEqual(second.analysis_success_count, 0)
 
 
+class RegulatoryFeedWorkflowTests(TestCase):
+    @patch("apps.scheduling.news_workflow.run_news_analysis")
+    @patch("apps.scheduling.news_workflow.inspect_news_collection")
+    @patch("apps.scheduling.news_workflow.collect_news_feed")
+    def test_all_eight_feeds_share_one_workflow_and_keep_independent_steps(
+        self, collect, inspect, analyze
+    ):
+        def collect_step(feed_code, **kwargs):
+            feed = NewsFeed.objects.select_related("source").get(code=feed_code)
+            return CollectionRun.objects.create(
+                data_type=CollectionRun.DataType.NEWS,
+                news_source=feed.source,
+                news_feed=feed,
+                range_start=FIXED_NOW - timedelta(days=3),
+                range_end=FIXED_NOW,
+                trigger=CollectionRun.Trigger.MANUAL,
+                status=CollectionRun.Status.SUCCESS,
+                started_at=FIXED_NOW,
+                finished_at=FIXED_NOW,
+            )
+
+        def inspect_step(collection_run):
+            return NewsInspectionRun.objects.create(
+                source=collection_run.news_source,
+                feed=collection_run.news_feed,
+                range_start=collection_run.range_start,
+                range_end=collection_run.range_end,
+                trigger=NewsInspectionRun.Trigger.MANUAL,
+                status=NewsInspectionRun.Status.SUCCESS,
+                quality_status=NewsInspectionRun.QualityStatus.PASSED,
+                coverage_complete=True,
+                source_collection_run=collection_run,
+                started_at=FIXED_NOW,
+                finished_at=FIXED_NOW,
+            )
+
+        collect.side_effect = collect_step
+        inspect.side_effect = inspect_step
+        analyze.return_value = analysis_run()
+
+        run = execute_news_workflow(range_end=FIXED_NOW)
+
+        self.assertEqual(
+            [call.args[0] for call in collect.call_args_list],
+            list(FEED_DEFINITIONS),
+        )
+        self.assertEqual(
+            NewsWorkflowFeedRun.objects.filter(workflow_run=run).count(),
+            len(FEED_DEFINITIONS),
+        )
+        self.assertEqual(run.status, NewsWorkflowRun.Status.SUCCESS)
+
+
 class NewsScheduleTests(TestCase):
+    def setUp(self):
+        NewsFeed.objects.exclude(
+            code__in=[ETHEREUM_FOUNDATION_CODE, BINANCE_ANNOUNCEMENTS_CODE]
+        ).update(enabled=False)
+
     def test_due_schedule_claims_scheduled_run_and_advances_next_time(self):
         schedule = get_builtin_news_schedule()
         schedule.enabled = True
@@ -411,7 +478,7 @@ class NewsScheduleTests(TestCase):
 
     @patch("apps.scheduling.news_workflow.run_news_analysis")
     @patch("apps.scheduling.news_workflow.inspect_news_collection")
-    @patch("apps.scheduling.news_workflow.collect_news_source")
+    @patch("apps.scheduling.news_workflow.collect_news_feed")
     def test_due_scheduled_run_executes_complete_unified_workflow(
         self,
         collect,

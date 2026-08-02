@@ -2,10 +2,12 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
+import threading
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from email.utils import parsedate_to_datetime
-from time import sleep
+from time import monotonic, sleep
 from typing import Callable
 from xml.etree import ElementTree
 
@@ -46,6 +48,7 @@ class ParsedNewsItem:
     source_category: str
     source_tags: list[str]
     raw_payload: dict[str, object]
+    source_author: str = ""
 
 
 def parse_source_datetime(value: object) -> datetime:
@@ -69,6 +72,9 @@ def parse_source_datetime(value: object) -> datetime:
 
 
 class NewsRequestClient:
+    _rate_limit_lock = threading.Lock()
+    _last_request_by_key: dict[str, float] = {}
+
     def __init__(
         self,
         *,
@@ -76,14 +82,19 @@ class NewsRequestClient:
         max_retries: int = 2,
         http_client: httpx.Client | None = None,
         sleep_fn: Callable[[float], None] = sleep,
+        user_agent: str = "MarketEvidenceLab/1.0 jackywangcode@gmail.com",
+        rate_limit_key: str = "",
+        min_request_interval_seconds: float = 0,
     ) -> None:
         self.max_retries = max_retries
         self.sleep_fn = sleep_fn
+        self.rate_limit_key = rate_limit_key
+        self.min_request_interval_seconds = max(0, min_request_interval_seconds)
         self._owns_client = http_client is None
         self.http_client = http_client or httpx.Client(
             timeout=timeout_seconds,
             follow_redirects=True,
-            headers={"User-Agent": "Market-Evidence-Lab/1.0 (+read-only collector)"},
+            headers={"User-Agent": user_agent},
         )
         self.last_started_at: datetime | None = None
         self.last_finished_at: datetime | None = None
@@ -102,6 +113,7 @@ class NewsRequestClient:
         self.last_retry_count = 0
         self.last_response = None
         for attempt in range(self.max_retries + 1):
+            self._wait_for_rate_limit()
             self.last_request_count += 1
             try:
                 response = self.http_client.get(url, params=params)
@@ -136,6 +148,19 @@ class NewsRequestClient:
             )
         raise NewsCollectionError("来源请求在有限重试后失败。")
 
+    def _wait_for_rate_limit(self) -> None:
+        if not self.rate_limit_key or not self.min_request_interval_seconds:
+            return
+        with self._rate_limit_lock:
+            now = monotonic()
+            previous = self._last_request_by_key.get(self.rate_limit_key)
+            if previous is not None:
+                remaining = self.min_request_interval_seconds - (now - previous)
+                if remaining > 0:
+                    self.sleep_fn(remaining)
+                    now = monotonic()
+            self._last_request_by_key[self.rate_limit_key] = now
+
 
 def _local_name(tag: str) -> str:
     return tag.rsplit("}", 1)[-1].lower()
@@ -164,24 +189,43 @@ def _rss_raw_payload(item) -> dict[str, object]:
     return payload
 
 
-def parse_ethereum_feed(content: bytes) -> tuple[list[ParsedNewsItem], int]:
+_BARE_AMPERSAND = re.compile(
+    r"&(?!#\d+;|#x[0-9A-Fa-f]+;|[A-Za-z][A-Za-z0-9]+;)"
+)
+_INVALID_XML_CONTROL = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f]")
+
+
+def _recover_xml(content: bytes) -> tuple[ElementTree.Element, bool]:
     try:
-        root = ElementTree.fromstring(content)
-    except ElementTree.ParseError as exc:
-        raise NewsCollectionError("Ethereum Foundation Feed XML 无法解析。", code="invalid_xml") from exc
+        return ElementTree.fromstring(content), False
+    except ElementTree.ParseError as first_error:
+        text = content.decode("utf-8", errors="replace")
+        repaired = _INVALID_XML_CONTROL.sub("", _BARE_AMPERSAND.sub("&amp;", text))
+        try:
+            return ElementTree.fromstring(repaired.encode("utf-8")), True
+        except ElementTree.ParseError as exc:
+            raise NewsCollectionError(
+                "RSS / Atom XML 无法在有限容错后解析。", code="invalid_xml"
+            ) from first_error
+
+
+def parse_rss_feed(
+    content: bytes, *, feed_category: str = ""
+) -> tuple[list[ParsedNewsItem], int, bool]:
+    root, recovered = _recover_xml(content)
 
     root_name = _local_name(root.tag)
     if root_name == "rss":
         containers = [child for child in root if _local_name(child.tag) == "channel"]
         if not containers:
-            raise NewsCollectionError("Ethereum Foundation RSS 缺少 channel。", code="unknown_feed")
+            raise NewsCollectionError("RSS 缺少 channel。", code="unknown_feed")
         entries = [child for child in containers[0] if _local_name(child.tag) == "item"]
         mode = "rss"
     elif root_name == "feed":
         entries = [child for child in root if _local_name(child.tag) == "entry"]
         mode = "atom"
     else:
-        raise NewsCollectionError("Ethereum Foundation Feed 格式无法识别。", code="unknown_feed")
+        raise NewsCollectionError("RSS / Atom Feed 格式无法识别。", code="unknown_feed")
 
     parsed: list[ParsedNewsItem] = []
     invalid = 0
@@ -211,6 +255,7 @@ def parse_ethereum_feed(content: bytes) -> tuple[list[ParsedNewsItem], int]:
                 summary = _child_text(entry, "summary", "content")
             if not title or not link:
                 raise ValueError("missing title or link")
+            source_author = _child_text(entry, "creator", "author")
             categories = []
             for child in entry:
                 if _local_name(child.tag) != "category":
@@ -219,6 +264,7 @@ def parse_ethereum_feed(content: bytes) -> tuple[list[ParsedNewsItem], int]:
                 if category:
                     categories.append(category)
             published_at = parse_source_datetime(published_text)
+            tags = list(dict.fromkeys([*categories, feed_category] if feed_category else categories))
             parsed.append(
                 ParsedNewsItem(
                     source_item_id=source_item_id,
@@ -230,13 +276,19 @@ def parse_ethereum_feed(content: bytes) -> tuple[list[ParsedNewsItem], int]:
                         parse_source_datetime(updated_text) if updated_text else None
                     ),
                     language="en",
-                    source_category=categories[0] if categories else "",
-                    source_tags=categories,
+                    source_category=categories[0] if categories else feed_category,
+                    source_tags=tags,
                     raw_payload=_rss_raw_payload(entry),
+                    source_author=source_author,
                 )
             )
         except (TypeError, ValueError, OverflowError):
             invalid += 1
+    return parsed, invalid, recovered
+
+
+def parse_ethereum_feed(content: bytes) -> tuple[list[ParsedNewsItem], int]:
+    parsed, invalid, _ = parse_rss_feed(content)
     return parsed, invalid
 
 

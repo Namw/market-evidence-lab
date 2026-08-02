@@ -15,13 +15,20 @@ from apps.news_analysis.services import (
     AnalysisExecutionFailed,
     run_news_analysis,
 )
+from apps.news_data.models import NewsFeed
 from apps.news_data.sources import (
     BINANCE_ANNOUNCEMENTS_CODE,
     ETHEREUM_FOUNDATION_CODE,
+    FEED_DEFINITIONS,
 )
-from apps.news_data.services import collect_news_source
+from apps.news_data.services import collect_news_feed
 
-from .models import NewsWorkflowRun, NewsWorkflowSchedule, SCHEDULE_TIMEZONE
+from .models import (
+    NewsWorkflowFeedRun,
+    NewsWorkflowRun,
+    NewsWorkflowSchedule,
+    SCHEDULE_TIMEZONE,
+)
 from .services import calculate_next_run_at
 
 
@@ -89,6 +96,40 @@ def _save_progress(run: NewsWorkflowRun, *fields: str) -> None:
     run.save(update_fields=[*fields])
 
 
+LEGACY_FEED_FIELDS = {
+    ETHEREUM_FOUNDATION_CODE: "ethereum",
+    BINANCE_ANNOUNCEMENTS_CODE: "binance",
+}
+
+
+def _sync_legacy_feed_fields(
+    workflow_run: NewsWorkflowRun,
+    feed_code: str,
+    *,
+    collection_run=None,
+    collection_status: str | None = None,
+    inspection_run=None,
+    quality_status: str | None = None,
+) -> None:
+    prefix = LEGACY_FEED_FIELDS.get(feed_code)
+    if prefix is None:
+        return
+    fields = []
+    for suffix, value in (
+        ("collection_run", collection_run),
+        ("collection_status", collection_status),
+        ("inspection_run", inspection_run),
+        ("quality_status", quality_status),
+    ):
+        if value is None:
+            continue
+        field = f"{prefix}_{suffix}"
+        setattr(workflow_run, field, value)
+        fields.append(field)
+    if fields:
+        _save_progress(workflow_run, *fields)
+
+
 def execute_news_workflow(
     *,
     trigger: str = NewsWorkflowRun.Trigger.MANUAL,
@@ -120,53 +161,57 @@ def execute_news_workflow(
         except Exception:
             pass
 
-    source_steps = (
-        (
-            "ethereum",
-            ETHEREUM_FOUNDATION_CODE,
-            "Ethereum Foundation",
-        ),
-        (
-            "binance",
-            BINANCE_ANNOUNCEMENTS_CODE,
-            "Binance",
-        ),
+    feeds = list(
+        NewsFeed.objects.filter(enabled=True, source__enabled=True)
+        .select_related("source")
+        .order_by("source__code", "code")
     )
+    feed_order = {code: index for index, code in enumerate(FEED_DEFINITIONS)}
+    feeds.sort(key=lambda feed: feed_order.get(feed.code, len(feed_order)))
     collected_runs: dict[str, CollectionRun] = {}
-    for prefix, source_code, label in source_steps:
+    feed_steps: dict[str, NewsWorkflowFeedRun] = {}
+    for feed in feeds:
         beat()
-        collection_field = f"{prefix}_collection_run"
-        collection_status_field = f"{prefix}_collection_status"
-        quality_status_field = f"{prefix}_quality_status"
+        label = str(feed)
+        step, _ = NewsWorkflowFeedRun.objects.get_or_create(
+            workflow_run=workflow_run,
+            feed=feed,
+        )
+        feed_steps[feed.code] = step
         try:
-            collection_run = collect_news_source(
-                source_code,
+            collection_run = collect_news_feed(
+                feed.code,
                 trigger=workflow_run.trigger,
                 range_end=effective_end,
-                client=clients.get(source_code),
+                client=clients.get(feed.code) or clients.get(feed.source.code),
             )
         except Exception as exc:
-            setattr(
-                workflow_run,
-                collection_status_field,
-                NewsWorkflowRun.StepStatus.FAILED,
-            )
-            setattr(
-                workflow_run,
-                quality_status_field,
-                NewsWorkflowRun.QualityStatus.NOT_RUN,
+            step.collection_status = NewsWorkflowRun.StepStatus.FAILED
+            step.quality_status = NewsWorkflowRun.QualityStatus.NOT_RUN
+            step.safe_error_summary = _safe_exception(exc, f"{label} collection")
+            step.save(
+                update_fields=[
+                    "collection_status",
+                    "quality_status",
+                    "safe_error_summary",
+                    "updated_at",
+                ]
             )
             safe_errors.append(_safe_exception(exc, f"{label} collection"))
-            _save_progress(
+            _sync_legacy_feed_fields(
                 workflow_run,
-                collection_status_field,
-                quality_status_field,
+                feed.code,
+                collection_status=NewsWorkflowRun.StepStatus.FAILED,
+                quality_status=NewsWorkflowRun.QualityStatus.NOT_RUN,
             )
             continue
 
-        collected_runs[prefix] = collection_run
-        setattr(workflow_run, collection_field, collection_run)
-        setattr(workflow_run, collection_status_field, collection_run.status)
+        collected_runs[feed.code] = collection_run
+        step.collection_run = collection_run
+        step.collection_status = collection_run.status
+        step.save(
+            update_fields=["collection_run", "collection_status", "updated_at"]
+        )
         workflow_run.inserted_count += collection_run.inserted_count
         workflow_run.updated_count += collection_run.updated_count
         workflow_run.skipped_count += collection_run.skipped_count
@@ -175,36 +220,42 @@ def execute_news_workflow(
                 _status_summary(label, collection_run.pk, collection_run.status)
             )
         _save_progress(
+            workflow_run, "inserted_count", "updated_count", "skipped_count"
+        )
+        _sync_legacy_feed_fields(
             workflow_run,
-            collection_field,
-            collection_status_field,
-            "inserted_count",
-            "updated_count",
-            "skipped_count",
+            feed.code,
+            collection_run=collection_run,
+            collection_status=collection_run.status,
         )
         beat()
 
-    for prefix, source_code, label in source_steps:
-        inspection_field = f"{prefix}_inspection_run"
-        quality_status_field = f"{prefix}_quality_status"
-        collection_run = collected_runs.get(prefix)
+    for feed in feeds:
+        label = str(feed)
+        step = feed_steps[feed.code]
+        collection_run = collected_runs.get(feed.code)
         if collection_run is None:
             continue
         beat()
         try:
             inspection_run = inspect_news_collection(collection_run)
         except Exception as exc:
-            setattr(
-                workflow_run,
-                quality_status_field,
-                NewsWorkflowRun.QualityStatus.FAILED,
+            step.quality_status = NewsWorkflowRun.QualityStatus.FAILED
+            step.safe_error_summary = _safe_exception(exc, f"{label} inspection")
+            step.save(
+                update_fields=["quality_status", "safe_error_summary", "updated_at"]
             )
             safe_errors.append(_safe_exception(exc, f"{label} inspection"))
-            _save_progress(workflow_run, quality_status_field)
+            _sync_legacy_feed_fields(
+                workflow_run,
+                feed.code,
+                quality_status=NewsWorkflowRun.QualityStatus.FAILED,
+            )
             continue
 
-        setattr(workflow_run, inspection_field, inspection_run)
-        setattr(workflow_run, quality_status_field, inspection_run.quality_status)
+        step.inspection_run = inspection_run
+        step.quality_status = inspection_run.quality_status
+        step.save(update_fields=["inspection_run", "quality_status", "updated_at"])
         workflow_run.quality_issue_count += _quality_issue_count(inspection_run)
         if inspection_run.status != NewsInspectionRun.Status.SUCCESS:
             safe_errors.append(
@@ -222,11 +273,12 @@ def execute_news_workflow(
                     inspection_run.quality_status,
                 )
             )
-        _save_progress(
+        _save_progress(workflow_run, "quality_issue_count")
+        _sync_legacy_feed_fields(
             workflow_run,
-            inspection_field,
-            quality_status_field,
-            "quality_issue_count",
+            feed.code,
+            inspection_run=inspection_run,
+            quality_status=inspection_run.quality_status,
         )
 
     beat()
@@ -274,25 +326,27 @@ def execute_news_workflow(
         "analysis_skipped_count",
     )
 
-    collection_statuses = {
-        workflow_run.ethereum_collection_status,
-        workflow_run.binance_collection_status,
-    }
+    collection_statuses = [step.collection_status for step in feed_steps.values()]
+    quality_statuses = [step.quality_status for step in feed_steps.values()]
     all_normal = (
-        collection_statuses == {NewsWorkflowRun.StepStatus.SUCCESS}
-        and workflow_run.ethereum_quality_status
-        == NewsWorkflowRun.QualityStatus.PASSED
-        and workflow_run.binance_quality_status
-        == NewsWorkflowRun.QualityStatus.PASSED
+        bool(collection_statuses)
+        and all(
+            status == NewsWorkflowRun.StepStatus.SUCCESS
+            for status in collection_statuses
+        )
+        and all(
+            status == NewsWorkflowRun.QualityStatus.PASSED
+            for status in quality_statuses
+        )
         and workflow_run.analysis_status == NewsWorkflowRun.StepStatus.SUCCESS
     )
-    both_collections_failed = collection_statuses == {
-        NewsWorkflowRun.StepStatus.FAILED
-    }
+    all_collections_failed = bool(collection_statuses) and all(
+        status == NewsWorkflowRun.StepStatus.FAILED for status in collection_statuses
+    )
     analysis_made_progress = workflow_run.analysis_success_count > 0
     if all_normal:
         workflow_run.status = NewsWorkflowRun.Status.SUCCESS
-    elif both_collections_failed and not analysis_made_progress:
+    elif all_collections_failed and not analysis_made_progress:
         workflow_run.status = NewsWorkflowRun.Status.FAILED
     else:
         workflow_run.status = NewsWorkflowRun.Status.PARTIAL

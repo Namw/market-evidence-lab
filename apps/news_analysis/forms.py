@@ -16,6 +16,11 @@ class NewsClassificationFilterForm(forms.Form):
         required=False,
         empty_label="全部来源",
     )
+    authority_level = forms.ChoiceField(
+        label="来源权威",
+        choices=_with_blank(NewsSource.AuthorityLevel.choices, "全部等级"),
+        required=False,
+    )
     conclusion = forms.ChoiceField(
         label="ETH 结论",
         choices=_with_blank(

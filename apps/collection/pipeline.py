@@ -10,7 +10,7 @@ from apps.inspection.models import (
     NewsInspectionRun,
 )
 from apps.inspection.news import inspect_news_collection
-from apps.news_data.services import collect_news_source
+from apps.news_data.services import collect_news_feed, collect_news_source
 from apps.inspection.services import (
     inspect_funding_rates,
     inspect_klines,
@@ -38,18 +38,20 @@ def collect_and_inspect(
     interval: str | None = None,
     client=None,
     source_code: str | None = None,
+    feed_code: str | None = None,
     safety_page_limit: int | None = None,
     between_steps_callback: Callable[[], None] | None = None,
 ) -> CollectionInspectionResult:
     """Run one raw collection and inspect the exact effective persisted range."""
     if data_type == CollectionRun.DataType.NEWS:
-        if not source_code:
-            raise ValueError("A news source code is required.")
+        if not source_code and not feed_code:
+            raise ValueError("A news source or feed code is required.")
         kwargs = {}
         if safety_page_limit is not None:
             kwargs["safety_page_limit"] = safety_page_limit
-        collection_run = collect_news_source(
-            source_code,
+        collector = collect_news_feed if feed_code else collect_news_source
+        collection_run = collector(
+            feed_code or source_code,
             trigger=trigger,
             range_end=range_end,
             client=client,

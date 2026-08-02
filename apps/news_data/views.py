@@ -9,15 +9,15 @@ from apps.collection.models import CollectionRun
 from apps.collection.pipeline import collect_and_inspect
 from apps.inspection.models import NewsInspectionRun
 
-from .models import NewsCollectionDiagnostic, NewsRawRecord, NewsSource
+from .models import NewsCollectionDiagnostic, NewsFeed, NewsRawRecord, NewsSource
 
 
 @require_GET
 def news_collection(request):
-    sources = list(NewsSource.objects.all())
+    sources = list(NewsSource.objects.prefetch_related("feeds"))
     recent_runs = list(
         CollectionRun.objects.filter(data_type=CollectionRun.DataType.NEWS)
-        .select_related("news_source")
+        .select_related("news_source", "news_feed")
         .prefetch_related(
             Prefetch(
                 "news_diagnostics",
@@ -52,11 +52,16 @@ def news_collection(request):
 
 
 @require_POST
-def run_news_collection(request, source_code: str):
-    source = get_object_or_404(NewsSource, code=source_code, enabled=True)
+def run_news_collection(request, feed_code: str):
+    feed = get_object_or_404(
+        NewsFeed.objects.select_related("source"),
+        code=feed_code,
+        enabled=True,
+        source__enabled=True,
+    )
     result = collect_and_inspect(
         data_type=CollectionRun.DataType.NEWS,
-        source_code=source.code,
+        feed_code=feed.code,
         trigger=CollectionRun.Trigger.MANUAL,
     )
     inspection = result.inspection_run
@@ -64,18 +69,18 @@ def run_news_collection(request, source_code: str):
         if inspection.inserted_count == 0 and inspection.updated_count == 0:
             messages.success(
                 request,
-                f"{source.name} 采集与检查通过：来源有可解析内容，本次零新增。",
+                f"{feed} 采集与检查通过：来源有可解析内容，本次零新增。",
             )
         else:
-            messages.success(request, f"{source.name} 采集与检查通过。")
+            messages.success(request, f"{feed} 采集与检查通过。")
     elif inspection.quality_status == NewsInspectionRun.QualityStatus.WARNING:
         messages.warning(
             request,
-            f"{source.name} 覆盖完整但存在警告；可信水位已按规则推进。",
+            f"{feed} 覆盖完整但存在警告；可信水位已按规则推进。",
         )
     else:
         messages.error(
             request,
-            f"{source.name} 本次检查失败，可信水位未推进。",
+            f"{feed} 本次检查失败，可信水位未推进。",
         )
     return redirect("news_data:index")

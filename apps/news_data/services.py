@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
+from django.conf import settings
 from django.db import transaction
 from django.utils import timezone
 
@@ -19,8 +20,15 @@ from .collectors import (
     parse_binance_articles,
     parse_binance_page,
     parse_ethereum_feed,
+    parse_rss_feed,
 )
-from .models import NewsCollectionDiagnostic, NewsRawRecord, NewsSource
+from .models import (
+    NewsCollectionDiagnostic,
+    NewsFeed,
+    NewsRawRecord,
+    NewsRecordFeed,
+    NewsSource,
+)
 from .sources import (
     BINANCE_ARTICLE_PATH,
     BINANCE_LIST_PARAMS,
@@ -29,6 +37,8 @@ from .sources import (
     BINANCE_ANNOUNCEMENTS_CODE,
     COLLECTION_OVERLAP_DAYS,
     ETHEREUM_FOUNDATION_CODE,
+    FEED_DEFINITIONS,
+    SEC_FEED_CODES,
     SOURCE_DEFINITIONS,
     TRACKING_QUERY_PARAMETERS,
 )
@@ -100,6 +110,7 @@ def _content_hash(item: ParsedNewsItem, canonical_url: str) -> str:
                 "language": item.language,
                 "source_category": item.source_category,
                 "source_tags": item.source_tags,
+                "source_author": item.source_author,
                 "raw_payload": item.raw_payload,
             }
         )
@@ -108,7 +119,12 @@ def _content_hash(item: ParsedNewsItem, canonical_url: str) -> str:
 
 @transaction.atomic
 def save_news_item(
-    *, source: NewsSource, item: ParsedNewsItem, run: CollectionRun, seen_at: datetime
+    *,
+    source: NewsSource,
+    item: ParsedNewsItem,
+    run: CollectionRun,
+    seen_at: datetime,
+    feed: NewsFeed | None = None,
 ) -> SaveCounts:
     canonical_url = normalize_url(item.original_url)
     identity_hash = _identity_hash(item, canonical_url)
@@ -144,12 +160,13 @@ def save_news_item(
         "language": item.language,
         "source_category": item.source_category,
         "source_tags": item.source_tags,
+        "source_author": item.source_author,
         "identity_hash": identity_hash,
         "content_hash": content_hash,
         "raw_payload": item.raw_payload,
     }
     if record is None:
-        NewsRawRecord.objects.create(
+        record = NewsRawRecord.objects.create(
             source=source,
             **values,
             first_seen_at=seen_at,
@@ -157,6 +174,15 @@ def save_news_item(
             first_collection_run=run,
             last_collection_run=run,
         )
+        if feed is not None:
+            NewsRecordFeed.objects.create(
+                news_record=record,
+                feed=feed,
+                first_seen_at=seen_at,
+                last_seen_at=seen_at,
+                first_collection_run=run,
+                last_collection_run=run,
+            )
         return SaveCounts(inserted=1)
 
     changed = any(getattr(record, key) != value for key, value in values.items())
@@ -166,18 +192,35 @@ def save_news_item(
     record.last_collection_run = run
     update_fields = [*values, "last_seen_at", "last_collection_run", "updated_at"]
     record.save(update_fields=update_fields)
+    if feed is not None:
+        membership, created = NewsRecordFeed.objects.get_or_create(
+            news_record=record,
+            feed=feed,
+            defaults={
+                "first_seen_at": seen_at,
+                "last_seen_at": seen_at,
+                "first_collection_run": run,
+                "last_collection_run": run,
+            },
+        )
+        if not created:
+            membership.last_seen_at = seen_at
+            membership.last_collection_run = run
+            membership.save(update_fields=["last_seen_at", "last_collection_run"])
     return SaveCounts(updated=1) if changed else SaveCounts(duplicate=1)
 
 
-def collection_window(source: NewsSource, range_end: datetime) -> tuple[datetime, datetime]:
+def collection_window(
+    source_or_feed: NewsSource | NewsFeed, range_end: datetime
+) -> tuple[datetime, datetime]:
     if timezone.is_naive(range_end):
         raise ValueError("range_end must be timezone-aware")
-    if source.trusted_coverage_end:
-        overlap_start = source.trusted_coverage_end - timedelta(
+    if source_or_feed.trusted_coverage_end:
+        overlap_start = source_or_feed.trusted_coverage_end - timedelta(
             days=COLLECTION_OVERLAP_DAYS
         )
-        return max(source.activated_at, overlap_start), range_end
-    return source.activated_at, range_end
+        return max(source_or_feed.activated_at, overlap_start), range_end
+    return source_or_feed.activated_at, range_end
 
 
 def _diagnostic_response_fields(fetch: FetchResult | None, client: NewsRequestClient):
@@ -204,6 +247,7 @@ def _create_diagnostic(
     *,
     run: CollectionRun,
     source: NewsSource,
+    feed: NewsFeed | None,
     unit_type: str,
     unit_identifier: str,
     client: NewsRequestClient,
@@ -214,30 +258,38 @@ def _create_diagnostic(
     return NewsCollectionDiagnostic.objects.create(
         collection_run=run,
         source=source,
+        feed=feed,
         unit_type=unit_type,
         unit_identifier=unit_identifier,
         range_start=run.range_start,
         range_end=run.range_end,
-        parser_version=source.parser_version,
+        parser_version=feed.parser_version if feed else source.parser_version,
         page_number=page_number,
         **_diagnostic_response_fields(fetch, client),
         **values,
     )
 
 
-def _collect_ethereum(
-    run: CollectionRun, source: NewsSource, client: NewsRequestClient
+def _collect_rss(
+    run: CollectionRun,
+    source: NewsSource,
+    feed: NewsFeed,
+    client: NewsRequestClient,
 ) -> None:
     fetch = None
     try:
-        fetch = client.get(source.feed_url)
-        parsed, invalid = parse_ethereum_feed(fetch.response.content)
+        fetch = client.get(feed.feed_url)
+        parsed, invalid, recovered = parse_rss_feed(
+            fetch.response.content,
+            feed_category=feed.name,
+        )
         if not parsed:
             _create_diagnostic(
                 run=run,
                 source=source,
+                feed=feed,
                 unit_type=NewsCollectionDiagnostic.UnitType.FEED,
-                unit_identifier="ethereum_foundation_feed",
+                unit_identifier=feed.code,
                 client=client,
                 fetch=fetch,
                 candidate_count=invalid,
@@ -252,12 +304,23 @@ def _collect_ethereum(
         eligible = [
             item
             for item in parsed
-            if run.range_start <= item.published_at < run.range_end
+            if (
+                feed.bootstrap_visible_items
+                and feed.trusted_coverage_end is None
+                and item.published_at < run.range_end
+            )
+            or run.range_start <= item.published_at < run.range_end
         ]
         counts = SaveCounts()
         seen_at = timezone.now()
         for item in eligible:
-            counts += save_news_item(source=source, item=item, run=run, seen_at=seen_at)
+            counts += save_news_item(
+                source=source,
+                feed=feed,
+                item=item,
+                run=run,
+                seen_at=seen_at,
+            )
         published = [item.published_at for item in parsed]
         history_limited = min(published) > run.range_start
         stop_reason = (
@@ -268,8 +331,9 @@ def _collect_ethereum(
         _create_diagnostic(
             run=run,
             source=source,
+            feed=feed,
             unit_type=NewsCollectionDiagnostic.UnitType.FEED,
-            unit_identifier="ethereum_foundation_feed",
+            unit_identifier=feed.code,
             client=client,
             fetch=fetch,
             candidate_count=len(parsed) + invalid,
@@ -283,14 +347,21 @@ def _collect_ethereum(
             latest_published_at=max(published),
             stop_reason=stop_reason,
             coverage_complete=True,
+            details={"xml_recovered": recovered},
+            error_summary=(
+                "Feed XML 含有可恢复的格式问题，已完成有限容错解析。"
+                if recovered
+                else ""
+            ),
         )
     except NewsCollectionError as exc:
         if not NewsCollectionDiagnostic.objects.filter(collection_run=run).exists():
             _create_diagnostic(
                 run=run,
                 source=source,
+                feed=feed,
                 unit_type=NewsCollectionDiagnostic.UnitType.FEED,
-                unit_identifier="ethereum_foundation_feed",
+                unit_identifier=feed.code,
                 client=client,
                 fetch=fetch,
                 stop_reason=NewsCollectionDiagnostic.StopReason.REQUEST_FAILED,
@@ -303,6 +374,7 @@ def _collect_ethereum(
 def _collect_binance(
     run: CollectionRun,
     source: NewsSource,
+    feed: NewsFeed,
     client: NewsRequestClient,
     *,
     safety_page_limit: int,
@@ -314,7 +386,7 @@ def _collect_binance(
         fetch = None
         try:
             params = {**BINANCE_LIST_PARAMS, "pageNo": page_number}
-            fetch = client.get(source.feed_url, params=params)
+            fetch = client.get(feed.feed_url, params=params)
             if "login" in str(fetch.response.url).lower():
                 raise NewsCollectionError("Binance 请求被重定向到登录页。", code="login_page")
             catalogs = parse_binance_page(fetch.response.content)
@@ -350,7 +422,11 @@ def _collect_binance(
             seen_at = timezone.now()
             for item in eligible:
                 counts += save_news_item(
-                    source=source, item=item, run=run, seen_at=seen_at
+                    source=source,
+                    feed=feed,
+                    item=item,
+                    run=run,
+                    seen_at=seen_at,
                 )
 
             by_catalog: dict[str, list[ParsedNewsItem]] = {}
@@ -395,6 +471,7 @@ def _collect_binance(
             _create_diagnostic(
                 run=run,
                 source=source,
+                feed=feed,
                 unit_type=NewsCollectionDiagnostic.UnitType.PAGE,
                 unit_identifier=f"binance_page_{page_number}",
                 client=client,
@@ -423,6 +500,7 @@ def _collect_binance(
             _create_diagnostic(
                 run=run,
                 source=source,
+                feed=feed,
                 unit_type=NewsCollectionDiagnostic.UnitType.PAGE,
                 unit_identifier=f"binance_page_{page_number}",
                 client=client,
@@ -453,26 +531,41 @@ def _collect_binance(
     )
 
 
-def collect_news_source(
-    source_code: str,
+def _default_request_client(feed: NewsFeed) -> NewsRequestClient:
+    if feed.code in SEC_FEED_CODES:
+        return NewsRequestClient(
+            user_agent=settings.SEC_NEWS_USER_AGENT,
+            rate_limit_key="sec.gov",
+            min_request_interval_seconds=settings.SEC_NEWS_MIN_REQUEST_INTERVAL_SECONDS,
+        )
+    return NewsRequestClient(user_agent=settings.NEWS_COLLECTOR_USER_AGENT)
+
+
+def collect_news_feed(
+    feed_code: str,
     *,
     trigger: str = CollectionRun.Trigger.MANUAL,
     range_end: datetime | None = None,
     client: NewsRequestClient | None = None,
     safety_page_limit: int = BINANCE_SAFETY_PAGE_LIMIT,
 ) -> CollectionRun:
-    source = NewsSource.objects.get(code=source_code)
+    feed = NewsFeed.objects.select_related("source").get(code=feed_code)
+    source = feed.source
     if not source.enabled:
-        raise ValueError(f"News source is disabled: {source_code}")
-    if source_code not in SOURCE_DEFINITIONS:
-        raise ValueError(f"Unsupported news source: {source_code}")
+        raise ValueError(f"News source is disabled: {source.code}")
+    if not feed.enabled:
+        raise ValueError(f"News feed is disabled: {feed_code}")
+    definition = FEED_DEFINITIONS.get(feed_code)
+    if definition is None:
+        raise ValueError(f"Unsupported news feed: {feed_code}")
     range_end = range_end or timezone.now()
-    range_start, range_end = collection_window(source, range_end)
+    range_start, range_end = collection_window(feed, range_end)
     if range_start >= range_end:
         raise ValueError("News collection range must be positive.")
     run = CollectionRun.objects.create(
         data_type=CollectionRun.DataType.NEWS,
         news_source=source,
+        news_feed=feed,
         exchange="",
         market_type="",
         symbol="",
@@ -483,15 +576,16 @@ def collect_news_source(
         status=CollectionRun.Status.RUNNING,
         started_at=range_end,
     )
-    request_client = client or NewsRequestClient()
+    request_client = client or _default_request_client(feed)
     owns_client = client is None
     try:
-        if source_code == ETHEREUM_FOUNDATION_CODE:
-            _collect_ethereum(run, source, request_client)
-        elif source_code == BINANCE_ANNOUNCEMENTS_CODE:
+        if definition.collection_method == "rss":
+            _collect_rss(run, source, feed, request_client)
+        elif feed_code == BINANCE_ANNOUNCEMENTS_CODE:
             _collect_binance(
                 run,
                 source,
+                feed,
                 request_client,
                 safety_page_limit=safety_page_limit,
             )
@@ -533,3 +627,44 @@ def collect_news_source(
         if owns_client:
             request_client.close()
     return run
+
+
+def collect_news_source(
+    source_code: str,
+    *,
+    trigger: str = CollectionRun.Trigger.MANUAL,
+    range_end: datetime | None = None,
+    client: NewsRequestClient | None = None,
+    safety_page_limit: int = BINANCE_SAFETY_PAGE_LIMIT,
+) -> CollectionRun:
+    """Compatibility entry for sources that contain exactly one enabled feed."""
+    source = NewsSource.objects.get(code=source_code)
+    feeds = list(source.feeds.filter(enabled=True))
+    if len(feeds) != 1:
+        raise ValueError(
+            f"News source requires a feed-specific collection entry: {source_code}"
+        )
+    feed = feeds[0]
+    if feed.code == source.code:
+        legacy_fields = (
+            "activated_at",
+            "last_run_at",
+            "trusted_coverage_end",
+            "last_inspection_status",
+            "health_status",
+        )
+        changed = False
+        for field in legacy_fields:
+            value = getattr(source, field)
+            if getattr(feed, field) != value:
+                setattr(feed, field, value)
+                changed = True
+        if changed:
+            feed.save(update_fields=[*legacy_fields, "updated_at"])
+    return collect_news_feed(
+        feed.code,
+        trigger=trigger,
+        range_end=range_end,
+        client=client,
+        safety_page_limit=safety_page_limit,
+    )

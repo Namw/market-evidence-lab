@@ -45,6 +45,13 @@ class CollectionRun(models.Model):
         blank=True,
         related_name="collection_runs",
     )
+    news_feed = models.ForeignKey(
+        "news_data.NewsFeed",
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="collection_runs",
+    )
     range_start = models.DateTimeField()
     range_end = models.DateTimeField()
     trigger = models.CharField(
@@ -79,6 +86,11 @@ class CollectionRun(models.Model):
         ]
 
     def __str__(self) -> str:
+        if self.news_feed_id:
+            return (
+                f"{self.news_feed.code}:{self.status}:"
+                f"{self.started_at.isoformat()}"
+            )
         if self.news_source_id:
             return (
                 f"{self.news_source.code}:{self.status}:"

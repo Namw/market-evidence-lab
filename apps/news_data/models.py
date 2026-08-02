@@ -18,6 +18,11 @@ class NewsSource(models.Model):
         ETH_DIRECT = "eth_direct", "ETH 直接事实"
         CRYPTO_SYSTEMIC = "crypto_systemic", "加密市场系统性"
 
+    class AuthorityLevel(models.TextChoices):
+        HIGHEST = "highest", "最高"
+        MEDIUM = "medium", "中等"
+        GENERAL = "general", "一般"
+
     class InspectionStatus(models.TextChoices):
         NEVER_RUN = "never_run", "从未运行"
         PASSED = "passed", "通过"
@@ -40,6 +45,11 @@ class NewsSource(models.Model):
     )
     observation_scope = models.CharField(
         max_length=30, choices=ObservationScope.choices
+    )
+    authority_level = models.CharField(
+        max_length=20,
+        choices=AuthorityLevel.choices,
+        default=AuthorityLevel.GENERAL,
     )
     base_url = models.URLField(max_length=500)
     feed_url = models.URLField(max_length=500, blank=True)
@@ -91,6 +101,69 @@ class NewsSource(models.Model):
         return dict(self.HealthStatus.choices)[self.current_health_status]
 
 
+class NewsFeed(models.Model):
+    source = models.ForeignKey(
+        NewsSource, on_delete=models.PROTECT, related_name="feeds"
+    )
+    code = models.SlugField(max_length=100, unique=True)
+    name = models.CharField(max_length=160)
+    enabled = models.BooleanField(default=True)
+    activated_at = models.DateTimeField()
+    feed_url = models.URLField(max_length=500)
+    parser_version = models.CharField(max_length=80)
+    bootstrap_visible_items = models.BooleanField(default=False)
+    last_run_at = models.DateTimeField(null=True, blank=True)
+    trusted_coverage_end = models.DateTimeField(null=True, blank=True)
+    last_inspection_status = models.CharField(
+        max_length=20,
+        choices=NewsSource.InspectionStatus.choices,
+        default=NewsSource.InspectionStatus.NEVER_RUN,
+    )
+    health_status = models.CharField(
+        max_length=20,
+        choices=NewsSource.HealthStatus.choices,
+        default=NewsSource.HealthStatus.NEVER_RUN,
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["source__code", "code"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["source", "name"], name="news_feed_source_name_unique"
+            )
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.source.name} · {self.name}"
+
+    def health_at(self, now=None) -> str:
+        now = now or timezone.now()
+        if self.last_run_at is None:
+            return NewsSource.HealthStatus.NEVER_RUN
+        if self.last_inspection_status == NewsSource.InspectionStatus.FAILED:
+            return NewsSource.HealthStatus.BROKEN
+        reference = self.trusted_coverage_end or self.last_run_at
+        age = now - reference
+        if age > timedelta(hours=72):
+            return NewsSource.HealthStatus.BROKEN
+        if (
+            age > timedelta(hours=36)
+            or self.last_inspection_status == NewsSource.InspectionStatus.WARNING
+        ):
+            return NewsSource.HealthStatus.DEGRADED
+        return NewsSource.HealthStatus.HEALTHY
+
+    @property
+    def current_health_status(self) -> str:
+        return self.health_at()
+
+    @property
+    def current_health_status_display(self) -> str:
+        return dict(NewsSource.HealthStatus.choices)[self.current_health_status]
+
+
 class NewsRawRecord(models.Model):
     source = models.ForeignKey(
         NewsSource, on_delete=models.PROTECT, related_name="raw_records"
@@ -106,6 +179,10 @@ class NewsRawRecord(models.Model):
     language = models.CharField(max_length=20, default="en")
     source_category = models.CharField(max_length=255, blank=True)
     source_tags = models.JSONField(default=list)
+    source_author = models.TextField(blank=True)
+    feeds = models.ManyToManyField(
+        NewsFeed, through="NewsRecordFeed", related_name="raw_records"
+    )
     first_seen_at = models.DateTimeField()
     last_seen_at = models.DateTimeField()
     identity_hash = models.CharField(max_length=64)
@@ -155,6 +232,36 @@ class NewsRawRecord(models.Model):
         return f"{self.source.code}:{self.title[:80]}"
 
 
+class NewsRecordFeed(models.Model):
+    news_record = models.ForeignKey(
+        NewsRawRecord, on_delete=models.CASCADE, related_name="feed_memberships"
+    )
+    feed = models.ForeignKey(
+        NewsFeed, on_delete=models.PROTECT, related_name="record_memberships"
+    )
+    first_seen_at = models.DateTimeField()
+    last_seen_at = models.DateTimeField()
+    first_collection_run = models.ForeignKey(
+        "collection.CollectionRun",
+        on_delete=models.PROTECT,
+        related_name="first_seen_news_feed_memberships",
+    )
+    last_collection_run = models.ForeignKey(
+        "collection.CollectionRun",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="last_seen_news_feed_memberships",
+    )
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=["news_record", "feed"], name="news_record_feed_unique"
+            )
+        ]
+
+
 class NewsCollectionDiagnostic(models.Model):
     class UnitType(models.TextChoices):
         FEED = "feed", "Feed"
@@ -176,6 +283,13 @@ class NewsCollectionDiagnostic(models.Model):
     )
     source = models.ForeignKey(
         NewsSource, on_delete=models.PROTECT, related_name="diagnostics"
+    )
+    feed = models.ForeignKey(
+        NewsFeed,
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="diagnostics",
     )
     unit_type = models.CharField(max_length=20, choices=UnitType.choices)
     unit_identifier = models.CharField(max_length=255)
@@ -207,6 +321,7 @@ class NewsCollectionDiagnostic(models.Model):
     coverage_complete = models.BooleanField(default=False)
     error_code = models.CharField(max_length=80, blank=True)
     error_summary = models.TextField(blank=True)
+    details = models.JSONField(default=dict)
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:

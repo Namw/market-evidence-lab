@@ -92,7 +92,10 @@ def build_input_items(
             "published_at": record.published_at.isoformat(),
             "title": record.title,
         }
-        if stage == NewsAnalysisResult.ClassificationStage.CONTENT_AI:
+        if stage in {
+            NewsAnalysisResult.ClassificationStage.SUMMARY_AI,
+            NewsAnalysisResult.ClassificationStage.CONTENT_AI,
+        }:
             item["content"] = (contents or {}).get(record.id, "")[:MAX_CONTENT_LENGTH]
         items.append(item)
     return items
@@ -110,6 +113,11 @@ def build_request_payload(
         instruction = (
             "只根据标题判断。标题不能明确支持 bullish、bearish 或 irrelevant 时，"
             "必须返回 unclear；不要使用常识补全正文。"
+        )
+    elif stage == NewsAnalysisResult.ClassificationStage.SUMMARY_AI:
+        instruction = (
+            "结合标题和 RSS 摘要判断，不得假设或补全网页正文。摘要仍不足或影响混合时"
+            "返回 unclear。content_summary 用一句或两句中文概括 RSS 中的事件事实。"
         )
     elif stage == NewsAnalysisResult.ClassificationStage.CONTENT_AI:
         instruction = (

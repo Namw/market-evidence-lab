@@ -131,3 +131,15 @@ NEWS_AI_MAX_REQUESTS_PER_RUN = int(
 )
 NEWS_AI_ANALYSIS_VERSION = os.getenv("NEWS_AI_ANALYSIS_VERSION", "news-eth-v2")
 NEWS_AI_PROMPT_VERSION = os.getenv("NEWS_AI_PROMPT_VERSION", "news-eth-direction-v2")
+
+NEWS_COLLECTOR_USER_AGENT = os.getenv(
+    "NEWS_COLLECTOR_USER_AGENT",
+    "MarketEvidenceLab/1.0 jackywangcode@gmail.com",
+)
+SEC_NEWS_USER_AGENT = os.getenv(
+    "SEC_NEWS_USER_AGENT",
+    "MarketEvidenceLab/1.0 jackywangcode@gmail.com",
+)
+SEC_NEWS_MIN_REQUEST_INTERVAL_SECONDS = float(
+    os.getenv("SEC_NEWS_MIN_REQUEST_INTERVAL_SECONDS", "1.0")
+)

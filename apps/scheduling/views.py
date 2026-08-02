@@ -11,6 +11,7 @@ from django.views.decorators.http import require_http_methods
 
 from apps.collection.models import CollectionRun
 from apps.inspection.models import DerivativesInspectionRun, KlineInspectionRun
+from apps.news_data.models import NewsFeed
 
 from .forms import KlineScheduleForm, NewsWorkflowScheduleForm
 from .models import NewsWorkflowRun, SCHEDULE_TIMEZONE, WorkflowRun
@@ -307,6 +308,9 @@ def schedule_index(request):
         "run_token": _new_run_token(request, RUN_TOKEN_SESSION_KEY),
         "news_run_token": _new_run_token(request, NEWS_RUN_TOKEN_SESSION_KEY),
         "open_dialog": open_dialog,
+        "news_feeds": NewsFeed.objects.filter(
+            enabled=True, source__enabled=True
+        ).select_related("source"),
     }
     return render(request, "scheduling/index.html", context)
 
@@ -387,6 +391,10 @@ def schedule_run_detail(request, run_kind: str, run_id: int):
                 "ethereum_inspection_run",
                 "binance_inspection_run",
                 "analysis_run",
+            ).prefetch_related(
+                "feed_steps__feed__source",
+                "feed_steps__collection_run",
+                "feed_steps__inspection_run",
             ),
             pk=run_id,
         )
@@ -394,6 +402,7 @@ def schedule_run_detail(request, run_kind: str, run_id: int):
             "run_kind": run_kind,
             "run": run,
             "summary": _news_workflow_summary(run),
+            "news_feed_steps": run.feed_steps.all(),
         }
     else:
         raise Http404("未知的调度任务类型")

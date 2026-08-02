@@ -279,3 +279,53 @@ class NewsWorkflowRun(models.Model):
 
     def __str__(self) -> str:
         return f"{self.trigger}:{self.status}:{self.started_at.isoformat()}"
+
+
+class NewsWorkflowFeedRun(models.Model):
+    workflow_run = models.ForeignKey(
+        NewsWorkflowRun, on_delete=models.CASCADE, related_name="feed_steps"
+    )
+    feed = models.ForeignKey(
+        "news_data.NewsFeed",
+        on_delete=models.PROTECT,
+        related_name="workflow_steps",
+    )
+    collection_run = models.ForeignKey(
+        "collection.CollectionRun",
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="news_workflow_feed_steps",
+    )
+    collection_status = models.CharField(
+        max_length=20,
+        choices=NewsWorkflowRun.StepStatus.choices,
+        default=NewsWorkflowRun.StepStatus.PENDING,
+    )
+    inspection_run = models.ForeignKey(
+        "inspection.NewsInspectionRun",
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="news_workflow_feed_steps",
+    )
+    quality_status = models.CharField(
+        max_length=20,
+        choices=NewsWorkflowRun.QualityStatus.choices,
+        default=NewsWorkflowRun.QualityStatus.PENDING,
+    )
+    safe_error_summary = models.CharField(max_length=500, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["feed__source__code", "feed__code"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["workflow_run", "feed"],
+                name="news_workflow_feed_run_unique",
+            )
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.workflow_run_id}:{self.feed.code}:{self.collection_status}"

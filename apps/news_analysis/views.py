@@ -14,6 +14,7 @@ from .content import SourceContentError, fetch_source_article, summarize_article
 from .forms import NewsClassificationFilterForm
 from .models import NewsAnalysisResult, NewsAnalysisRun
 from .services import AnalysisAlreadyRunning, prune_expired_news, run_news_analysis
+from apps.news_data.sources import CFTC_CODE, SEC_CODE
 
 
 @require_GET
@@ -29,6 +30,7 @@ def news_observations(request):
         )
         .exclude(conclusion=NewsAnalysisResult.Conclusion.IRRELEVANT)
         .select_related("news_record__source", "analysis_run")
+        .prefetch_related("news_record__feeds")
     )
     range_label = "最近 3 天"
     if form.is_valid():
@@ -44,6 +46,12 @@ def news_observations(request):
             results = results.filter(analyzed_at__gte=recent_since)
         if form.cleaned_data.get("source"):
             results = results.filter(news_record__source=form.cleaned_data["source"])
+        if form.cleaned_data.get("authority_level"):
+            results = results.filter(
+                news_record__source__authority_level=form.cleaned_data[
+                    "authority_level"
+                ]
+            )
         if form.cleaned_data.get("conclusion"):
             results = results.filter(conclusion=form.cleaned_data["conclusion"])
         if form.cleaned_data.get("classification_stage"):
@@ -83,6 +91,16 @@ def result_content(request, result_id: int):
     )
     record = result.news_record
     source_url = record.original_url or record.canonical_url
+    if record.source.code in {SEC_CODE, CFTC_CODE}:
+        return JsonResponse(
+            {
+                "origin": "saved_summary",
+                "content": result.content_summary
+                or record.summary
+                or "RSS 暂未提供可显示的摘要。",
+                "source_url": source_url,
+            }
+        )
     try:
         article = fetch_source_article(record)
     except SourceContentError:

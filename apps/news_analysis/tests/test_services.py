@@ -7,6 +7,7 @@ from apps.news_analysis.ai import AIItem, BatchAnalysis, BatchAnalysisError, Tok
 from apps.news_analysis.models import NewsAnalysisResult, NewsAnalysisRun
 from apps.news_analysis.services import prune_expired_news, run_news_analysis
 from apps.news_data.models import NewsRawRecord
+from apps.news_data.sources import SEC_CODE
 
 from .helpers import make_record
 
@@ -20,7 +21,9 @@ class ScriptedClient:
     def analyze_batch(self, records, *, max_requests, stage, contents=None):
         self.calls.append((stage, [record.id for record in records], contents))
         conclusion = (
-            self.content_conclusion if stage == "content_ai" else self.title_conclusion
+            self.content_conclusion
+            if stage in {"content_ai", "summary_ai"}
+            else self.title_conclusion
         )
         items = tuple(
             AIItem(
@@ -83,6 +86,27 @@ class AnalysisServiceTests(TestCase):
         self.assertEqual(result.conclusion, "bearish")
         self.assertEqual(result.classification_stage, "content_ai")
         self.assertEqual(result.content_summary, "正文事件摘要。")
+
+    def test_sec_unclear_title_uses_saved_rss_summary_without_article_request(self):
+        record = make_record(
+            source_code=SEC_CODE,
+            title="SEC issues regulatory update",
+            summary="The SEC update concerns Ethereum market access.",
+        )
+        client = ScriptedClient(title="unclear", content="bearish")
+
+        def forbidden_loader(_record):
+            raise AssertionError("SEC V1 must not request article content")
+
+        run_news_analysis(client=client, article_loader=forbidden_loader)
+
+        result = NewsAnalysisResult.objects.get(news_record=record)
+        self.assertEqual([call[0] for call in client.calls], ["title_ai", "summary_ai"])
+        self.assertEqual(
+            client.calls[1][2][record.id],
+            "The SEC update concerns Ethereum market access.",
+        )
+        self.assertEqual(result.classification_stage, "summary_ai")
 
     def test_ai_irrelevant_result_deletes_raw_record(self):
         record = make_record(title="Other token reward event")

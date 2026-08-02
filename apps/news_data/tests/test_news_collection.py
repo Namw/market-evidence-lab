@@ -10,12 +10,18 @@ from django.test import TestCase
 from apps.collection.models import CollectionRun
 from apps.collection.pipeline import collect_and_inspect
 from apps.inspection.models import NewsInspectionRun
-from apps.news_data.collectors import NewsRequestClient, ParsedNewsItem
-from apps.news_data.models import NewsCollectionDiagnostic, NewsRawRecord, NewsSource
+from apps.news_data.collectors import NewsRequestClient, ParsedNewsItem, parse_rss_feed
+from apps.news_data.models import (
+    NewsCollectionDiagnostic,
+    NewsFeed,
+    NewsRawRecord,
+    NewsSource,
+)
 from apps.news_data.services import collection_window, save_news_item
 from apps.news_data.sources import (
     BINANCE_ANNOUNCEMENTS_CODE,
     ETHEREUM_FOUNDATION_CODE,
+    SEC_LITIGATION_RELEASES_CODE,
 )
 
 
@@ -205,6 +211,50 @@ class NewsCollectionTests(TestCase):
         self.assertEqual(result.collection_run.status, "failed")
         self.assertEqual(result.inspection_run.quality_status, "failed")
         self.assertIn("可解析", "".join(result.inspection_run.reasons))
+
+    def test_regulator_rss_recovers_bare_ampersand_and_bootstraps_visible_items(self):
+        feed = NewsFeed.objects.get(code=SEC_LITIGATION_RELEASES_CODE)
+        feed.activated_at = END - timedelta(minutes=1)
+        feed.trusted_coverage_end = None
+        feed.save(update_fields=["activated_at", "trusted_coverage_end"])
+        content = b"""<?xml version='1.0' encoding='utf-8'?>
+        <rss xmlns:dc='http://purl.org/dc/elements/1.1/' version='2.0'><channel>
+        <item><title>DJ&S Property enforcement</title>
+        <link>https://www.sec.gov/enforcement-litigation/litigation-releases/lr-1</link>
+        <description>Official summary</description>
+        <pubDate>Thu, 30 Jul 2026 09:53:38 -0400</pubDate>
+        <dc:creator>LR-1</dc:creator><guid>sec-lr-1</guid></item>
+        </channel></rss>"""
+
+        result = collect_and_inspect(
+            data_type="news",
+            feed_code=feed.code,
+            range_end=END,
+            client=request_client(response_for(content, "application/rss+xml")),
+        )
+
+        record = NewsRawRecord.objects.get(source_item_id="sec-lr-1")
+        self.assertEqual(record.source_author, "LR-1")
+        self.assertEqual(record.source_category, feed.name)
+        self.assertTrue(record.feeds.filter(pk=feed.pk).exists())
+        self.assertEqual(result.collection_run.inserted_count, 1)
+        self.assertEqual(result.inspection_run.quality_status, "warning")
+        self.assertTrue(
+            result.collection_run.news_diagnostics.get().details["xml_recovered"]
+        )
+
+    def test_generic_rss_parser_isolates_invalid_items(self):
+        content = b"""<rss version='2.0'><channel>
+        <item><title>Valid item</title><link>https://example.com/valid</link>
+        <pubDate>Thu, 30 Jul 2026 09:53:38 -0400</pubDate><guid>valid</guid></item>
+        <item><title>Missing publication date</title><link>https://example.com/bad</link></item>
+        </channel></rss>"""
+
+        parsed, invalid, recovered = parse_rss_feed(content, feed_category="新闻稿")
+
+        self.assertEqual([item.source_item_id for item in parsed], ["valid"])
+        self.assertEqual(invalid, 1)
+        self.assertFalse(recovered)
 
     def test_binance_paginates_until_older_than_boundary(self):
         pages = {

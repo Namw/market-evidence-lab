@@ -5,6 +5,15 @@ from dataclasses import dataclass
 
 ETHEREUM_FOUNDATION_CODE = "ethereum_foundation"
 BINANCE_ANNOUNCEMENTS_CODE = "binance_announcements"
+SEC_CODE = "sec"
+CFTC_CODE = "cftc"
+
+SEC_PRESS_RELEASES_CODE = "sec_press_releases"
+SEC_SPEECHES_STATEMENTS_CODE = "sec_speeches_statements"
+SEC_LITIGATION_RELEASES_CODE = "sec_litigation_releases"
+CFTC_GENERAL_PRESS_CODE = "cftc_general_press"
+CFTC_ENFORCEMENT_PRESS_CODE = "cftc_enforcement_press"
+CFTC_SPEECHES_TESTIMONY_CODE = "cftc_speeches_testimony"
 
 
 @dataclass(frozen=True, slots=True)
@@ -14,8 +23,19 @@ class SourceDefinition:
     collection_method: str
     observation_scope: str
     base_url: str
+    feed_url: str = ""
+    parser_version: str = "multi-feed-v1"
+
+
+@dataclass(frozen=True, slots=True)
+class FeedDefinition:
+    code: str
+    source_code: str
+    name: str
+    collection_method: str
     feed_url: str
     parser_version: str
+    bootstrap_visible_items: bool = False
 
 
 SOURCE_DEFINITIONS = {
@@ -26,7 +46,7 @@ SOURCE_DEFINITIONS = {
         observation_scope="eth_direct",
         base_url="https://blog.ethereum.org",
         feed_url="https://blog.ethereum.org/en/feed.xml",
-        parser_version="ef-rss-v1",
+        parser_version="generic-rss-v2",
     ),
     BINANCE_ANNOUNCEMENTS_CODE: SourceDefinition(
         code=BINANCE_ANNOUNCEMENTS_CODE,
@@ -34,11 +54,102 @@ SOURCE_DEFINITIONS = {
         collection_method="web",
         observation_scope="crypto_systemic",
         base_url="https://www.binance.com",
-        feed_url=(
-            "https://www.binance.com/bapi/composite/v1/public/cms/article/list/query"
-        ),
+        feed_url="https://www.binance.com/bapi/composite/v1/public/cms/article/list/query",
         parser_version="binance-cms-v1",
     ),
+    SEC_CODE: SourceDefinition(
+        code=SEC_CODE,
+        name="SEC RSS",
+        collection_method="rss",
+        observation_scope="crypto_systemic",
+        base_url="https://www.sec.gov",
+    ),
+    CFTC_CODE: SourceDefinition(
+        code=CFTC_CODE,
+        name="CFTC RSS",
+        collection_method="rss",
+        observation_scope="crypto_systemic",
+        base_url="https://www.cftc.gov",
+    ),
+}
+
+FEED_DEFINITIONS = {
+    ETHEREUM_FOUNDATION_CODE: FeedDefinition(
+        code=ETHEREUM_FOUNDATION_CODE,
+        source_code=ETHEREUM_FOUNDATION_CODE,
+        name="Blog RSS",
+        collection_method="rss",
+        feed_url="https://blog.ethereum.org/en/feed.xml",
+        parser_version="generic-rss-v2",
+    ),
+    BINANCE_ANNOUNCEMENTS_CODE: FeedDefinition(
+        code=BINANCE_ANNOUNCEMENTS_CODE,
+        source_code=BINANCE_ANNOUNCEMENTS_CODE,
+        name="官方公告",
+        collection_method="web",
+        feed_url="https://www.binance.com/bapi/composite/v1/public/cms/article/list/query",
+        parser_version="binance-cms-v1",
+    ),
+    SEC_PRESS_RELEASES_CODE: FeedDefinition(
+        code=SEC_PRESS_RELEASES_CODE,
+        source_code=SEC_CODE,
+        name="新闻稿",
+        collection_method="rss",
+        feed_url="https://www.sec.gov/news/pressreleases.rss",
+        parser_version="generic-rss-v2",
+        bootstrap_visible_items=True,
+    ),
+    SEC_SPEECHES_STATEMENTS_CODE: FeedDefinition(
+        code=SEC_SPEECHES_STATEMENTS_CODE,
+        source_code=SEC_CODE,
+        name="演讲与声明",
+        collection_method="rss",
+        feed_url="https://www.sec.gov/news/speeches-statements.rss",
+        parser_version="generic-rss-v2",
+        bootstrap_visible_items=True,
+    ),
+    SEC_LITIGATION_RELEASES_CODE: FeedDefinition(
+        code=SEC_LITIGATION_RELEASES_CODE,
+        source_code=SEC_CODE,
+        name="诉讼公告",
+        collection_method="rss",
+        feed_url="https://www.sec.gov/enforcement-litigation/litigation-releases/rss",
+        parser_version="generic-rss-v2",
+        bootstrap_visible_items=True,
+    ),
+    CFTC_GENERAL_PRESS_CODE: FeedDefinition(
+        code=CFTC_GENERAL_PRESS_CODE,
+        source_code=CFTC_CODE,
+        name="综合新闻稿",
+        collection_method="rss",
+        feed_url="https://www.cftc.gov/RSS/RSSGP/rssgp.xml",
+        parser_version="generic-rss-v2",
+        bootstrap_visible_items=True,
+    ),
+    CFTC_ENFORCEMENT_PRESS_CODE: FeedDefinition(
+        code=CFTC_ENFORCEMENT_PRESS_CODE,
+        source_code=CFTC_CODE,
+        name="执法新闻稿",
+        collection_method="rss",
+        feed_url="https://www.cftc.gov/RSS/RSSENF/rssenf.xml",
+        parser_version="generic-rss-v2",
+        bootstrap_visible_items=True,
+    ),
+    CFTC_SPEECHES_TESTIMONY_CODE: FeedDefinition(
+        code=CFTC_SPEECHES_TESTIMONY_CODE,
+        source_code=CFTC_CODE,
+        name="演讲与证词",
+        collection_method="rss",
+        feed_url="https://www.cftc.gov/RSS/RSSST/rssst.xml",
+        parser_version="generic-rss-v2",
+        bootstrap_visible_items=True,
+    ),
+}
+
+SEC_FEED_CODES = {
+    SEC_PRESS_RELEASES_CODE,
+    SEC_SPEECHES_STATEMENTS_CODE,
+    SEC_LITIGATION_RELEASES_CODE,
 }
 
 BINANCE_PAGE_SIZE = 20

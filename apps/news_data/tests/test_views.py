@@ -31,7 +31,7 @@ class NewsCollectionViewTests(TestCase):
 
         self.assertRedirects(response, reverse("news_data:index"))
         self.assertEqual(collect.call_args.kwargs["data_type"], "news")
-        self.assertEqual(collect.call_args.kwargs["source_code"], source.code)
+        self.assertEqual(collect.call_args.kwargs["feed_code"], source.code)
 
     def test_manual_entry_keeps_csrf_protection(self):
         source = NewsSource.objects.get(code="ethereum_foundation")

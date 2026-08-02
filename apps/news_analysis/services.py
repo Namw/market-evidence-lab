@@ -10,6 +10,7 @@ from django.db.models import Exists, OuterRef, Q, QuerySet
 from django.utils import timezone
 
 from apps.news_data.models import NewsRawRecord
+from apps.news_data.sources import CFTC_CODE, SEC_CODE
 
 from .ai import AIItem, BatchAnalysisError, DeepSeekNewsClient, TokenUsage
 from .content import ArticleContent, fetch_source_article, summarize_article_text
@@ -331,6 +332,22 @@ def _load_contents(
     return contents
 
 
+def _load_analysis_contents(
+    records: list[NewsRawRecord],
+    loader: Callable[[NewsRawRecord], ArticleContent | str],
+) -> dict[int, str]:
+    """Use only RSS summaries for regulator feeds; never request article bodies."""
+    regulator_records = [
+        record for record in records if record.source.code in {SEC_CODE, CFTC_CODE}
+    ]
+    article_records = [
+        record for record in records if record.source.code not in {SEC_CODE, CFTC_CODE}
+    ]
+    contents = {record.id: record.summary or "" for record in regulator_records}
+    contents.update(_load_contents(article_records, loader))
+    return contents
+
+
 def _summary_map(records: list[NewsRawRecord], contents: dict[int, str]) -> dict[int, str]:
     return {
         record.id: summarize_article_text(contents.get(record.id, "")) or record.summary
@@ -394,7 +411,7 @@ def run_news_analysis(
                 for record in records
                 if decisions[record.id].conclusion != NewsAnalysisResult.Conclusion.IRRELEVANT
             ]
-            contents = _load_contents(relevant, article_loader)
+            contents = _load_analysis_contents(relevant, article_loader)
             completed, skipped = _save_success_results(
                 run=run,
                 records=records,
@@ -469,7 +486,7 @@ def run_news_analysis(
                     for record in resolved
                     if decisions[record.id].conclusion != NewsAnalysisResult.Conclusion.IRRELEVANT
                 ]
-                contents = _load_contents(relevant, article_loader)
+                contents = _load_analysis_contents(relevant, article_loader)
                 if resolved:
                     completed, skipped = _save_success_results(
                         run=run,
@@ -486,60 +503,86 @@ def run_news_analysis(
             _sync_run(run)
 
         if not fatal_error:
-            for batch_index, records in enumerate(_chunks(content_records, config.batch_size)):
-                remaining_requests = config.max_requests_per_run - run.api_request_count
-                if remaining_requests <= 0:
-                    run.skipped_count += len(content_records[batch_index * config.batch_size :])
-                    run.safe_error_summary = "本次运行已达到 API 请求上限。"
-                    _sync_run(run)
-                    break
-                contents = _load_contents(records, article_loader)
-                run.ai_processed_count += len(records)
-                try:
-                    batch = ai_client.analyze_batch(
-                        records,
-                        max_requests=remaining_requests,
-                        stage=NewsAnalysisResult.ClassificationStage.CONTENT_AI,
-                        contents=contents,
-                    )
-                except BatchAnalysisError as exc:
-                    run.api_request_count += exc.request_count
-                    run.retry_count += exc.retry_count
-                    run.input_tokens += exc.usage.input_tokens
-                    run.output_tokens += exc.usage.output_tokens
-                    run.total_tokens += exc.usage.total_tokens
-                    saved, skipped = _save_failed_results(
-                        run=run,
-                        records=records,
-                        safe_summary=exc.safe_summary,
-                        usage=exc.usage,
-                    )
-                    run.failure_count += saved
-                    run.skipped_count += skipped
-                    run.safe_error_summary = exc.safe_summary
-                    fatal_error = exc.fatal
-                else:
-                    run.api_request_count += batch.request_count
-                    run.retry_count += batch.retry_count
-                    run.input_tokens += batch.usage.input_tokens
-                    run.output_tokens += batch.usage.output_tokens
-                    run.total_tokens += batch.usage.total_tokens
-                    decisions = {item.news_id: item for item in batch.items}
-                    completed, skipped = _save_success_results(
-                        run=run,
-                        records=records,
-                        decisions=decisions,
-                        stage=NewsAnalysisResult.ClassificationStage.CONTENT_AI,
-                        method=NewsAnalysisResult.Method.AI,
-                        summaries=_summary_map(records, contents),
-                        actual_model_name=batch.actual_model_name,
-                        usage=batch.usage,
-                    )
-                    run.success_count += completed
-                    run.skipped_count += skipped
-                _sync_run(run)
+            summary_records = [
+                record
+                for record in content_records
+                if record.source.code in {SEC_CODE, CFTC_CODE}
+            ]
+            article_records = [
+                record
+                for record in content_records
+                if record.source.code not in {SEC_CODE, CFTC_CODE}
+            ]
+            detail_groups = (
+                (NewsAnalysisResult.ClassificationStage.SUMMARY_AI, summary_records),
+                (NewsAnalysisResult.ClassificationStage.CONTENT_AI, article_records),
+            )
+            for detail_stage, detail_records in detail_groups:
                 if fatal_error:
                     break
+                for batch_index, records in enumerate(
+                    _chunks(detail_records, config.batch_size)
+                ):
+                    remaining_requests = config.max_requests_per_run - run.api_request_count
+                    if remaining_requests <= 0:
+                        run.skipped_count += len(
+                            detail_records[batch_index * config.batch_size :]
+                        )
+                        run.safe_error_summary = "本次运行已达到 API 请求上限。"
+                        _sync_run(run)
+                        break
+                    if detail_stage == NewsAnalysisResult.ClassificationStage.SUMMARY_AI:
+                        contents = {
+                            record.id: record.summary or "" for record in records
+                        }
+                    else:
+                        contents = _load_contents(records, article_loader)
+                    run.ai_processed_count += len(records)
+                    try:
+                        batch = ai_client.analyze_batch(
+                            records,
+                            max_requests=remaining_requests,
+                            stage=detail_stage,
+                            contents=contents,
+                        )
+                    except BatchAnalysisError as exc:
+                        run.api_request_count += exc.request_count
+                        run.retry_count += exc.retry_count
+                        run.input_tokens += exc.usage.input_tokens
+                        run.output_tokens += exc.usage.output_tokens
+                        run.total_tokens += exc.usage.total_tokens
+                        saved, skipped = _save_failed_results(
+                            run=run,
+                            records=records,
+                            safe_summary=exc.safe_summary,
+                            usage=exc.usage,
+                        )
+                        run.failure_count += saved
+                        run.skipped_count += skipped
+                        run.safe_error_summary = exc.safe_summary
+                        fatal_error = exc.fatal
+                    else:
+                        run.api_request_count += batch.request_count
+                        run.retry_count += batch.retry_count
+                        run.input_tokens += batch.usage.input_tokens
+                        run.output_tokens += batch.usage.output_tokens
+                        run.total_tokens += batch.usage.total_tokens
+                        decisions = {item.news_id: item for item in batch.items}
+                        completed, skipped = _save_success_results(
+                            run=run,
+                            records=records,
+                            decisions=decisions,
+                            stage=detail_stage,
+                            method=NewsAnalysisResult.Method.AI,
+                            summaries=_summary_map(records, contents),
+                            actual_model_name=batch.actual_model_name,
+                            usage=batch.usage,
+                        )
+                        run.success_count += completed
+                        run.skipped_count += skipped
+                    _sync_run(run)
+                    if fatal_error:
+                        break
 
         prune_expired_news()
         return _finish_run(run)

@@ -10,6 +10,7 @@ from apps.news_analysis.content import ArticleContent, SourceContentError
 from apps.news_analysis.models import NewsAnalysisResult, NewsAnalysisRun
 
 from .helpers import make_record
+from apps.news_data.sources import SEC_CODE
 
 
 def make_run(**overrides):
@@ -82,6 +83,23 @@ class NewsClassificationViewTests(TestCase):
         )
         self.assertNotContains(response, record.title)
 
+    def test_displays_and_filters_source_authority_level(self):
+        highest_record = make_record(
+            source_code=SEC_CODE, title="SEC authority filter result"
+        )
+        medium_record = make_record(title="Binance authority filter result")
+        highest_result = make_result(highest_record)
+        make_result(medium_record)
+
+        response = self.client.get(
+            reverse("news_analysis:index"), {"authority_level": "highest"}
+        )
+
+        self.assertIn(highest_result, list(response.context["page"].object_list))
+        self.assertContains(response, "权威：最高")
+        self.assertContains(response, highest_record.title)
+        self.assertNotContains(response, medium_record.title)
+
     def test_custom_classification_time_range_overrides_recent_three_days(self):
         record = make_record(title="Older retained ETH classification")
         analyzed_at = timezone.now() - timedelta(days=5)
@@ -139,6 +157,22 @@ class NewsClassificationViewTests(TestCase):
         self.assertEqual(payload["origin"], "saved_summary")
         self.assertEqual(payload["content"], "已保存的正文摘要。")
         self.assertEqual(payload["source_url"], record.original_url)
+
+    @patch("apps.news_analysis.views.fetch_source_article")
+    def test_sec_detail_never_requests_article_content(self, fetch):
+        record = make_record(
+            source_code=SEC_CODE,
+            title="SEC Ethereum update",
+            summary="Saved RSS summary.",
+        )
+        result = make_result(record, content_summary="已保存的 RSS 摘要。")
+
+        response = self.client.get(
+            reverse("news_analysis:result_content", args=[result.id])
+        )
+
+        fetch.assert_not_called()
+        self.assertEqual(response.json()["origin"], "saved_summary")
 
     @override_settings(NEWS_AI_API_KEY="configured-for-test")
     @patch("apps.news_analysis.views.run_news_analysis")
