@@ -7,7 +7,7 @@
     <div>
         <p class="eyebrow">采集 / 新闻原始数据</p>
         <h1>新闻数据采集</h1>
-        <p class="page-intro">独立采集官方来源发布记录，并用同一次运行留下的诊断推进可信覆盖水位。仅保存 Feed 或公告列表条目，不抓取正文。</p>
+        <p class="page-intro">独立采集官方发布与专业安全事件来源，并用同一次运行留下的诊断推进可信覆盖水位。仅保存 Feed 或公开列表条目，不抓取引用文章正文。</p>
     </div>
     <a class="text-link" href="{% url 'collection:derivatives' %}">查看 OI / Funding →</a>
 </header>
@@ -62,7 +62,7 @@
 <section class="panel runs-panel">
     <div class="panel-heading"><div><p class="eyebrow">原始发布记录</p><h2>最近 30 条</h2></div><span class="status-label">不含正文</span></div>
     <div class="table-scroll"><table class="runs-table"><thead><tr><th>来源</th><th>发布时间</th><th>标题 / 分类</th><th>首次 / 最近看到</th><th>原始条目 payload</th></tr></thead><tbody>
-    {% for record in recent_records %}<tr><td>{{ record.source.name }}</td><td class="nowrap">{{ record.published_at|date:"Y-m-d H:i:s" }} UTC</td><td><a class="text-link" href="{{ record.original_url }}" rel="noreferrer">{{ record.title }}</a><br><small>{{ record.source_category|default:"未分类" }}</small></td><td class="nowrap">{{ record.first_seen_at|date:"Y-m-d H:i:s" }}<br>{{ record.last_seen_at|date:"Y-m-d H:i:s" }} UTC</td><td><details><summary>查看 raw payload</summary><pre class="raw-payload">{{ record.raw_payload }}</pre></details></td></tr>
+    {% for record in recent_records %}<tr><td>{{ record.source.name }}</td><td class="nowrap">{{ record.published_at|date:"Y-m-d H:i:s" }} UTC</td><td>{% if record.original_url %}<a class="text-link" href="{{ record.original_url }}" rel="noreferrer">{{ record.title }}</a>{% else %}{{ record.title }}{% endif %}<br><small>{{ record.source_category|default:"未分类" }}</small></td><td class="nowrap">{{ record.first_seen_at|date:"Y-m-d H:i:s" }}<br>{{ record.last_seen_at|date:"Y-m-d H:i:s" }} UTC</td><td><details><summary>查看 raw payload</summary><pre class="raw-payload">{{ record.raw_payload }}</pre></details></td></tr>
     {% empty %}<tr><td colspan="5" class="empty-state">尚未保存新闻原始记录。</td></tr>{% endfor %}
     </tbody></table></div>
 </section>

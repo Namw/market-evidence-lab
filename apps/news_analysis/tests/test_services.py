@@ -7,7 +7,7 @@ from apps.news_analysis.ai import AIItem, BatchAnalysis, BatchAnalysisError, Tok
 from apps.news_analysis.models import NewsAnalysisResult, NewsAnalysisRun
 from apps.news_analysis.services import prune_expired_news, run_news_analysis
 from apps.news_data.models import NewsRawRecord
-from apps.news_data.sources import SEC_CODE, TETHER_CODE
+from apps.news_data.sources import SEC_CODE, SLOWMIST_CODE, TETHER_CODE
 
 from .helpers import make_record
 
@@ -101,7 +101,9 @@ class AnalysisServiceTests(TestCase):
         run_news_analysis(client=client, article_loader=forbidden_loader)
 
         result = NewsAnalysisResult.objects.get(news_record=record)
-        self.assertEqual([call[0] for call in client.calls], ["title_ai", "summary_ai"])
+        self.assertEqual(
+            [call[0] for call in client.calls], ["title_ai", "summary_ai"]
+        )
         self.assertEqual(
             client.calls[1][2][record.id],
             "The SEC update concerns Ethereum market access.",
@@ -126,6 +128,27 @@ class AnalysisServiceTests(TestCase):
         self.assertEqual(
             client.calls[1][2][record.id],
             "The official API excerpt mentions Ethereum settlement.",
+        )
+        self.assertEqual(result.classification_stage, "summary_ai")
+
+    def test_slowmist_unclear_title_uses_saved_event_description(self):
+        record = make_record(
+            source_code=SLOWMIST_CODE,
+            title="Hacked target: Ethereum Bridge",
+            summary="An Ethereum bridge security event was recorded by SlowMist.",
+        )
+        client = ScriptedClient(title="unclear", content="bearish")
+
+        def forbidden_loader(_record):
+            raise AssertionError("SlowMist references must not be fetched")
+
+        run_news_analysis(client=client, article_loader=forbidden_loader)
+
+        result = NewsAnalysisResult.objects.get(news_record=record)
+        self.assertEqual([call[0] for call in client.calls], ["title_ai", "summary_ai"])
+        self.assertEqual(
+            client.calls[1][2][record.id],
+            "An Ethereum bridge security event was recorded by SlowMist.",
         )
         self.assertEqual(result.classification_stage, "summary_ai")
 

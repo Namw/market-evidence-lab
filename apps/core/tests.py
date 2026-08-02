@@ -67,6 +67,14 @@ class HomePageTests(TestCase):
 
         self.assertContains(response, "Market Evidence Lab")
 
+    def test_home_page_presents_core_value_consensus_question(self):
+        response = self.client.get(reverse("core:home"))
+
+        self.assertContains(response, "市场如何形成价值共识。")
+        for principle in ("观察事实", "保存证据", "等待共识"):
+            with self.subTest(principle=principle):
+                self.assertContains(response, principle)
+
     def test_home_page_contains_complete_system_flow(self):
         response = self.client.get(reverse("core:home"))
 

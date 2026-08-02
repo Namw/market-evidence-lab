@@ -14,6 +14,7 @@ from apps.news_data.collectors import (
     NewsRequestClient,
     ParsedNewsItem,
     parse_rss_feed,
+    parse_slowmist_hacked_page,
     parse_tether_page,
 )
 from apps.news_data.models import (
@@ -31,6 +32,7 @@ from apps.news_data.sources import (
     BINANCE_ANNOUNCEMENTS_CODE,
     ETHEREUM_FOUNDATION_CODE,
     SEC_LITIGATION_RELEASES_CODE,
+    SLOWMIST_HACKED_CODE,
     TETHER_NEWS_CODE,
 )
 
@@ -96,6 +98,21 @@ def tether_post(
     }
 
 
+def slowmist_page(page_number: int, event_date: str, target: str) -> bytes:
+    return f"""<!doctype html><html><body>
+    <div class='case-content'><ul><li>
+    <span class='time'>{event_date}</span>
+    <h3><em>Hacked target: </em>{target}</h3>
+    <p><em>Description of the event: </em>{target} security event.</p>
+    <p><span><em>Amount of loss: </em>$ 10</span>
+    <span><em>Attack method: </em>Test Attack</span></p>
+    <p class='link-reference'><a href='https://example.com/{target}'>Reference</a></p>
+    </li></ul></div>
+    <ul class='pagination'><li>Page {page_number} of 10</li>
+    <li><a href='/?c=&amp;page=10'>Last</a></li></ul>
+    </body></html>""".encode()
+
+
 class NewsCollectionTests(TestCase):
     def setUp(self):
         self.ef = NewsSource.objects.get(code=ETHEREUM_FOUNDATION_CODE)
@@ -117,6 +134,11 @@ class NewsCollectionTests(TestCase):
         self.tether_feed.activated_at = END - timedelta(minutes=1)
         self.tether_feed.trusted_coverage_end = None
         self.tether_feed.save(update_fields=["activated_at", "trusted_coverage_end"])
+        self.slowmist = NewsSource.objects.get(code=SLOWMIST_HACKED_CODE)
+        self.slowmist_feed = NewsFeed.objects.get(code=SLOWMIST_HACKED_CODE)
+        self.slowmist_feed.activated_at = END - timedelta(minutes=1)
+        self.slowmist_feed.trusted_coverage_end = None
+        self.slowmist_feed.save(update_fields=["activated_at", "trusted_coverage_end"])
 
     def test_first_run_only_accepts_items_at_or_after_activation(self):
         result = collect_and_inspect(
@@ -366,6 +388,107 @@ class NewsCollectionTests(TestCase):
             self.assertGreaterEqual(client.min_request_interval_seconds, 1.0)
         finally:
             client.close()
+
+    def test_slowmist_parser_extracts_event_fields_and_isolates_invalid_items(self):
+        parsed, invalid, total_pages = parse_slowmist_hacked_page(
+            fixture("slowmist_hacked_page.html"),
+            page_number=1,
+        )
+
+        self.assertEqual(len(parsed), 2)
+        self.assertEqual(invalid, 1)
+        self.assertEqual(total_pages, 111)
+        item = parsed[0]
+        self.assertTrue(item.source_item_id.startswith("slowmist-"))
+        self.assertEqual(item.title, "Hacked target: Ethereum Bridge")
+        self.assertEqual(item.summary, "An Ethereum bridge was exploited & paused.")
+        self.assertEqual(item.source_category, "Smart Contract Vulnerability")
+        self.assertEqual(
+            item.source_tags,
+            ["Security incident", "Smart Contract Vulnerability"],
+        )
+        self.assertEqual(item.source_author, "SlowMist")
+        self.assertEqual(item.occurred_at, datetime(2026, 7, 30, tzinfo=UTC))
+        self.assertFalse(item.canonical_url_supported)
+        self.assertEqual(item.raw_payload["amount_of_loss"], "$ 1,250,000")
+
+    def test_slowmist_first_run_only_bootstraps_newest_page(self):
+        def handler(request):
+            self.assertEqual(request.url.params["c"], "")
+            self.assertEqual(request.url.params["page"], "1")
+            return httpx.Response(
+                200,
+                content=fixture("slowmist_hacked_page.html"),
+                headers={"content-type": "text/html; charset=utf-8"},
+                request=request,
+            )
+
+        result = collect_and_inspect(
+            data_type="news",
+            feed_code=SLOWMIST_HACKED_CODE,
+            range_end=END,
+            client=request_client(handler),
+        )
+
+        diagnostic = result.collection_run.news_diagnostics.get()
+        records = NewsRawRecord.objects.filter(source=self.slowmist)
+        self.assertEqual(result.collection_run.request_count, 1)
+        self.assertEqual(result.collection_run.inserted_count, 2)
+        self.assertEqual(records.count(), 2)
+        self.assertTrue(all(record.canonical_url == "" for record in records))
+        self.assertEqual(diagnostic.invalid_count, 1)
+        self.assertEqual(diagnostic.stop_reason, "source_history_limited")
+        self.assertTrue(diagnostic.coverage_complete)
+        self.assertTrue(diagnostic.details["limited_initialization"])
+        self.assertEqual(result.inspection_run.quality_status, "warning")
+
+    def test_slowmist_request_client_has_source_rate_limit(self):
+        client = _default_request_client(self.slowmist_feed)
+        try:
+            self.assertEqual(client.rate_limit_key, "hacked.slowmist.io")
+            self.assertGreaterEqual(client.min_request_interval_seconds, 1.0)
+        finally:
+            client.close()
+
+    def test_slowmist_incremental_run_paginates_until_time_boundary(self):
+        self.slowmist_feed.bootstrap_visible_items = False
+        self.slowmist_feed.activated_at = datetime(2026, 7, 1, tzinfo=UTC)
+        self.slowmist_feed.trusted_coverage_end = datetime(2026, 7, 31, tzinfo=UTC)
+        self.slowmist_feed.save(
+            update_fields=[
+                "bootstrap_visible_items",
+                "activated_at",
+                "trusted_coverage_end",
+            ]
+        )
+        pages = {
+            "1": slowmist_page(1, "2026-07-30", "newer-event"),
+            "2": slowmist_page(2, "2026-07-27", "older-event"),
+        }
+
+        def handler(request):
+            return httpx.Response(
+                200,
+                content=pages[request.url.params["page"]],
+                headers={"content-type": "text/html; charset=utf-8"},
+                request=request,
+            )
+
+        result = collect_and_inspect(
+            data_type="news",
+            feed_code=SLOWMIST_HACKED_CODE,
+            range_end=END,
+            client=request_client(handler),
+        )
+
+        diagnostics = list(
+            result.collection_run.news_diagnostics.order_by("page_number")
+        )
+        self.assertEqual(len(diagnostics), 2)
+        self.assertEqual(diagnostics[-1].stop_reason, "reached_time_boundary")
+        self.assertTrue(diagnostics[-1].coverage_complete)
+        self.assertEqual(result.collection_run.inserted_count, 1)
+        self.assertEqual(result.inspection_run.quality_status, "passed")
 
     def test_binance_paginates_until_older_than_boundary(self):
         pages = {

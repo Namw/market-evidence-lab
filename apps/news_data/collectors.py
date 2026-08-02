@@ -50,6 +50,8 @@ class ParsedNewsItem:
     source_tags: list[str]
     raw_payload: dict[str, object]
     source_author: str = ""
+    occurred_at: datetime | None = None
+    canonical_url_supported: bool = True
 
 
 def parse_source_datetime(value: object) -> datetime:
@@ -517,3 +519,188 @@ def parse_tether_page(content: bytes) -> tuple[list[ParsedNewsItem], int]:
         except (TypeError, ValueError, OverflowError):
             invalid += 1
     return parsed, invalid
+
+
+class _SlowMistHackedHTMLParser(HTMLParser):
+    """Extract event cards without depending on the rest of the archive layout."""
+
+    def __init__(self) -> None:
+        super().__init__(convert_charrefs=True)
+        self.in_event_list = False
+        self.event_list_depth = 0
+        self.current_event: dict[str, str] | None = None
+        self.capture_name = ""
+        self.capture_tag = ""
+        self.capture_parts: list[str] = []
+        self.events: list[dict[str, str]] = []
+        self.document_parts: list[str] = []
+        self.total_pages = 0
+
+    @staticmethod
+    def _classes(attrs: list[tuple[str, str | None]]) -> set[str]:
+        value = dict(attrs).get("class") or ""
+        return set(value.split())
+
+    def _start_capture(self, name: str, tag: str) -> None:
+        self.capture_name = name
+        self.capture_tag = tag
+        self.capture_parts = []
+
+    def _finish_capture(self) -> None:
+        if self.current_event is None or not self.capture_name:
+            return
+        value = re.sub(r"\s+", " ", " ".join(self.capture_parts)).strip()
+        if self.capture_name == "date":
+            self.current_event["date"] = value
+        elif self.capture_name == "target":
+            self.current_event["target"] = re.sub(
+                r"^Hacked target:\s*", "", value, flags=re.IGNORECASE
+            ).strip()
+        elif self.capture_name == "paragraph":
+            description = re.match(
+                r"^Description of the event:\s*(.*)$", value, flags=re.IGNORECASE
+            )
+            loss_and_method = re.match(
+                r"^Amount of loss:\s*(.*?)\s*Attack method:\s*(.*)$",
+                value,
+                flags=re.IGNORECASE,
+            )
+            if description:
+                self.current_event["description"] = description.group(1).strip()
+            elif loss_and_method:
+                self.current_event["loss"] = loss_and_method.group(1).strip()
+                self.current_event["attack_method"] = loss_and_method.group(2).strip()
+        self.capture_name = ""
+        self.capture_tag = ""
+        self.capture_parts = []
+
+    def handle_starttag(
+        self, tag: str, attrs: list[tuple[str, str | None]]
+    ) -> None:
+        attrs_dict = dict(attrs)
+        if tag == "a":
+            href = (attrs_dict.get("href") or "").strip()
+            page_match = re.search(r"[?&]page=(\d+)", href)
+            if page_match:
+                self.total_pages = max(self.total_pages, int(page_match.group(1)))
+
+        if tag == "div":
+            classes = self._classes(attrs)
+            if not self.in_event_list and "case-content" in classes:
+                self.in_event_list = True
+                self.event_list_depth = 1
+                return
+            if self.in_event_list:
+                self.event_list_depth += 1
+
+        if not self.in_event_list:
+            return
+        if tag == "li" and self.current_event is None:
+            self.current_event = {}
+            return
+        if self.current_event is None:
+            return
+        if tag == "span" and "time" in self._classes(attrs):
+            self._start_capture("date", tag)
+        elif tag == "h3":
+            self._start_capture("target", tag)
+        elif tag == "p":
+            self._start_capture("paragraph", tag)
+        elif tag == "a" and attrs_dict.get("href"):
+            self.current_event["reference_url"] = str(attrs_dict["href"]).strip()
+
+    def handle_endtag(self, tag: str) -> None:
+        if self.capture_name and tag == self.capture_tag:
+            self._finish_capture()
+        if self.in_event_list and tag == "li" and self.current_event is not None:
+            self.events.append(self.current_event)
+            self.current_event = None
+        if self.in_event_list and tag == "div":
+            self.event_list_depth -= 1
+            if self.event_list_depth <= 0:
+                self.in_event_list = False
+                self.event_list_depth = 0
+
+    def handle_data(self, data: str) -> None:
+        self.document_parts.append(data)
+        if self.capture_name:
+            self.capture_parts.append(data)
+
+    def resolved_total_pages(self, current_page: int) -> int:
+        document_text = re.sub(r"\s+", " ", " ".join(self.document_parts))
+        page_match = re.search(
+            r"Page\s+\d+\s+of\s+(\d+)", document_text, flags=re.IGNORECASE
+        )
+        if page_match:
+            self.total_pages = max(self.total_pages, int(page_match.group(1)))
+        return max(self.total_pages, current_page)
+
+
+def parse_slowmist_hacked_page(
+    content: bytes,
+    *,
+    page_number: int,
+) -> tuple[list[ParsedNewsItem], int, int]:
+    text = content.decode("utf-8", errors="replace")
+    lowered = text[:20_000].lower()
+    if any(marker in lowered for marker in CHALLENGE_MARKERS):
+        raise NewsCollectionError(
+            "SlowMist Hacked 返回挑战或访问限制页面。", code="challenge_page"
+        )
+
+    parser = _SlowMistHackedHTMLParser()
+    try:
+        parser.feed(text)
+        parser.close()
+    except (ValueError, TypeError) as exc:
+        raise NewsCollectionError(
+            "SlowMist Hacked 页面无法解析。", code="invalid_html"
+        ) from exc
+
+    parsed: list[ParsedNewsItem] = []
+    invalid = 0
+    for event in parser.events:
+        try:
+            event_date = event.get("date", "").strip()
+            target = event.get("target", "").strip()
+            description = event.get("description", "").strip()
+            if not event_date or not target or not description:
+                raise ValueError("missing required event field")
+            published_at = parse_source_datetime(event_date)
+            attack_method = event.get("attack_method", "").strip()
+            reference_url = event.get("reference_url", "").strip()
+            source_item_id = "slowmist-" + hashlib.sha256(
+                f"{event_date}\0{target.casefold()}".encode("utf-8")
+            ).hexdigest()
+            tags = list(
+                dict.fromkeys(
+                    value for value in ["Security incident", attack_method] if value
+                )
+            )
+            parsed.append(
+                ParsedNewsItem(
+                    source_item_id=source_item_id,
+                    original_url=reference_url,
+                    title=f"Hacked target: {target}",
+                    summary=description,
+                    published_at=published_at,
+                    updated_at_source=None,
+                    occurred_at=published_at,
+                    language="en",
+                    source_category=attack_method or "Security incident",
+                    source_tags=tags,
+                    source_author="SlowMist",
+                    canonical_url_supported=False,
+                    raw_payload={
+                        "event_date": event_date,
+                        "target": target,
+                        "description": description,
+                        "amount_of_loss": event.get("loss", ""),
+                        "attack_method": attack_method,
+                        "reference_url": reference_url,
+                    },
+                )
+            )
+        except (TypeError, ValueError, OverflowError):
+            invalid += 1
+    return parsed, invalid, parser.resolved_total_pages(page_number)

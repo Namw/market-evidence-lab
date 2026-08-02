@@ -8,6 +8,7 @@ BINANCE_ANNOUNCEMENTS_CODE = "binance_announcements"
 SEC_CODE = "sec"
 CFTC_CODE = "cftc"
 TETHER_CODE = "tether_news"
+SLOWMIST_CODE = "slowmist_hacked"
 
 SEC_PRESS_RELEASES_CODE = "sec_press_releases"
 SEC_SPEECHES_STATEMENTS_CODE = "sec_speeches_statements"
@@ -16,6 +17,7 @@ CFTC_GENERAL_PRESS_CODE = "cftc_general_press"
 CFTC_ENFORCEMENT_PRESS_CODE = "cftc_enforcement_press"
 CFTC_SPEECHES_TESTIMONY_CODE = "cftc_speeches_testimony"
 TETHER_NEWS_CODE = "tether_news"
+SLOWMIST_HACKED_CODE = "slowmist_hacked"
 
 
 @dataclass(frozen=True, slots=True)
@@ -81,6 +83,15 @@ SOURCE_DEFINITIONS = {
         base_url="https://tether.io",
         feed_url="https://tether.io/wp-json/wp/v2/posts",
         parser_version="tether-wp-v1",
+    ),
+    SLOWMIST_CODE: SourceDefinition(
+        code=SLOWMIST_CODE,
+        name="SlowMist Hacked",
+        collection_method="web",
+        observation_scope="crypto_systemic",
+        base_url="https://hacked.slowmist.io",
+        feed_url="https://hacked.slowmist.io/",
+        parser_version="slowmist-hacked-html-v1",
     ),
 }
 
@@ -164,6 +175,15 @@ FEED_DEFINITIONS = {
         parser_version="tether-wp-v1",
         bootstrap_visible_items=True,
     ),
+    SLOWMIST_HACKED_CODE: FeedDefinition(
+        code=SLOWMIST_HACKED_CODE,
+        source_code=SLOWMIST_CODE,
+        name="安全事件",
+        collection_method="web",
+        feed_url="https://hacked.slowmist.io/",
+        parser_version="slowmist-hacked-html-v1",
+        bootstrap_visible_items=True,
+    ),
 }
 
 SEC_FEED_CODES = {
@@ -171,7 +191,7 @@ SEC_FEED_CODES = {
     SEC_SPEECHES_STATEMENTS_CODE,
     SEC_LITIGATION_RELEASES_CODE,
 }
-SUMMARY_ONLY_SOURCE_CODES = {SEC_CODE, CFTC_CODE, TETHER_CODE}
+SUMMARY_ONLY_SOURCE_CODES = {SEC_CODE, CFTC_CODE, TETHER_CODE, SLOWMIST_CODE}
 
 BINANCE_PAGE_SIZE = 20
 BINANCE_SAFETY_PAGE_LIMIT = 25
@@ -184,6 +204,8 @@ TETHER_LIST_PARAMS = {
     "per_page": TETHER_PAGE_SIZE,
     "_embed": "author,wp:term",
 }
+SLOWMIST_SAFETY_PAGE_LIMIT = 25
+SLOWMIST_LIST_PARAMS = {"c": ""}
 TRACKING_QUERY_PARAMETERS = {
     "fbclid",
     "gclid",

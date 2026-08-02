@@ -523,7 +523,8 @@ class NewsWorkflowPageTests(TestCase):
         self.assertContains(response, "任务列表")
         self.assertContains(response, "新闻采集与分析工作流")
         self.assertContains(response, "Ethereum Foundation、Binance")
-        self.assertContains(response, "CFTC 与 Tether")
+        self.assertContains(response, "Tether 与 SlowMist Hacked")
+        self.assertContains(response, "Tether、SlowMist Hacked")
         self.assertContains(response, "手动调度")
 
     def test_news_configuration_saves_without_changing_kline_schedule(self):

@@ -286,6 +286,400 @@ body {
     padding: 52px clamp(24px, 5vw, 72px);
 }
 
+.home-hero {
+    position: relative;
+    display: grid;
+    grid-template-columns: minmax(0, 1.18fr) minmax(330px, .82fr);
+    min-height: 560px;
+    border: 1px solid rgba(153, 177, 224, .2);
+    border-radius: 24px;
+    color: #fff;
+    background:
+        radial-gradient(circle at 76% 42%, rgba(91, 133, 235, .19), transparent 28%),
+        linear-gradient(132deg, #101b2f 0%, #172b4a 57%, #111e34 100%);
+    box-shadow: 0 28px 70px rgba(16, 27, 47, .18);
+    overflow: hidden;
+}
+
+.home-hero::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    opacity: .14;
+    background-image:
+        linear-gradient(rgba(255, 255, 255, .12) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(255, 255, 255, .12) 1px, transparent 1px);
+    background-size: 56px 56px;
+    mask-image: linear-gradient(90deg, transparent 5%, #000 58%, transparent 100%);
+    pointer-events: none;
+}
+
+.home-hero-copy {
+    position: relative;
+    z-index: 2;
+    padding: clamp(44px, 6vw, 84px) clamp(34px, 5vw, 72px) 148px;
+}
+
+.home-hero-meta {
+    display: flex;
+    gap: 18px;
+    align-items: center;
+}
+
+.home-hero .eyebrow {
+    margin: 0;
+    color: #99b5f7;
+    font-size: 11px;
+    letter-spacing: .18em;
+}
+
+.home-phase {
+    padding: 5px 9px;
+    border: 1px solid rgba(177, 199, 247, .22);
+    border-radius: 999px;
+    color: #c5d4f5;
+    background: rgba(255, 255, 255, .055);
+    font-size: 10px;
+    font-weight: 650;
+}
+
+.home-hero h1 {
+    max-width: 680px;
+    margin: clamp(50px, 7vw, 82px) 0 28px;
+    font-family: ui-serif, "Songti SC", "Noto Serif CJK SC", Georgia, serif;
+    font-size: clamp(48px, 6vw, 76px);
+    font-weight: 500;
+    line-height: 1.13;
+    letter-spacing: -.055em;
+}
+
+.home-hero h1 span,
+.home-hero h1 strong {
+    display: block;
+}
+
+.home-hero h1 span {
+    color: #f2f5fb;
+}
+
+.home-hero h1 strong {
+    color: #a9c0ff;
+    font-weight: 500;
+}
+
+.home-thesis-note {
+    max-width: 570px;
+    margin-bottom: 0;
+    color: #aebbd0;
+    font-size: 15px;
+    line-height: 1.85;
+    letter-spacing: .035em;
+}
+
+.home-hero-actions {
+    display: flex;
+    gap: 12px;
+    margin-top: 38px;
+}
+
+.home-hero-actions a {
+    display: inline-flex;
+    min-height: 43px;
+    padding: 0 17px;
+    border: 1px solid rgba(183, 203, 248, .24);
+    border-radius: 9px;
+    align-items: center;
+    gap: 9px;
+    color: #dce6ff;
+    background: rgba(255, 255, 255, .055);
+    font-size: 13px;
+    font-weight: 650;
+    text-decoration: none;
+    transition: border-color .18s ease, background-color .18s ease, transform .18s ease;
+}
+
+.home-hero-actions a:first-child {
+    border-color: #789cf0;
+    color: #14233c;
+    background: #b9ccfb;
+}
+
+.home-hero-actions a:hover {
+    border-color: #a7bff5;
+    background: rgba(255, 255, 255, .11);
+    transform: translateY(-1px);
+}
+
+.home-hero-actions a:first-child:hover {
+    background: #c8d7fb;
+}
+
+.consensus-field {
+    position: relative;
+    z-index: 1;
+    min-height: 430px;
+    align-self: center;
+}
+
+.consensus-orbit,
+.consensus-axis,
+.consensus-point,
+.consensus-label,
+.consensus-core {
+    position: absolute;
+}
+
+.consensus-orbit {
+    top: 50%;
+    left: 50%;
+    border: 1px solid rgba(165, 190, 246, .2);
+    border-radius: 50%;
+    transform: translate(-50%, -50%);
+}
+
+.orbit-outer {
+    width: 370px;
+    height: 370px;
+}
+
+.orbit-middle {
+    width: 258px;
+    height: 258px;
+    border-color: rgba(165, 190, 246, .28);
+}
+
+.orbit-inner {
+    width: 148px;
+    height: 148px;
+    border-color: rgba(165, 190, 246, .4);
+    background: rgba(83, 119, 202, .055);
+}
+
+.consensus-axis {
+    top: 50%;
+    left: 50%;
+    background: rgba(165, 190, 246, .13);
+    transform: translate(-50%, -50%);
+}
+
+.axis-horizontal {
+    width: 420px;
+    height: 1px;
+}
+
+.axis-vertical {
+    width: 1px;
+    height: 420px;
+}
+
+.consensus-point {
+    width: 8px;
+    height: 8px;
+    border: 2px solid #a8c0f8;
+    border-radius: 50%;
+    background: #172944;
+    box-shadow: 0 0 0 6px rgba(127, 164, 245, .08);
+}
+
+.point-fact {
+    top: 23%;
+    left: 21%;
+}
+
+.point-evidence {
+    top: 64%;
+    right: 12%;
+}
+
+.point-time {
+    right: 27%;
+    bottom: 9%;
+}
+
+.consensus-label {
+    color: #91a3c1;
+    font-size: 10px;
+    letter-spacing: .16em;
+}
+
+.label-fact {
+    top: 17%;
+    left: 9%;
+}
+
+.label-evidence {
+    top: 58%;
+    right: 4%;
+}
+
+.label-time {
+    right: 18%;
+    bottom: 2%;
+}
+
+.consensus-core {
+    top: 50%;
+    left: 50%;
+    display: grid;
+    width: 104px;
+    height: 104px;
+    border: 1px solid rgba(185, 205, 250, .55);
+    border-radius: 50%;
+    place-content: center;
+    text-align: center;
+    background: rgba(22, 42, 73, .82);
+    box-shadow: 0 0 46px rgba(75, 119, 221, .26);
+    transform: translate(-50%, -50%);
+    animation: consensus-pulse 5s ease-in-out infinite;
+}
+
+.consensus-core small {
+    color: #7897dc;
+    font-size: 8px;
+    font-weight: 750;
+    letter-spacing: .2em;
+}
+
+.consensus-core strong {
+    margin-top: 5px;
+    color: #eef3ff;
+    font-family: ui-serif, "Songti SC", serif;
+    font-size: 20px;
+    font-weight: 500;
+    letter-spacing: .08em;
+}
+
+.home-principles {
+    position: absolute;
+    z-index: 3;
+    right: 0;
+    bottom: 0;
+    left: 0;
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    margin: 0;
+    padding: 0;
+    border-top: 1px solid rgba(172, 195, 243, .16);
+    list-style: none;
+    background: rgba(7, 15, 28, .18);
+    backdrop-filter: blur(9px);
+}
+
+.home-principles li {
+    display: flex;
+    min-width: 0;
+    gap: 14px;
+    padding: 22px clamp(20px, 3vw, 38px);
+    align-items: center;
+    border-left: 1px solid rgba(172, 195, 243, .13);
+}
+
+.home-principles li:first-child {
+    border-left: 0;
+}
+
+.home-principles li > span {
+    color: #7797df;
+    font-family: Georgia, serif;
+    font-size: 12px;
+}
+
+.home-principles strong,
+.home-principles small {
+    display: block;
+}
+
+.home-principles strong {
+    color: #e6edfc;
+    font-size: 13px;
+}
+
+.home-principles small {
+    margin-top: 4px;
+    overflow: hidden;
+    color: #8796ae;
+    font-size: 10px;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+@keyframes consensus-pulse {
+    0%, 100% { box-shadow: 0 0 36px rgba(75, 119, 221, .2); }
+    50% { box-shadow: 0 0 62px rgba(91, 137, 241, .34); }
+}
+
+@media (max-width: 980px) {
+    .home-hero {
+        grid-template-columns: 1fr minmax(260px, .65fr);
+    }
+
+    .home-hero-copy {
+        padding-right: 16px;
+    }
+
+    .orbit-outer {
+        width: 290px;
+        height: 290px;
+    }
+
+    .axis-horizontal {
+        width: 320px;
+    }
+}
+
+@media (max-width: 760px) {
+    .home-hero {
+        display: block;
+        min-height: 0;
+    }
+
+    .home-hero-copy {
+        padding: 42px 28px 34px;
+    }
+
+    .home-hero h1 {
+        margin-top: 45px;
+        font-size: clamp(43px, 12vw, 62px);
+    }
+
+    .consensus-field {
+        min-height: 310px;
+        margin: 0 14px 122px;
+    }
+
+    .home-principles {
+        grid-template-columns: 1fr;
+    }
+
+    .home-principles li {
+        padding-top: 13px;
+        padding-bottom: 13px;
+        border-top: 1px solid rgba(172, 195, 243, .1);
+        border-left: 0;
+    }
+
+    .home-principles li:first-child {
+        border-top: 0;
+    }
+}
+
+@media (max-width: 480px) {
+    .home-hero-meta,
+    .home-hero-actions {
+        align-items: flex-start;
+        flex-direction: column;
+    }
+
+    .home-hero-actions a {
+        width: 100%;
+        justify-content: center;
+    }
+
+    .consensus-field {
+        transform: scale(.86);
+    }
+}
+
 .page-header,
 .panel-heading {
     display: flex;
@@ -4072,6 +4466,10 @@ body.summary-dialog-open {
 }
 
 @media (prefers-reduced-motion: reduce) {
+    .consensus-core {
+        animation: none;
+    }
+
     .market-summary-backdrop,
     .market-summary-dialog,
     .market-summary-trigger,
