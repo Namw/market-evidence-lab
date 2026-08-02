@@ -355,7 +355,7 @@ class RegulatoryFeedWorkflowTests(TestCase):
     @patch("apps.scheduling.news_workflow.run_news_analysis")
     @patch("apps.scheduling.news_workflow.inspect_news_collection")
     @patch("apps.scheduling.news_workflow.collect_news_feed")
-    def test_all_eight_feeds_share_one_workflow_and_keep_independent_steps(
+    def test_all_feeds_share_one_workflow_and_keep_independent_steps(
         self, collect, inspect, analyze
     ):
         def collect_step(feed_code, **kwargs):
@@ -523,6 +523,7 @@ class NewsWorkflowPageTests(TestCase):
         self.assertContains(response, "任务列表")
         self.assertContains(response, "新闻采集与分析工作流")
         self.assertContains(response, "Ethereum Foundation、Binance")
+        self.assertContains(response, "CFTC 与 Tether")
         self.assertContains(response, "手动调度")
 
     def test_news_configuration_saves_without_changing_kline_schedule(self):

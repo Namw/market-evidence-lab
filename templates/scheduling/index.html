@@ -61,7 +61,7 @@
                 <div><span class="task-kicker">NEWS INTELLIGENCE</span><h3>新闻采集与分析工作流</h3></div>
                 {% if news_schedule.enabled %}<span class="task-state is-enabled"><i></i>已启用</span>{% else %}<span class="task-state"><i></i>已停用</span>{% endif %}
             </header>
-            <p class="task-description">统一采集 Ethereum Foundation、Binance、SEC 与 CFTC 官方栏目，经质量检查后执行当前 ETH 方向增量分类。</p>
+            <p class="task-description">统一采集 Ethereum Foundation、Binance、SEC、CFTC 与 Tether 官方栏目，经质量检查后执行当前 ETH 方向增量分类。</p>
             <div class="task-next-run">
                 <span>下次计划运行</span>
                 {% if news_schedule.enabled %}<strong>{% timezone news_schedule.timezone %}{{ news_schedule.next_run_at|date:"m月d日 H:i" }}{% endtimezone %}</strong><small>{{ news_schedule.timezone }}</small>{% else %}<strong>启用后计算</strong><small>当前自动计划已停用</small>{% endif %}
@@ -116,7 +116,7 @@
     <div class="dialog-card">
         <div class="dialog-heading"><div><p class="eyebrow">手动调度</p><h2>新闻采集与分析工作流</h2></div><button type="button" class="dialog-close" data-dialog-close aria-label="关闭">×</button></div>
         <p class="dialog-intro">本次将同步执行完整新闻工作流。任务带有并发保护，已有新闻工作流运行时不会重复启动。</p>
-        <dl class="manual-run-summary"><div><dt>新闻来源</dt><dd>Ethereum Foundation、Binance、SEC、CFTC</dd></div><div><dt>RSS 栏目</dt><dd>{% for feed in news_feeds %}{{ feed.source.name }} · {{ feed.name }}{% if not forloop.last %}；{% endif %}{% endfor %}</dd></div><div><dt>执行内容</dt><dd>逐栏目采集与质检 → 当前 ETH 方向增量分类</dd></div><div><dt>结果位置</dt><dd>完成后自动进入调度详情</dd></div></dl>
+        <dl class="manual-run-summary"><div><dt>新闻来源</dt><dd>Ethereum Foundation、Binance、SEC、CFTC、Tether</dd></div><div><dt>新闻栏目</dt><dd>{% for feed in news_feeds %}{{ feed.source.name }} · {{ feed.name }}{% if not forloop.last %}；{% endif %}{% endfor %}</dd></div><div><dt>执行内容</dt><dd>逐栏目采集与质检 → 当前 ETH 方向增量分类</dd></div><div><dt>结果位置</dt><dd>完成后自动进入调度详情</dd></div></dl>
         <form method="post" id="news-schedule-run-form" class="dialog-actions">
             {% csrf_token %}<input type="hidden" name="action" value="run_news"><input type="hidden" name="news_run_token" value="{{ news_run_token }}">
             <button type="button" class="secondary-button" data-dialog-close>取消</button><button class="primary-button" type="submit" data-waiting-text="新闻工作流执行中，请稍候…">确认执行</button>

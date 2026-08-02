@@ -9,8 +9,8 @@ from django.db import IntegrityError, transaction
 from django.db.models import Exists, OuterRef, Q, QuerySet
 from django.utils import timezone
 
-from apps.news_data.models import NewsRawRecord
-from apps.news_data.sources import CFTC_CODE, SEC_CODE
+from apps.news_data.models import NewsRawRecord, NewsSource
+from apps.news_data.sources import SUMMARY_ONLY_SOURCE_CODES
 
 from .ai import AIItem, BatchAnalysisError, DeepSeekNewsClient, TokenUsage
 from .content import ArticleContent, fetch_source_article, summarize_article_text
@@ -19,6 +19,10 @@ from .rules import RuleDecision, match_fixed_rule
 
 
 UNCLEAR_RETENTION = timedelta(days=3)
+PROTECTED_UNCLEAR_AUTHORITY_LEVELS = {
+    NewsSource.AuthorityLevel.HIGHEST,
+    NewsSource.AuthorityLevel.MEDIUM,
+}
 
 
 class AnalysisAlreadyRunning(Exception):
@@ -59,16 +63,19 @@ def get_analysis_config() -> AnalysisConfig:
 
 
 def prune_expired_news(*, now=None) -> int:
-    """Delete irrelevant records and unclear records after their three-day window."""
+    """Delete irrelevant records and expired unclear records from general sources."""
     now = now or timezone.now()
+    expired_general_unclear = Q(
+        conclusion=NewsAnalysisResult.Conclusion.UNCLEAR,
+        analyzed_at__lt=now - UNCLEAR_RETENTION,
+    ) & ~Q(
+        news_record__source__authority_level__in=PROTECTED_UNCLEAR_AUTHORITY_LEVELS
+    )
     removable_ids = list(
         NewsAnalysisResult.objects.filter(status=NewsAnalysisResult.Status.SUCCESS)
         .filter(
             Q(conclusion=NewsAnalysisResult.Conclusion.IRRELEVANT)
-            | Q(
-                conclusion=NewsAnalysisResult.Conclusion.UNCLEAR,
-                analyzed_at__lt=now - UNCLEAR_RETENTION,
-            )
+            | expired_general_unclear
         )
         .values_list("news_record_id", flat=True)
         .distinct()
@@ -336,14 +343,16 @@ def _load_analysis_contents(
     records: list[NewsRawRecord],
     loader: Callable[[NewsRawRecord], ArticleContent | str],
 ) -> dict[int, str]:
-    """Use only RSS summaries for regulator feeds; never request article bodies."""
-    regulator_records = [
-        record for record in records if record.source.code in {SEC_CODE, CFTC_CODE}
+    """Use saved feed/list summaries for sources that do not permit body loading."""
+    summary_only_records = [
+        record for record in records if record.source.code in SUMMARY_ONLY_SOURCE_CODES
     ]
     article_records = [
-        record for record in records if record.source.code not in {SEC_CODE, CFTC_CODE}
+        record
+        for record in records
+        if record.source.code not in SUMMARY_ONLY_SOURCE_CODES
     ]
-    contents = {record.id: record.summary or "" for record in regulator_records}
+    contents = {record.id: record.summary or "" for record in summary_only_records}
     contents.update(_load_contents(article_records, loader))
     return contents
 
@@ -506,12 +515,12 @@ def run_news_analysis(
             summary_records = [
                 record
                 for record in content_records
-                if record.source.code in {SEC_CODE, CFTC_CODE}
+                if record.source.code in SUMMARY_ONLY_SOURCE_CODES
             ]
             article_records = [
                 record
                 for record in content_records
-                if record.source.code not in {SEC_CODE, CFTC_CODE}
+                if record.source.code not in SUMMARY_ONLY_SOURCE_CODES
             ]
             detail_groups = (
                 (NewsAnalysisResult.ClassificationStage.SUMMARY_AI, summary_records),

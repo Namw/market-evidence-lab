@@ -7,6 +7,7 @@ import threading
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from email.utils import parsedate_to_datetime
+from html.parser import HTMLParser
 from time import monotonic, sleep
 from typing import Callable
 from xml.etree import ElementTree
@@ -394,3 +395,125 @@ def parse_binance_articles(
             except (TypeError, ValueError, OverflowError):
                 invalid += 1
     return parsed, invalid, catalog_state
+
+
+class _TextOnlyHTMLParser(HTMLParser):
+    def __init__(self) -> None:
+        super().__init__(convert_charrefs=True)
+        self.parts: list[str] = []
+
+    def handle_data(self, data: str) -> None:
+        self.parts.append(data)
+
+    def text(self) -> str:
+        return re.sub(r"\s+", " ", " ".join(self.parts)).strip()
+
+
+def _html_text(value: object) -> str:
+    parser = _TextOnlyHTMLParser()
+    parser.feed(str(value or ""))
+    parser.close()
+    return parser.text()
+
+
+def parse_tether_page(content: bytes) -> tuple[list[ParsedNewsItem], int]:
+    text = content.decode("utf-8", errors="replace")
+    lowered = text[:20_000].lower()
+    if any(marker in lowered for marker in CHALLENGE_MARKERS):
+        raise NewsCollectionError("Tether 返回挑战或访问限制页面。", code="challenge_page")
+    try:
+        payload = json.loads(text)
+    except json.JSONDecodeError as exc:
+        raise NewsCollectionError("Tether 新闻接口未返回预期 JSON。", code="invalid_json") from exc
+    if not isinstance(payload, list):
+        raise NewsCollectionError("Tether 新闻接口结构发生变化。", code="schema_changed")
+
+    parsed: list[ParsedNewsItem] = []
+    invalid = 0
+    for post in payload:
+        try:
+            if not isinstance(post, dict):
+                raise ValueError("post is not an object")
+            item_id = str(post.get("id") or "").strip()
+            link = str(post.get("link") or "").strip()
+            title_payload = post.get("title")
+            excerpt_payload = post.get("excerpt")
+            if not isinstance(title_payload, dict) or not isinstance(excerpt_payload, dict):
+                raise ValueError("missing rendered fields")
+            title = _html_text(title_payload.get("rendered"))
+            summary = _html_text(excerpt_payload.get("rendered"))
+            published_at = parse_source_datetime(post.get("date_gmt"))
+            modified = post.get("modified_gmt")
+            if not item_id or not link or not title:
+                raise ValueError("missing required post field")
+
+            category_names: list[str] = []
+            tag_names: list[str] = []
+            embedded = post.get("_embedded")
+            term_groups = embedded.get("wp:term") if isinstance(embedded, dict) else []
+            if isinstance(term_groups, list):
+                for group in term_groups:
+                    if not isinstance(group, list):
+                        continue
+                    for term in group:
+                        if not isinstance(term, dict):
+                            continue
+                        name = _html_text(term.get("name"))
+                        if not name:
+                            continue
+                        if term.get("taxonomy") == "post_tag":
+                            tag_names.append(name)
+                        elif term.get("taxonomy") == "category":
+                            category_names.append(name)
+
+            source_author = ""
+            authors = embedded.get("author") if isinstance(embedded, dict) else []
+            if isinstance(authors, list):
+                source_author = next(
+                    (
+                        _html_text(author.get("name"))
+                        for author in authors
+                        if isinstance(author, dict) and author.get("name")
+                    ),
+                    "",
+                )
+            categories = list(dict.fromkeys(category_names))
+            tags = list(dict.fromkeys([*categories, *tag_names]))
+            primary_category = next(
+                (category for category in categories if category.casefold() != "news"),
+                categories[0] if categories else "News",
+            )
+            parsed.append(
+                ParsedNewsItem(
+                    source_item_id=item_id,
+                    original_url=link,
+                    title=title,
+                    summary=summary,
+                    published_at=published_at,
+                    updated_at_source=(
+                        parse_source_datetime(modified) if modified else None
+                    ),
+                    language="en",
+                    source_category=primary_category,
+                    source_tags=tags,
+                    source_author=source_author,
+                    raw_payload={
+                        "id": post.get("id"),
+                        "date_gmt": post.get("date_gmt"),
+                        "modified_gmt": post.get("modified_gmt"),
+                        "slug": post.get("slug"),
+                        "status": post.get("status"),
+                        "type": post.get("type"),
+                        "link": post.get("link"),
+                        "title": title_payload,
+                        "excerpt": excerpt_payload,
+                        "author": post.get("author"),
+                        "categories": post.get("categories"),
+                        "tags": post.get("tags"),
+                        "reading_time": post.get("reading_time"),
+                    },
+                )
+            )
+        except (TypeError, ValueError, OverflowError):
+            invalid += 1
+    return parsed, invalid

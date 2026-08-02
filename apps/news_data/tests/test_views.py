@@ -14,6 +14,7 @@ class NewsCollectionViewTests(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, "Ethereum Foundation Blog")
         self.assertContains(response, "Binance 官方公告")
+        self.assertContains(response, "Tether News")
         self.assertContains(response, "零可解析内容")
         self.assertContains(response, "新闻数据采集")
 

@@ -7,7 +7,7 @@ from apps.news_analysis.ai import AIItem, BatchAnalysis, BatchAnalysisError, Tok
 from apps.news_analysis.models import NewsAnalysisResult, NewsAnalysisRun
 from apps.news_analysis.services import prune_expired_news, run_news_analysis
 from apps.news_data.models import NewsRawRecord
-from apps.news_data.sources import SEC_CODE
+from apps.news_data.sources import SEC_CODE, TETHER_CODE
 
 from .helpers import make_record
 
@@ -108,6 +108,27 @@ class AnalysisServiceTests(TestCase):
         )
         self.assertEqual(result.classification_stage, "summary_ai")
 
+    def test_tether_unclear_title_uses_saved_api_excerpt_without_article_request(self):
+        record = make_record(
+            source_code=TETHER_CODE,
+            title="Tether publishes an update",
+            summary="The official API excerpt mentions Ethereum settlement.",
+        )
+        client = ScriptedClient(title="unclear", content="bullish")
+
+        def forbidden_loader(_record):
+            raise AssertionError("Tether collection must not request article content")
+
+        run_news_analysis(client=client, article_loader=forbidden_loader)
+
+        result = NewsAnalysisResult.objects.get(news_record=record)
+        self.assertEqual([call[0] for call in client.calls], ["title_ai", "summary_ai"])
+        self.assertEqual(
+            client.calls[1][2][record.id],
+            "The official API excerpt mentions Ethereum settlement.",
+        )
+        self.assertEqual(result.classification_stage, "summary_ai")
+
     def test_ai_irrelevant_result_deletes_raw_record(self):
         record = make_record(title="Other token reward event")
         run_news_analysis(
@@ -116,8 +137,10 @@ class AnalysisServiceTests(TestCase):
         )
         self.assertFalse(NewsRawRecord.objects.filter(pk=record.pk).exists())
 
-    def test_final_unclear_is_kept_then_deleted_after_three_days(self):
+    def test_general_source_unclear_is_deleted_after_three_days(self):
         record = make_record(title="Ambiguous Ethereum item")
+        record.source.authority_level = "general"
+        record.source.save(update_fields=["authority_level"])
         run_news_analysis(
             client=ScriptedClient(title="unclear", content="unclear"),
             article_loader=self.article_loader,
@@ -128,6 +151,27 @@ class AnalysisServiceTests(TestCase):
         result.save(update_fields=["analyzed_at"])
         self.assertGreater(prune_expired_news(), 0)
         self.assertFalse(NewsRawRecord.objects.filter(pk=record.pk).exists())
+
+    def test_highest_and_medium_source_unclear_are_retained_after_three_days(self):
+        for source_code in ("binance_announcements", SEC_CODE):
+            with self.subTest(source_code=source_code):
+                record = make_record(
+                    source_code=source_code,
+                    title=f"Ambiguous Ethereum item from {source_code}",
+                )
+                run_news_analysis(
+                    client=ScriptedClient(title="unclear", content="unclear"),
+                    article_loader=self.article_loader,
+                )
+                result = NewsAnalysisResult.objects.get(news_record=record)
+                result.analyzed_at = timezone.now() - timedelta(days=30)
+                result.save(update_fields=["analyzed_at"])
+
+                prune_expired_news(now=timezone.now())
+
+                self.assertTrue(
+                    NewsRawRecord.objects.filter(pk=record.pk).exists()
+                )
 
     def test_recent_unclear_survives_cleanup(self):
         record = make_record(title="Ambiguous Ethereum item")

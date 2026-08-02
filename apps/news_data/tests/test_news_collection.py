@@ -10,18 +10,28 @@ from django.test import TestCase
 from apps.collection.models import CollectionRun
 from apps.collection.pipeline import collect_and_inspect
 from apps.inspection.models import NewsInspectionRun
-from apps.news_data.collectors import NewsRequestClient, ParsedNewsItem, parse_rss_feed
+from apps.news_data.collectors import (
+    NewsRequestClient,
+    ParsedNewsItem,
+    parse_rss_feed,
+    parse_tether_page,
+)
 from apps.news_data.models import (
     NewsCollectionDiagnostic,
     NewsFeed,
     NewsRawRecord,
     NewsSource,
 )
-from apps.news_data.services import collection_window, save_news_item
+from apps.news_data.services import (
+    _default_request_client,
+    collection_window,
+    save_news_item,
+)
 from apps.news_data.sources import (
     BINANCE_ANNOUNCEMENTS_CODE,
     ETHEREUM_FOUNDATION_CODE,
     SEC_LITIGATION_RELEASES_CODE,
+    TETHER_NEWS_CODE,
 )
 
 
@@ -52,6 +62,40 @@ def response_for(content: bytes, content_type: str):
     return handler
 
 
+def tether_post(
+    item_id: int,
+    published_at: str,
+    *,
+    title: str = "Tether update",
+) -> dict[str, object]:
+    return {
+        "id": item_id,
+        "date_gmt": published_at,
+        "modified_gmt": published_at,
+        "slug": f"tether-update-{item_id}",
+        "status": "publish",
+        "type": "post",
+        "link": f"https://tether.io/news/tether-update-{item_id}/",
+        "title": {"rendered": title},
+        "excerpt": {"rendered": "<p>Official &amp; structured summary [&hellip;]</p>"},
+        "content": {"rendered": "Full article body must not be saved."},
+        "author": 1,
+        "categories": [3, 6],
+        "tags": [9],
+        "reading_time": "3 minutes read",
+        "_embedded": {
+            "author": [{"id": 1, "name": "Tether"}],
+            "wp:term": [
+                [
+                    {"id": 3, "name": "News", "taxonomy": "category"},
+                    {"id": 6, "name": "Finance", "taxonomy": "category"},
+                ],
+                [{"id": 9, "name": "USDt", "taxonomy": "post_tag"}],
+            ],
+        },
+    }
+
+
 class NewsCollectionTests(TestCase):
     def setUp(self):
         self.ef = NewsSource.objects.get(code=ETHEREUM_FOUNDATION_CODE)
@@ -68,6 +112,11 @@ class NewsCollectionTests(TestCase):
         self.binance.last_inspection_status = NewsSource.InspectionStatus.NEVER_RUN
         self.binance.health_status = NewsSource.HealthStatus.NEVER_RUN
         self.binance.save()
+        self.tether = NewsSource.objects.get(code=TETHER_NEWS_CODE)
+        self.tether_feed = NewsFeed.objects.get(code=TETHER_NEWS_CODE)
+        self.tether_feed.activated_at = END - timedelta(minutes=1)
+        self.tether_feed.trusted_coverage_end = None
+        self.tether_feed.save(update_fields=["activated_at", "trusted_coverage_end"])
 
     def test_first_run_only_accepts_items_at_or_after_activation(self):
         result = collect_and_inspect(
@@ -255,6 +304,68 @@ class NewsCollectionTests(TestCase):
         self.assertEqual([item.source_item_id for item in parsed], ["valid"])
         self.assertEqual(invalid, 1)
         self.assertFalse(recovered)
+
+    def test_tether_parser_uses_excerpt_and_omits_article_body(self):
+        payload = [
+            tether_post(
+                2846,
+                "2026-07-31T15:00:00",
+                title="Tether &amp; official update",
+            ),
+            {"id": 2, "title": {"rendered": "Missing fields"}},
+        ]
+
+        parsed, invalid = parse_tether_page(json.dumps(payload).encode())
+
+        self.assertEqual(invalid, 1)
+        self.assertEqual(len(parsed), 1)
+        item = parsed[0]
+        self.assertEqual(item.source_item_id, "2846")
+        self.assertEqual(item.title, "Tether & official update")
+        self.assertEqual(item.summary, "Official & structured summary […]")
+        self.assertEqual(item.source_author, "Tether")
+        self.assertEqual(item.source_category, "Finance")
+        self.assertEqual(item.source_tags, ["News", "Finance", "USDt"])
+        self.assertNotIn("content", item.raw_payload)
+
+    def test_tether_first_run_only_bootstraps_newest_api_page(self):
+        payload = [
+            tether_post(1, "2026-07-30T12:00:00"),
+            tether_post(2, "2026-07-29T12:00:00"),
+        ]
+
+        def handler(request):
+            self.assertEqual(request.url.params["categories"], "3")
+            self.assertEqual(request.url.params["page"], "1")
+            return httpx.Response(
+                200,
+                json=payload,
+                headers={"X-WP-TotalPages": "22"},
+                request=request,
+            )
+
+        result = collect_and_inspect(
+            data_type="news",
+            feed_code=TETHER_NEWS_CODE,
+            range_end=END,
+            client=request_client(handler),
+        )
+
+        diagnostic = result.collection_run.news_diagnostics.get()
+        self.assertEqual(result.collection_run.request_count, 1)
+        self.assertEqual(result.collection_run.inserted_count, 2)
+        self.assertEqual(diagnostic.stop_reason, "source_history_limited")
+        self.assertTrue(diagnostic.coverage_complete)
+        self.assertTrue(diagnostic.details["limited_initialization"])
+        self.assertEqual(result.inspection_run.quality_status, "warning")
+
+    def test_tether_request_client_has_source_rate_limit(self):
+        client = _default_request_client(self.tether_feed)
+        try:
+            self.assertEqual(client.rate_limit_key, "tether.io")
+            self.assertGreaterEqual(client.min_request_interval_seconds, 1.0)
+        finally:
+            client.close()
 
     def test_binance_paginates_until_older_than_boundary(self):
         pages = {

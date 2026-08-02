@@ -21,6 +21,7 @@ from .collectors import (
     parse_binance_page,
     parse_ethereum_feed,
     parse_rss_feed,
+    parse_tether_page,
 )
 from .models import (
     NewsCollectionDiagnostic,
@@ -40,6 +41,9 @@ from .sources import (
     FEED_DEFINITIONS,
     SEC_FEED_CODES,
     SOURCE_DEFINITIONS,
+    TETHER_LIST_PARAMS,
+    TETHER_NEWS_CODE,
+    TETHER_SAFETY_PAGE_LIMIT,
     TRACKING_QUERY_PARAMETERS,
 )
 
@@ -531,12 +535,152 @@ def _collect_binance(
     )
 
 
+def _collect_tether(
+    run: CollectionRun,
+    source: NewsSource,
+    feed: NewsFeed,
+    client: NewsRequestClient,
+    *,
+    safety_page_limit: int,
+) -> None:
+    seen_page_hashes: set[str] = set()
+    bootstrap = feed.bootstrap_visible_items and feed.trusted_coverage_end is None
+    for page_number in range(1, safety_page_limit + 1):
+        fetch = None
+        try:
+            params = {**TETHER_LIST_PARAMS, "page": page_number}
+            fetch = client.get(feed.feed_url, params=params)
+            parsed, invalid = parse_tether_page(fetch.response.content)
+            if not parsed:
+                code = "zero_first_page" if page_number == 1 else "zero_page"
+                raise NewsCollectionError(
+                    "Tether 新闻页面解析为 0 条，疑似解析器失效。",
+                    code=code,
+                )
+            page_identity = _sha256(
+                _stable_json(sorted(item.source_item_id for item in parsed))
+            )
+            if page_identity in seen_page_hashes:
+                raise NewsCollectionError(
+                    "Tether 分页返回重复页面。", code="pagination_loop"
+                )
+            seen_page_hashes.add(page_identity)
+
+            total_pages_text = fetch.response.headers.get("X-WP-TotalPages", "")
+            try:
+                total_pages = max(int(total_pages_text), 1)
+            except (TypeError, ValueError) as exc:
+                raise NewsCollectionError(
+                    "Tether 新闻接口缺少有效分页信息。", code="schema_changed"
+                ) from exc
+
+            eligible = [
+                item
+                for item in parsed
+                if (bootstrap and item.published_at < run.range_end)
+                or run.range_start <= item.published_at < run.range_end
+            ]
+            counts = SaveCounts()
+            seen_at = timezone.now()
+            for item in eligible:
+                counts += save_news_item(
+                    source=source,
+                    feed=feed,
+                    item=item,
+                    run=run,
+                    seen_at=seen_at,
+                )
+
+            published = [item.published_at for item in parsed]
+            crossed_boundary = min(published) < run.range_start
+            reached_last_page = page_number >= total_pages
+            complete = bootstrap or crossed_boundary or reached_last_page
+            stop_reason = ""
+            if bootstrap:
+                stop_reason = NewsCollectionDiagnostic.StopReason.SOURCE_HISTORY_LIMITED
+            elif crossed_boundary:
+                stop_reason = NewsCollectionDiagnostic.StopReason.REACHED_TIME_BOUNDARY
+            elif reached_last_page:
+                stop_reason = NewsCollectionDiagnostic.StopReason.SOURCE_HISTORY_LIMITED
+            _create_diagnostic(
+                run=run,
+                source=source,
+                feed=feed,
+                unit_type=NewsCollectionDiagnostic.UnitType.PAGE,
+                unit_identifier=f"tether_page_{page_number}",
+                client=client,
+                fetch=fetch,
+                page_number=page_number,
+                candidate_count=len(parsed) + invalid,
+                parsed_count=len(parsed),
+                eligible_count=len(eligible),
+                inserted_count=counts.inserted,
+                updated_count=counts.updated,
+                duplicate_count=counts.duplicate,
+                invalid_count=invalid,
+                earliest_published_at=min(published),
+                latest_published_at=max(published),
+                stop_reason=stop_reason,
+                coverage_complete=complete,
+                details={
+                    "total_pages": total_pages,
+                    "limited_initialization": bootstrap,
+                },
+            )
+            if complete:
+                return
+        except NewsCollectionError as exc:
+            stop_reason = (
+                NewsCollectionDiagnostic.StopReason.PAGINATION_LOOP
+                if exc.code == "pagination_loop"
+                else NewsCollectionDiagnostic.StopReason.REQUEST_FAILED
+            )
+            _create_diagnostic(
+                run=run,
+                source=source,
+                feed=feed,
+                unit_type=NewsCollectionDiagnostic.UnitType.PAGE,
+                unit_identifier=f"tether_page_{page_number}",
+                client=client,
+                fetch=fetch,
+                page_number=page_number,
+                stop_reason=stop_reason,
+                error_code=exc.code,
+                error_summary=str(exc)[:500],
+            )
+            raise
+
+    last = NewsCollectionDiagnostic.objects.filter(collection_run=run).first()
+    if last:
+        last.stop_reason = NewsCollectionDiagnostic.StopReason.SAFETY_PAGE_LIMIT
+        last.coverage_complete = False
+        last.error_code = "safety_page_limit"
+        last.error_summary = "达到 Tether 安全页数上限，仍未覆盖读取起点。"
+        last.save(
+            update_fields=[
+                "stop_reason",
+                "coverage_complete",
+                "error_code",
+                "error_summary",
+            ]
+        )
+    raise NewsCollectionError(
+        "达到 Tether 安全页数上限，覆盖不完整。", code="safety_page_limit"
+    )
+
+
 def _default_request_client(feed: NewsFeed) -> NewsRequestClient:
     if feed.code in SEC_FEED_CODES:
         return NewsRequestClient(
             user_agent=settings.SEC_NEWS_USER_AGENT,
             rate_limit_key="sec.gov",
             min_request_interval_seconds=settings.SEC_NEWS_MIN_REQUEST_INTERVAL_SECONDS,
+        )
+    if feed.code == TETHER_NEWS_CODE:
+        return NewsRequestClient(
+            user_agent=settings.NEWS_COLLECTOR_USER_AGENT,
+            rate_limit_key="tether.io",
+            min_request_interval_seconds=settings.TETHER_NEWS_MIN_REQUEST_INTERVAL_SECONDS,
         )
     return NewsRequestClient(user_agent=settings.NEWS_COLLECTOR_USER_AGENT)
 
@@ -547,7 +691,7 @@ def collect_news_feed(
     trigger: str = CollectionRun.Trigger.MANUAL,
     range_end: datetime | None = None,
     client: NewsRequestClient | None = None,
-    safety_page_limit: int = BINANCE_SAFETY_PAGE_LIMIT,
+    safety_page_limit: int = max(BINANCE_SAFETY_PAGE_LIMIT, TETHER_SAFETY_PAGE_LIMIT),
 ) -> CollectionRun:
     feed = NewsFeed.objects.select_related("source").get(code=feed_code)
     source = feed.source
@@ -583,6 +727,14 @@ def collect_news_feed(
             _collect_rss(run, source, feed, request_client)
         elif feed_code == BINANCE_ANNOUNCEMENTS_CODE:
             _collect_binance(
+                run,
+                source,
+                feed,
+                request_client,
+                safety_page_limit=safety_page_limit,
+            )
+        elif feed_code == TETHER_NEWS_CODE:
+            _collect_tether(
                 run,
                 source,
                 feed,
@@ -635,7 +787,7 @@ def collect_news_source(
     trigger: str = CollectionRun.Trigger.MANUAL,
     range_end: datetime | None = None,
     client: NewsRequestClient | None = None,
-    safety_page_limit: int = BINANCE_SAFETY_PAGE_LIMIT,
+    safety_page_limit: int = max(BINANCE_SAFETY_PAGE_LIMIT, TETHER_SAFETY_PAGE_LIMIT),
 ) -> CollectionRun:
     """Compatibility entry for sources that contain exactly one enabled feed."""
     source = NewsSource.objects.get(code=source_code)

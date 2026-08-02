@@ -14,7 +14,7 @@ from .content import SourceContentError, fetch_source_article, summarize_article
 from .forms import NewsClassificationFilterForm
 from .models import NewsAnalysisResult, NewsAnalysisRun
 from .services import AnalysisAlreadyRunning, prune_expired_news, run_news_analysis
-from apps.news_data.sources import CFTC_CODE, SEC_CODE
+from apps.news_data.sources import SUMMARY_ONLY_SOURCE_CODES
 
 
 @require_GET
@@ -91,13 +91,13 @@ def result_content(request, result_id: int):
     )
     record = result.news_record
     source_url = record.original_url or record.canonical_url
-    if record.source.code in {SEC_CODE, CFTC_CODE}:
+    if record.source.code in SUMMARY_ONLY_SOURCE_CODES:
         return JsonResponse(
             {
                 "origin": "saved_summary",
                 "content": result.content_summary
                 or record.summary
-                or "RSS 暂未提供可显示的摘要。",
+                or "来源暂未提供可显示的摘要。",
                 "source_url": source_url,
             }
         )

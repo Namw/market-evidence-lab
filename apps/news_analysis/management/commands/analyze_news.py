@@ -5,7 +5,7 @@ from apps.news_analysis.services import AnalysisAlreadyRunning, run_news_analysi
 
 
 class Command(BaseCommand):
-    help = "运行 ETH 新闻分类（无关及超过 3 天的模糊记录会按规则删除）"
+    help = "运行 ETH 新闻分类（无关及一般来源超过 3 天的模糊记录会按规则删除）"
 
     def add_arguments(self, parser):
         parser.add_argument(
