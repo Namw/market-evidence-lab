@@ -33,7 +33,52 @@
     <div class="linked-range-summary">
         <span class="summary-dot" aria-hidden="true"></span>
         <strong>选中 {{ selected_date|date:'m/d' }}</strong>
-        <span>小时范围 {{ range_start|date:'m/d H:i' }} — {{ range_last_date|date:'m/d' }} 23:00 UTC</span>
+        <span class="linked-range-text">小时范围 {{ range_start|date:'m/d H:i' }} — {{ range_last_date|date:'m/d' }} 23:00 UTC</span>
+        <button class="market-summary-trigger" type="button" data-summary-open aria-haspopup="dialog" aria-controls="market-summary-dialog" aria-expanded="false">
+            <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M10 2.2 11.4 7l4.7 1.4-4.7 1.4-1.4 4.8-1.4-4.8-4.7-1.4L8.6 7 10 2.2Z"/><path d="m15.4 12.5.6 2.1 2.1.6-2.1.7-.6 2.1-.7-2.1-2.1-.7 2.1-.6.7-2.1Z"/></svg>
+            <span>总结</span>
+        </button>
+    </div>
+
+    <div class="market-summary-layer" data-summary-layer hidden>
+        <div class="market-summary-backdrop" data-summary-close aria-hidden="true"></div>
+        <section class="market-summary-dialog" id="market-summary-dialog" data-summary-dialog role="dialog" aria-modal="true" aria-labelledby="market-summary-title" tabindex="-1">
+            <header class="market-summary-header">
+                <div>
+                    <p class="eyebrow">{{ symbol }} · UTC 数据观察</p>
+                    <h2 id="market-summary-title">{{ selected_date|date:'Y-m-d' }} 数据结论</h2>
+                    <p>结论已与当前选中的日 K 联动</p>
+                </div>
+                <button class="market-summary-close" type="button" data-summary-close aria-label="关闭数据结论">
+                    <svg viewBox="0 0 20 20" aria-hidden="true"><path d="m5 5 10 10M15 5 5 15"/></svg>
+                </button>
+            </header>
+            <div class="market-summary-grid">
+                {% for conclusion in data_conclusions %}
+                <article class="market-conclusion-card is-{{ conclusion.kind }}">
+                    <div class="market-conclusion-heading">
+                        <span class="conclusion-icon" aria-hidden="true">
+                            {% if conclusion.kind == 'daily' %}<svg viewBox="0 0 24 24"><path d="M7 4v16M4 8h6v7H4V8Zm13-4v16m-3-9h6v8h-6V7Z"/></svg>
+                            {% elif conclusion.kind == 'hourly' %}<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="8"/><path d="M12 7v5l3 2"/></svg>
+                            {% elif conclusion.kind == 'oi' %}<svg viewBox="0 0 24 24"><path d="M5 19V9m5 10V5m5 14v-7m5 7V8"/></svg>
+                            {% else %}<svg viewBox="0 0 24 24"><path d="M4 17c3-1 4-7 7-7s3 4 5 4 2-4 4-6"/><circle cx="4" cy="17" r="1"/><circle cx="11" cy="10" r="1"/><circle cx="16" cy="14" r="1"/><circle cx="20" cy="8" r="1"/></svg>{% endif %}
+                        </span>
+                        <div><span>{{ conclusion.label }}</span><strong>{{ selected_date|date:'m/d' }}</strong></div>
+                        <span class="conclusion-status is-{{ conclusion.tone }}">{{ conclusion.status }}</span>
+                    </div>
+                    <p>{{ conclusion.text }}</p>
+                    <small>{{ conclusion.meta }}</small>
+                </article>
+                {% endfor %}
+            </div>
+            <footer class="market-summary-footer">
+                <p><span aria-hidden="true">i</span> 数据结论用于事实观察，不构成交易建议。</p>
+                <div>
+                    {% if research_case %}<a href="{% url 'research_cases:detail' research_case.pk %}">查看完整研究案例</a>{% endif %}
+                    <button type="button" data-summary-close>收起总结</button>
+                </div>
+            </footer>
+        </section>
     </div>
 
     <section class="data-chart-card daily-chart-card" aria-labelledby="daily-chart-title">
@@ -102,5 +147,5 @@
 {% endblock %}
 
 {% block extra_js %}
-<script src="{% static 'market_data/js/data_view.js' %}?v=3" defer></script>
+<script src="{% static 'market_data/js/data_view.js' %}?v=4" defer></script>
 {% endblock %}
