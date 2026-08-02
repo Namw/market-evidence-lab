@@ -341,18 +341,12 @@
         context.fillText("Funding (%)", bounds.left + bounds.width, bounds.top - 8);
     }
 
-    function drawSmoothLine(context, points) {
+    function drawStraightLine(context, points) {
         if (!points.length) return;
         context.beginPath();
         context.moveTo(points[0].x, points[0].y);
-        for (let index = 1; index < points.length - 1; index += 1) {
-            const midpointX = (points[index].x + points[index + 1].x) / 2;
-            const midpointY = (points[index].y + points[index + 1].y) / 2;
-            context.quadraticCurveTo(points[index].x, points[index].y, midpointX, midpointY);
-        }
-        if (points.length > 1) {
-            const last = points[points.length - 1];
-            context.lineTo(last.x, last.y);
+        for (let index = 1; index < points.length; index += 1) {
+            context.lineTo(points[index].x, points[index].y);
         }
         context.stroke();
     }
@@ -397,7 +391,7 @@
         }));
         context.strokeStyle = colors.funding;
         context.lineWidth = 2;
-        drawSmoothLine(context, fundingPoints);
+        drawStraightLine(context, fundingPoints);
         fundingPoints.forEach((point) => {
             context.beginPath();
             context.fillStyle = colors.white;
