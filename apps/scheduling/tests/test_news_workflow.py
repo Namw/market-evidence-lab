@@ -455,11 +455,10 @@ class NewsWorkflowPageTests(TestCase):
         response = self.client.get(self.url)
 
         self.assertEqual(response.status_code, 200)
-        self.assertContains(response, "新闻每日自动工作流 V1")
-        self.assertContains(response, "Ethereum 采集")
-        self.assertContains(response, "Ethereum 质量")
-        self.assertContains(response, "Binance 采集")
-        self.assertContains(response, "Binance 质量")
+        self.assertContains(response, "任务列表")
+        self.assertContains(response, "新闻采集与分析工作流")
+        self.assertContains(response, "Ethereum Foundation、Binance")
+        self.assertContains(response, "手动调度")
 
     def test_news_configuration_saves_without_changing_kline_schedule(self):
         news_schedule = get_builtin_news_schedule()
@@ -490,7 +489,7 @@ class NewsWorkflowPageTests(TestCase):
 
         self.assertRedirects(
             response,
-            "/system/schedules/?news_run=91#news-workflow-details",
+            "/system/schedules/runs/news/91/",
             fetch_redirect_response=False,
         )
         execute.assert_called_once_with(

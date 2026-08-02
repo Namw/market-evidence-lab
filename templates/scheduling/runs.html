@@ -1,0 +1,49 @@
+{% extends "base.html" %}
+{% load tz %}
+
+{% block title %}系统管理 · 调度情况 · Market Evidence Lab{% endblock %}
+
+{% block content %}
+<header class="page-header schedule-page-header">
+    <div><p class="eyebrow">系统管理</p><h1>调度情况</h1><p class="page-intro">默认展示今日采集情况，可按日期范围和任务类型筛选。所有日期均按 Asia/Shanghai 计算。</p></div>
+    <a class="quiet-link" href="{% url 'scheduling:index' %}"><span aria-hidden="true">←</span> 自动调度</a>
+</header>
+
+<section class="run-date-filter" aria-label="日期范围筛选">
+    <form method="get">
+        <input type="hidden" name="task" value="{{ selected_task }}">
+        <div class="date-filter-field"><label for="start-date">开始日期</label><input id="start-date" type="date" name="start_date" value="{{ filter_start }}"></div>
+        <span class="date-range-arrow" aria-hidden="true">→</span>
+        <div class="date-filter-field"><label for="end-date">结束日期</label><input id="end-date" type="date" name="end_date" value="{{ filter_end }}"></div>
+        <button class="date-filter-submit" type="submit">查询</button>
+        <a class="date-filter-today" href="?task={{ selected_task }}">回到今天</a>
+        <a class="date-filter-today" href="?task={{ selected_task }}&amp;start_date={{ recent_three_start }}&amp;end_date={{ recent_three_end }}">最近三天</a>
+    </form>
+    {% if filter_error %}<p class="date-filter-error" role="alert">{{ filter_error }}</p>{% endif %}
+</section>
+
+<nav class="filter-tabs" aria-label="任务类型筛选">
+    <a class="filter-tab{% if selected_task == 'all' %} is-active{% endif %}" href="?task=all&amp;start_date={{ filter_start }}&amp;end_date={{ filter_end }}">全部 <span>{{ market_count|add:news_count }}</span></a>
+    <a class="filter-tab{% if selected_task == 'market' %} is-active{% endif %}" href="?task=market&amp;start_date={{ filter_start }}&amp;end_date={{ filter_end }}">行情原始数据 <span>{{ market_count }}</span></a>
+    <a class="filter-tab{% if selected_task == 'news' %} is-active{% endif %}" href="?task=news&amp;start_date={{ filter_start }}&amp;end_date={{ filter_end }}">新闻每日工作流 <span>{{ news_count }}</span></a>
+</nav>
+
+<section class="run-log-section" aria-labelledby="runs-title">
+    <div class="run-log-heading"><div><p class="eyebrow">{{ date_range_label }}</p><h2 id="runs-title">{% if selected_task == 'market' %}行情原始数据{% elif selected_task == 'news' %}新闻每日工作流{% else %}全部任务{% endif %}</h2></div><p><strong>{{ attention_count }}</strong> 条需要关注<span>·</span>最多展示 100 条</p></div>
+    <div class="schedule-run-timeline">
+        {% for item in run_items %}
+        <div class="run-timeline-entry{% if item.needs_attention %} needs-attention{% endif %}">
+            <div class="timeline-rail"><span class="timeline-dot status-{{ item.status }}"></span></div>
+            <article class="run-timeline-card">
+                <div class="run-card-main">
+                    <div class="run-card-title"><strong>{{ item.kind_label }}</strong><span>#{{ item.id }}</span><span class="run-status status-{{ item.status }}">{{ item.status_label }}</span></div>
+                    <div class="run-card-meta"><time datetime="{{ item.started_at|date:'c' }}">{% timezone display_timezone %}{{ item.started_at|date:"Y-m-d H:i:s" }}{% endtimezone %} {{ display_timezone }}</time><i></i><span>{{ item.trigger }}触发</span><i></i><span>{% if item.finished_at %}已完成{% else %}运行中{% endif %}</span></div>
+                </div>
+                <a class="run-card-link" href="{% url 'scheduling:run_detail' run_kind=item.kind run_id=item.id %}" aria-label="查看 {{ item.kind_label }} #{{ item.id }} 详情">查看详情 <span aria-hidden="true">→</span></a>
+                <div class="run-card-summary{% if item.needs_attention %} is-error{% endif %}"><span>{% if item.needs_attention %}异常原因{% else %}运行摘要{% endif %}</span><p>{{ item.summary|truncatechars:220 }}</p></div>
+            </article>
+        </div>
+        {% empty %}<div class="run-empty-state"><span aria-hidden="true">○</span><strong>{{ date_range_label }}暂无记录</strong><p>可以调整日期范围，或返回自动调度手动执行任务。</p></div>{% endfor %}
+    </div>
+</section>
+{% endblock %}

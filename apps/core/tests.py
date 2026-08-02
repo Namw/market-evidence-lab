@@ -80,13 +80,19 @@ class SidebarNavigationTests(TestCase):
         ("core:home", None),
         ("market_monitoring:index", "market-monitoring"),
         ("research_cases:list", "research-cases"),
-        ("inspection:index", "kline"),
-        ("collection:index", "kline"),
-        ("collection:derivatives", "derivatives"),
+        ("market_data:index", "market-data"),
         ("news_analysis:index", "news"),
         ("news_data:index", "news"),
         ("scheduling:index", "system"),
+        ("scheduling:runs", "system"),
     ]
+
+    def test_sidebar_has_accessible_collapse_control(self):
+        response = self.client.get(reverse("core:home"))
+
+        self.assertContains(response, 'data-sidebar-toggle')
+        self.assertContains(response, 'aria-controls="primary-sidebar"')
+        self.assertContains(response, 'aria-label="收起侧边栏"')
 
     def test_sidebar_uses_real_entries_in_fixed_order_without_duplicates(self):
         response = self.client.get(reverse("core:home"))
@@ -100,16 +106,14 @@ class SidebarNavigationTests(TestCase):
                 "今日巡检结果",
                 "研究案例",
                 "案例列表",
-                "K 线观察",
-                "数据检查",
-                "数据采集",
-                "OI / Funding 观察",
-                "数据采集",
+                "行情数据观察",
+                "数据查看",
                 "新闻观察",
                 "每日分析结果",
                 "数据采集",
                 "系统管理",
                 "自动调度",
+                "调度情况",
             ],
         )
         self.assertEqual(
@@ -121,8 +125,7 @@ class SidebarNavigationTests(TestCase):
             [
                 "market-monitoring",
                 "research-cases",
-                "kline",
-                "derivatives",
+                "market-data",
                 "news",
                 "system",
             ],
@@ -143,18 +146,12 @@ class SidebarNavigationTests(TestCase):
             with self.subTest(unavailable_text=unavailable_text):
                 self.assertNotIn(unavailable_text, navigation)
 
-        kline_group = re.search(
-            r'<details[^>]*data-nav-group="kline".*?</details>',
+        market_data_group = re.search(
+            r'<details[^>]*data-nav-group="market-data".*?</details>',
             navigation,
             re.DOTALL,
         ).group(0)
-        derivatives_group = re.search(
-            r'<details[^>]*data-nav-group="derivatives".*?</details>',
-            navigation,
-            re.DOTALL,
-        ).group(0)
-        self.assertNotIn("每日分析结果", kline_group)
-        self.assertNotIn("每日分析结果", derivatives_group)
+        self.assertNotIn("每日分析结果", market_data_group)
 
     def test_home_is_direct_active_entry_and_no_group_defaults_open(self):
         response = self.client.get(reverse("core:home"))
@@ -196,9 +193,9 @@ class SidebarNavigationTests(TestCase):
     def test_query_string_detail_states_keep_namespace_group_mapping(self):
         detail_urls = (
             (f'{reverse("market_monitoring:index")}?run=999999', "market-monitoring"),
-            (f'{reverse("inspection:index")}?run=999999', "kline"),
-            (f'{reverse("collection:index")}?run=999999', "kline"),
-            (f'{reverse("collection:derivatives")}?run=999999', "derivatives"),
+            (f'{reverse("inspection:index")}?run=999999', "market-data"),
+            (f'{reverse("collection:index")}?run=999999', "market-data"),
+            (f'{reverse("collection:derivatives")}?run=999999', "market-data"),
             (f'{reverse("news_analysis:index")}?page=2', "news"),
             (f'{reverse("news_data:index")}?run=999999', "news"),
             (f'{reverse("scheduling:index")}?run=999999&news_run=999999', "system"),

@@ -199,20 +199,20 @@ class CollectionPageTests(TestCase):
             with self.subTest(path=path):
                 self.assertEqual(self.client.get(path).status_code, 404)
 
-    def test_navigation_links_to_collection_but_not_unbuilt_routes(self):
+    def test_navigation_links_to_unified_data_view_but_not_unbuilt_routes(self):
         response = self.client.get(self.url)
 
-        self.assertContains(response, 'href="/collection/"')
+        self.assertContains(response, 'href="/market-data/"')
         self.assertContains(response, 'href="/collection/derivatives/"')
-        self.assertContains(response, "K 线观察")
-        self.assertContains(response, "OI / Funding 观察")
+        self.assertContains(response, "行情数据观察")
+        self.assertContains(response, "数据查看")
         self.assertContains(
             response,
-            '<details class="nav-group is-active" data-nav-group="kline" open>',
+            '<details class="nav-group is-active" data-nav-group="market-data" open>',
         )
         self.assertContains(
             response,
-            '<a class="nav-subitem is-active" href="/collection/" aria-current="page">数据采集</a>',
+            '<a class="nav-subitem" href="/market-data/">数据查看</a>',
         )
         self.assertNotContains(response, 'href="/analysis/"')
         self.assertContains(response, "form.js")

@@ -1,7 +1,12 @@
 import secrets
+from datetime import date, datetime, time, timedelta
+from itertools import chain
+from zoneinfo import ZoneInfo
 
 from django.contrib import messages
-from django.shortcuts import redirect, render
+from django.http import Http404
+from django.shortcuts import get_object_or_404, redirect, render
+from django.utils import timezone
 from django.views.decorators.http import require_http_methods
 
 from apps.collection.models import CollectionRun
@@ -26,31 +31,6 @@ RUN_TOKEN_SESSION_KEY = "scheduling_manual_run_token"
 NEWS_RUN_TOKEN_SESSION_KEY = "scheduling_news_manual_run_token"
 
 
-def _selected_run(request):
-    run_id = request.GET.get("run")
-    if not run_id or not run_id.isdigit():
-        return None
-    return WorkflowRun.objects.select_related("schedule").filter(pk=int(run_id)).first()
-
-
-def _selected_news_run(request):
-    run_id = request.GET.get("news_run")
-    if not run_id or not run_id.isdigit():
-        return None
-    return (
-        NewsWorkflowRun.objects.select_related(
-            "schedule",
-            "ethereum_collection_run",
-            "binance_collection_run",
-            "ethereum_inspection_run",
-            "binance_inspection_run",
-            "analysis_run",
-        )
-        .filter(pk=int(run_id))
-        .first()
-    )
-
-
 def _step_runs(workflow_run):
     if workflow_run is None:
         return []
@@ -69,17 +49,34 @@ def _step_runs(workflow_run):
         ),
     )
     steps = workflow_run.details.get("steps", {})
+    status_labels = {
+        "pending": "待执行",
+        "success": "成功",
+        "partial": "部分完成",
+        "failed": "失败",
+        "not_run": "未执行",
+    }
     result = []
     for key, label, model in definitions:
         run_id = workflow_run.details.get(f"{key}_run_id")
         child_run = model.objects.filter(pk=run_id).first() if run_id else None
         is_collection = key.startswith("collection_")
+        step = steps.get(key, {})
         result.append(
             {
                 "key": key,
                 "label": label,
-                "step": steps.get(key, {}),
+                "step": step,
+                "status_label": status_labels.get(
+                    step.get("status", "pending"),
+                    step.get("status", "pending"),
+                ),
                 "run": child_run,
+                "child_error": (
+                    child_run.error_message
+                    if child_run is not None and child_run.error_message
+                    else ""
+                ),
                 "is_collection": is_collection,
                 "other_issue_count": (
                     child_run.other_issue_count
@@ -97,16 +94,135 @@ def _new_run_token(request, session_key: str) -> str:
     return token
 
 
+def _workflow_summary(run: WorkflowRun) -> str:
+    if run.error_message:
+        return run.error_message
+    step_errors = [
+        step.get("error_summary", "")
+        for step in run.details.get("steps", {}).values()
+        if step.get("error_summary")
+    ]
+    if step_errors:
+        return "；".join(step_errors)
+    if run.status == WorkflowRun.Status.FAILED:
+        return "执行失败，但未记录明确错误摘要。请进入详情定位失败步骤。"
+    if run.status == WorkflowRun.Status.PARTIAL:
+        return "部分步骤未完成，请进入详情查看各步骤状态。"
+    if run.quality_status == WorkflowRun.QualityStatus.ISSUES:
+        return "执行完成，但数据质量检查发现问题。"
+    return "执行完成，未发现异常。"
+
+
+def _news_workflow_summary(run: NewsWorkflowRun) -> str:
+    if run.safe_error_summary:
+        return run.safe_error_summary
+    if run.status == NewsWorkflowRun.Status.FAILED:
+        return "执行失败，但未记录明确错误摘要。请进入详情定位失败环节。"
+    if run.status == NewsWorkflowRun.Status.PARTIAL:
+        return "部分环节未完成，请进入详情查看采集、质量和分析状态。"
+    if run.quality_issue_count:
+        return f"执行完成，数据质量检查发现 {run.quality_issue_count} 个问题。"
+    return "执行完成，未发现异常。"
+
+
+def _run_list_item(run, *, kind: str) -> dict:
+    is_market = kind == "market"
+    return {
+        "kind": kind,
+        "kind_label": "行情原始数据" if is_market else "新闻每日工作流",
+        "id": run.pk,
+        "trigger": run.get_trigger_display(),
+        "status": run.status,
+        "status_label": run.get_status_display(),
+        "started_at": run.started_at,
+        "finished_at": run.finished_at,
+        "summary": _workflow_summary(run) if is_market else _news_workflow_summary(run),
+        "needs_attention": run.status in {"failed", "partial"}
+        or (is_market and run.quality_status == WorkflowRun.QualityStatus.ISSUES)
+        or (not is_market and run.quality_issue_count > 0),
+    }
+
+
+def _run_date_range(request) -> dict:
+    schedule_zone = ZoneInfo(SCHEDULE_TIMEZONE)
+    today = timezone.localdate(timezone=schedule_zone)
+    start_value = request.GET.get("start_date", "").strip()
+    end_value = request.GET.get("end_date", "").strip()
+    error = ""
+
+    if not start_value and not end_value:
+        start_date = end_date = today
+    else:
+        start_value = start_value or end_value
+        end_value = end_value or start_value
+        try:
+            start_date = date.fromisoformat(start_value)
+            end_date = date.fromisoformat(end_value)
+        except ValueError:
+            start_date = end_date = today
+            error = "日期格式无效，已恢复为今日。"
+        if start_date > end_date:
+            start_date = end_date = today
+            error = "开始日期不能晚于结束日期，已恢复为今日。"
+
+    start_at = datetime.combine(start_date, time.min, tzinfo=schedule_zone)
+    end_at = datetime.combine(
+        end_date + timedelta(days=1),
+        time.min,
+        tzinfo=schedule_zone,
+    )
+    if start_date == end_date == today:
+        label = "今日采集情况"
+    elif start_date == end_date:
+        label = f"{start_date:%Y年%m月%d日}采集情况"
+    else:
+        label = f"{start_date:%Y年%m月%d日} 至 {end_date:%Y年%m月%d日}"
+    return {
+        "start_date": start_date,
+        "end_date": end_date,
+        "start_at": start_at,
+        "end_at": end_at,
+        "today": today,
+        "label": label,
+        "error": error,
+    }
+
+
 @require_http_methods(["GET", "POST"])
 def schedule_index(request):
+    if request.method == "GET":
+        legacy_run_id = request.GET.get("run", "")
+        if legacy_run_id.isdigit() and WorkflowRun.objects.filter(
+            pk=int(legacy_run_id)
+        ).exists():
+            return redirect(
+                "scheduling:run_detail",
+                run_kind="market",
+                run_id=int(legacy_run_id),
+            )
+        legacy_news_run_id = request.GET.get("news_run", "")
+        if legacy_news_run_id.isdigit() and NewsWorkflowRun.objects.filter(
+            pk=int(legacy_news_run_id)
+        ).exists():
+            return redirect(
+                "scheduling:run_detail",
+                run_kind="news",
+                run_id=int(legacy_news_run_id),
+            )
+
     schedule = get_builtin_schedule()
     news_schedule = get_builtin_news_schedule()
-    form = KlineScheduleForm(instance=schedule)
-    news_form = NewsWorkflowScheduleForm(instance=news_schedule)
+    form = KlineScheduleForm(instance=schedule, auto_id="market_%s")
+    news_form = NewsWorkflowScheduleForm(instance=news_schedule, auto_id="news_%s")
+    open_dialog = ""
     if request.method == "POST":
         action = request.POST.get("action")
         if action == "save":
-            form = KlineScheduleForm(request.POST, instance=schedule)
+            form = KlineScheduleForm(
+                request.POST,
+                instance=schedule,
+                auto_id="market_%s",
+            )
             if form.is_valid():
                 updated = form.save(commit=False)
                 updated.timezone = SCHEDULE_TIMEZONE
@@ -114,8 +230,13 @@ def schedule_index(request):
                 updated.save()
                 messages.success(request, "自动任务配置已保存。")
                 return redirect("scheduling:index")
+            open_dialog = "market-config-dialog"
         elif action == "save_news":
-            news_form = NewsWorkflowScheduleForm(request.POST, instance=news_schedule)
+            news_form = NewsWorkflowScheduleForm(
+                request.POST,
+                instance=news_schedule,
+                auto_id="news_%s",
+            )
             if news_form.is_valid():
                 updated = news_form.save(commit=False)
                 updated.timezone = SCHEDULE_TIMEZONE
@@ -123,6 +244,7 @@ def schedule_index(request):
                 updated.save()
                 messages.success(request, "新闻每日工作流配置已保存。")
                 return redirect("scheduling:index")
+            open_dialog = "news-config-dialog"
         elif action == "run":
             submitted_token = request.POST.get("run_token", "")
             expected_token = request.session.pop(RUN_TOKEN_SESSION_KEY, "")
@@ -145,7 +267,7 @@ def schedule_index(request):
                 messages.warning(request, "工作流执行成功，但数据质量巡检发现问题。")
             else:
                 messages.success(request, "工作流执行成功，数据质量巡检通过。")
-            return redirect(f"/system/schedules/?run={run.pk}")
+            return redirect("scheduling:run_detail", run_kind="market", run_id=run.pk)
         elif action == "run_news":
             submitted_token = request.POST.get("news_run_token", "")
             expected_token = request.session.pop(NEWS_RUN_TOKEN_SESSION_KEY, "")
@@ -172,12 +294,10 @@ def schedule_index(request):
                 messages.warning(request, "新闻每日工作流部分成功，请分别查看三个环节。")
             else:
                 messages.error(request, "新闻每日工作流失败，请分别查看三个环节。")
-            return redirect(f"/system/schedules/?news_run={run.pk}#news-workflow-details")
+            return redirect("scheduling:run_detail", run_kind="news", run_id=run.pk)
         else:
             messages.error(request, "无法识别的操作。")
 
-    selected_run = _selected_run(request)
-    selected_news_run = _selected_news_run(request)
     context = {
         "schedule": schedule,
         "form": form,
@@ -186,17 +306,95 @@ def schedule_index(request):
         "scheduler": scheduler_status(),
         "run_token": _new_run_token(request, RUN_TOKEN_SESSION_KEY),
         "news_run_token": _new_run_token(request, NEWS_RUN_TOKEN_SESSION_KEY),
-        "recent_runs": WorkflowRun.objects.select_related("schedule")[:20],
-        "recent_news_runs": NewsWorkflowRun.objects.select_related(
-            "schedule",
-            "ethereum_collection_run",
-            "binance_collection_run",
-            "ethereum_inspection_run",
-            "binance_inspection_run",
-            "analysis_run",
-        )[:20],
-        "selected_run": selected_run,
-        "selected_steps": _step_runs(selected_run),
-        "selected_news_run": selected_news_run,
+        "open_dialog": open_dialog,
     }
     return render(request, "scheduling/index.html", context)
+
+
+@require_http_methods(["GET"])
+def schedule_runs(request):
+    selected_task = request.GET.get("task", "all")
+    if selected_task not in {"all", "market", "news"}:
+        selected_task = "all"
+
+    run_range = _run_date_range(request)
+    date_filters = {
+        "started_at__gte": run_range["start_at"],
+        "started_at__lt": run_range["end_at"],
+    }
+    market_queryset = WorkflowRun.objects.filter(**date_filters).select_related(
+        "schedule"
+    )
+    news_queryset = NewsWorkflowRun.objects.filter(**date_filters).select_related(
+        "schedule"
+    )
+    market_count = market_queryset.count()
+    news_count = news_queryset.count()
+    market_runs = list(market_queryset[:100])
+    news_runs = list(news_queryset[:100])
+    all_items = sorted(
+        chain(
+            (_run_list_item(run, kind="market") for run in market_runs),
+            (_run_list_item(run, kind="news") for run in news_runs),
+        ),
+        key=lambda item: (item["started_at"], item["id"]),
+        reverse=True,
+    )
+    if selected_task != "all":
+        all_items = [item for item in all_items if item["kind"] == selected_task]
+
+    return render(
+        request,
+        "scheduling/runs.html",
+        {
+            "run_items": all_items[:100],
+            "selected_task": selected_task,
+            "market_count": market_count,
+            "news_count": news_count,
+            "attention_count": sum(item["needs_attention"] for item in all_items),
+            "filter_start": run_range["start_date"].isoformat(),
+            "filter_end": run_range["end_date"].isoformat(),
+            "date_range_label": run_range["label"],
+            "filter_error": run_range["error"],
+            "display_timezone": SCHEDULE_TIMEZONE,
+            "recent_three_start": (
+                run_range["today"] - timedelta(days=2)
+            ).isoformat(),
+            "recent_three_end": run_range["today"].isoformat(),
+        },
+    )
+
+
+@require_http_methods(["GET"])
+def schedule_run_detail(request, run_kind: str, run_id: int):
+    if run_kind == "market":
+        run = get_object_or_404(
+            WorkflowRun.objects.select_related("schedule"),
+            pk=run_id,
+        )
+        context = {
+            "run_kind": run_kind,
+            "run": run,
+            "summary": _workflow_summary(run),
+            "selected_steps": _step_runs(run),
+        }
+    elif run_kind == "news":
+        run = get_object_or_404(
+            NewsWorkflowRun.objects.select_related(
+                "schedule",
+                "ethereum_collection_run",
+                "binance_collection_run",
+                "ethereum_inspection_run",
+                "binance_inspection_run",
+                "analysis_run",
+            ),
+            pk=run_id,
+        )
+        context = {
+            "run_kind": run_kind,
+            "run": run,
+            "summary": _news_workflow_summary(run),
+        }
+    else:
+        raise Http404("未知的调度任务类型")
+    return render(request, "scheduling/run_detail.html", context)

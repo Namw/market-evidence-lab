@@ -77,11 +77,11 @@ class DerivativesCollectionViewTests(TestCase):
         self.assertContains(response, "最近 20 次 OI / Funding 采集")
         self.assertContains(
             response,
-            '<details class="nav-group is-active" data-nav-group="derivatives" open>',
+            '<details class="nav-group is-active" data-nav-group="market-data" open>',
         )
         self.assertContains(
             response,
-            '<a class="nav-subitem is-active" href="/collection/derivatives/" aria-current="page">数据采集</a>',
+            '<a class="nav-subitem" href="/market-data/">数据查看</a>',
         )
 
     @patch("apps.collection.views.collect_and_inspect")

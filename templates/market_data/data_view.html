@@ -1,0 +1,106 @@
+{% extends "base.html" %}
+{% load static %}
+
+{% block title %}数据查看 · Market Evidence Lab{% endblock %}
+{% block body_class %}data-view-body{% endblock %}
+
+{% block content %}
+<div class="data-view-page{% if not selected_date %} is-empty{% endif %}" data-market-data-view data-select-url="{% url 'market_data:index' %}" data-range-start="{{ range_start_iso }}" data-range-end="{{ range_end_iso }}" data-selected-start="{{ selected_day_start_iso }}" data-selected-end="{{ selected_day_end_iso }}">
+    <header class="page-header data-view-header">
+        <div>
+            <p class="eyebrow">行情数据观察</p>
+            <h1>数据查看</h1>
+            <p class="page-intro">联动查看 {{ symbol }} 日 K、小时 K、OI 与 Funding 数据</p>
+        </div>
+        <div class="data-view-toolbar">
+            <span class="market-chip is-primary">{{ symbol }}</span>
+            <span class="market-chip">UTC</span>
+            {% if selected_date %}
+            <form class="date-jump-form" method="get">
+                <label class="sr-only" for="data-view-date">选择日 K 日期</label>
+                <input id="data-view-date" type="date" name="date" value="{{ selected_date|date:'Y-m-d' }}"{% if earliest_date %} min="{{ earliest_date|date:'Y-m-d' }}"{% endif %}{% if latest_date %} max="{{ latest_date|date:'Y-m-d' }}"{% endif %}>
+                <button type="submit">查看</button>
+            </form>
+            <div class="date-stepper" aria-label="切换日 K">
+                {% if previous_date %}<a href="?date={{ previous_date|date:'Y-m-d' }}" aria-label="上一根日 K">‹</a>{% else %}<span aria-disabled="true">‹</span>{% endif %}
+                {% if next_date %}<a href="?date={{ next_date|date:'Y-m-d' }}" aria-label="下一根日 K">›</a>{% else %}<span aria-disabled="true">›</span>{% endif %}
+            </div>
+            {% endif %}
+        </div>
+    </header>
+
+    {% if selected_date %}
+    <div class="linked-range-summary">
+        <span class="summary-dot" aria-hidden="true"></span>
+        <strong>选中 {{ selected_date|date:'m/d' }}</strong>
+        <span>小时范围 {{ range_start|date:'m/d H:i' }} — {{ range_last_date|date:'m/d' }} 23:00 UTC</span>
+    </div>
+
+    <section class="data-chart-card daily-chart-card" aria-labelledby="daily-chart-title">
+        <div class="data-chart-heading">
+            <div>
+                <h2 id="daily-chart-title">日 K</h2>
+                <span>最近 {{ daily_chart_data|length }} 根</span>
+            </div>
+            <p>点击任意日 K 联动下方图表</p>
+        </div>
+        <dl class="selected-kline-strip">
+            <div class="selected-kline-date"><dt>当前选择</dt><dd>{{ selected_detail.date }} 日 K</dd></div>
+            <div><dt>开</dt><dd>{{ selected_detail.open }}</dd></div>
+            <div><dt>高</dt><dd>{{ selected_detail.high }}</dd></div>
+            <div><dt>低</dt><dd>{{ selected_detail.low }}</dd></div>
+            <div><dt>收</dt><dd>{{ selected_detail.close }}</dd></div>
+            <div><dt>涨跌</dt><dd class="{{ selected_detail.change_class }}">{{ selected_detail.change }}</dd></div>
+            <div><dt>成交量</dt><dd>{{ selected_detail.volume }}</dd></div>
+        </dl>
+        <div class="data-canvas-wrap">
+            <canvas data-chart="daily" aria-label="{{ symbol }} 最近 60 根日 K 蜡烛图"></canvas>
+        </div>
+    </section>
+
+    <section class="data-chart-card" aria-labelledby="hourly-chart-title">
+        <div class="data-chart-heading">
+            <div>
+                <h2 id="hourly-chart-title">小时 K</h2>
+                <span>{{ range_start|date:'Y-m-d' }} — {{ range_last_date|date:'Y-m-d' }} · {{ hourly_chart_data|length }} 根</span>
+            </div>
+            <div class="focus-day-key"><span></span>关注日 {{ selected_date|date:'m/d' }}</div>
+        </div>
+        <div class="data-canvas-wrap hourly-canvas-wrap">
+            <canvas data-chart="hourly" aria-label="{{ symbol }} 小时 K 蜡烛图，浅蓝背景为关注日"></canvas>
+        </div>
+    </section>
+
+    <section class="data-chart-card" aria-labelledby="derivatives-chart-title">
+        <div class="data-chart-heading">
+            <div>
+                <h2 id="derivatives-chart-title">OI / Funding</h2>
+                <span>{{ range_start|date:'Y-m-d' }} — {{ range_last_date|date:'Y-m-d' }}</span>
+            </div>
+            <div class="chart-legend" aria-label="图例">
+                <span><i class="legend-oi"></i>OI</span>
+                <span><i class="legend-funding"></i>Funding</span>
+                <span class="focus-day-key"><i></i>关注日 {{ selected_date|date:'m/d' }}</span>
+            </div>
+        </div>
+        <div class="data-canvas-wrap derivatives-canvas-wrap">
+            <canvas data-chart="derivatives" aria-label="OI 柱状图和 Funding 曲线图，浅蓝背景为关注日"></canvas>
+        </div>
+    </section>
+    {% else %}
+    <section class="data-chart-card data-view-empty">
+        <h2>暂无可查看的日 K 数据</h2>
+        <p>完成 ETHUSDT 日 K 数据采集后，本页将自动显示最近 60 根日 K 及其联动数据。</p>
+    </section>
+    {% endif %}
+
+    {{ daily_chart_data|json_script:"market-data-daily" }}
+    {{ hourly_chart_data|json_script:"market-data-hourly" }}
+    {{ oi_chart_data|json_script:"market-data-oi" }}
+    {{ funding_chart_data|json_script:"market-data-funding" }}
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script src="{% static 'market_data/js/data_view.js' %}?v=3" defer></script>
+{% endblock %}
