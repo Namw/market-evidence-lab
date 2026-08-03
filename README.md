@@ -3,7 +3,7 @@
 
 # Market Evidence Lab
 
-Market Evidence Lab 是一个面向市场证据工作流的 Django 单体项目。当前完成第 8 阶段“OI / Funding 衍生品证据 V1”：在价格证据之外，用 Binance 1h OI 边界与实际 Funding 结算记录为日K异常研究案例生成可复现、可审计的仓位行为事实。
+Market Evidence Lab 是一个面向市场证据工作流的 Django 单体项目。当前完成第 9 阶段“新闻客观事实提取 V1.1 与下游使用门槛”：在价格和衍生品证据之外，将数据库保存的新闻标题、摘要与正文逐篇转换为可追溯的结构化事实，并以统一规则判断结果是否可以进入后续证据链。
 
 ## 当前实现范围
 
@@ -34,6 +34,11 @@ Market Evidence Lab 是一个面向市场证据工作流的 Django 单体项目�
 - OI 与 Funding 独立原始表、Decimal 精确存储、幂等分页采集及独立运行统计
 - 每个案例最多一份当前衍生品证据，保存覆盖、计算、规则、来源与审计快照
 - OI 严格检查 UTC 日首尾共25个整点边界；Funding 按异常前、当日、异常后三个半开区间独立判断
+- 新闻客观事实提取使用项目现有 DeepSeek 客户端和配置，每篇新闻独立调用且不联网补正文
+- 正式保存输入快照、实际提示词、模型原始返回、解析结果、校验问题、证据匹配和运行统计，按 prompt version 保留历史
+- `objective-news-facts-v1.1` 将标题、摘要和已保存正文统一作为事实来源，并对重复事实进行可审计去重
+- `/analysis/news/objective-facts/` 提供新闻级筛选列表和原始输入/提取结果对比详情，证据仅支持精确或空白标准化匹配
+- 客观事实结果仅在 facts 至少一条且 validation errors 为空时具备下游使用资格；warning 不阻断，所有结果仍保留供审计
 
 数据质量检查只报告问题，不会自动修复或补采。自动任务在迁移后保持禁用；只有明确启用配置并独立运行调度命令后才会自动执行。
 
@@ -89,6 +94,7 @@ uv run --env-file .env python manage.py runserver
 - 系统管理 / 自动调度：<http://127.0.0.1:8000/system/schedules/>
 - 市场异常巡检：<http://127.0.0.1:8000/market-inspection/>
 - 研究案例：<http://127.0.0.1:8000/research-cases/>
+- 新闻客观事实提取：<http://127.0.0.1:8000/analysis/news/objective-facts/>
 
 ## 市场异常巡检 V1
 
@@ -123,6 +129,26 @@ V1规则：
 每次运行动态取当前 UTC 日期的 `00:00` 为 `range_end`，并以 `range_end - lookback_days` 为 `range_start`。K线与Funding范围是左闭右开的 `[range_start, range_end)`；OI有效范围额外延伸到 `range_end + 1h`（不包含），以纳入完整日所需的次日 `00:00` 边界。四类数据分别执行采集与原始质量检查，共八个步骤；某一数据类型失败后仍继续后续类型。工作流只有在1d K线、1h K线、OI、Funding四项检查全部完成且通过时才显示整体质量通过。采集执行状态与质量状态独立保存。
 
 新闻工作流的各栏目互不阻塞；每个栏目的采集、质量状态和整体分析状态分别保存，并关联 `CollectionRun`、`NewsInspectionRun` 与 `NewsAnalysisRun`。SEC 与 CFTC 首次运行会导入 Feed 当时仍可见的全部条目；Tether 与 SlowMist Hacked 首次运行只导入各自最新一页约 20 条，均作为有限初始化，后续按已有覆盖水位增量采集。监管 RSS 只保存 Feed 字段，Tether 只保存官方 API 的标题、链接、时间、摘要、作者与分类字段；SlowMist Hacked 保存公开列表中的事件日期、目标、事件描述、损失金额、攻击方式和引用链接。三者都不继续抓取或保存引用文章正文；同一机构是一个来源，其下地址建模为独立栏目。质量异常只影响工作流汇总，不阻止已合法保存的记录进入分析。增量分析会扫描当前版本下没有成功结果的全部原始新闻，并仅输出利好、利空、模糊不清、无关四种 ETH 方向结论；无关新闻物理删除，最高或中等权威来源的模糊不清新闻长期保留，只有一般来源的模糊不清新闻会在分类三天后物理删除。候选为零时成功结束且不调用 DeepSeek，未配置 API 且存在候选时记录为“未执行”。手动按钮和调度执行器调用同一个服务，并由数据库唯一约束共用单运行并发保护。
+
+## 新闻客观事实提取 V1.1
+
+客观事实提取独立于现有每日 ETH 方向分析，也尚未接入自动调度。正式服务只读取数据库实际保存的单篇新闻标题、摘要和正文，不访问原文 URL；没有正文时会明确记录本次输入仅包含标题和摘要。默认增量运行会跳过当前 prompt version 下已有成功结果的新闻，失败结果可以重试，新 prompt version 会保留旧结果。
+
+每次提取分别记录 AI 调用是否成功、JSON 是否解析成功和程序校验状态。JSON 可解析但证据、时间、枚举或结构校验失败时，解析结果仍然保存，不会被当作 AI 调用失败，也不会自动修正模型输出。`event_status` 由单一枚举来源约束；非法值保留在审计结果中并产生明确 error。
+
+下游使用资格统一由 `ObjectiveFactExtractionResult.is_evidence_chain_eligible` 判断：`facts_count > 0` 且 `validation_errors` 必须严格为空列表。`LIMITED_SOURCE_CONTEXT` 和 `DUPLICATE_FACT_REMOVED` 属于非阻断 warning；证据无法匹配、非法枚举、JSON 或结构错误以及未识别内部异常均不放行。该门槛只建立新闻事实结果的可用性边界，尚未组装研究案例新闻证据。
+
+执行正式增量提取：
+
+```bash
+uv run --env-file .env python manage.py extract_objective_facts
+```
+
+仅重试当前版本下没有成功结果的失败新闻：
+
+```bash
+uv run --env-file .env python manage.py extract_objective_facts --mode retry_failed
+```
 
 ## OI / Funding 衍生品证据 V1
 
@@ -205,4 +231,4 @@ uv run --env-file .env python manage.py makemigrations --check --dry-run
 
 ## 当前未实现
 
-当前没有实现通用 Cron 平台、Celery、Redis、消息队列、APScheduler、实时 WebSocket、自动补采或修复、技术指标、确定性行情原因、未来收益、历史相似样本、新闻证据、AI报告、人工反馈、登录权限或 Django Admin 页面。没有采集 1m、清算、多空比、基差、订单流、订单簿、成交明细或链上数据。市场异常巡检尚未接入自动调度。
+当前没有实现通用 Cron 平台、Celery、Redis、消息队列、APScheduler、实时 WebSocket、自动补采或修复、技术指标、确定性行情原因、未来收益、历史相似样本、研究案例的新闻证据组装、AI报告、人工反馈、登录权限或 Django Admin 页面。没有采集 1m、清算、多空比、基差、订单流、订单簿、成交明细或链上数据。客观事实提取和市场异常巡检尚未接入自动调度。
