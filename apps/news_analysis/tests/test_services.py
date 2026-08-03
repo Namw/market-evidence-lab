@@ -7,7 +7,13 @@ from apps.news_analysis.ai import AIItem, BatchAnalysis, BatchAnalysisError, Tok
 from apps.news_analysis.models import NewsAnalysisResult, NewsAnalysisRun
 from apps.news_analysis.services import prune_expired_news, run_news_analysis
 from apps.news_data.models import NewsRawRecord
-from apps.news_data.sources import COINDESK_CODE, SEC_CODE, SLOWMIST_CODE, TETHER_CODE
+from apps.news_data.sources import (
+    CIRCLE_CODE,
+    COINDESK_CODE,
+    SEC_CODE,
+    SLOWMIST_CODE,
+    TETHER_CODE,
+)
 
 from .helpers import make_record
 
@@ -170,6 +176,27 @@ class AnalysisServiceTests(TestCase):
         self.assertEqual(
             client.calls[1][2][record.id],
             "An Ethereum bridge security event was recorded by SlowMist.",
+        )
+        self.assertEqual(result.classification_stage, "summary_ai")
+
+    def test_circle_unclear_title_uses_saved_pressroom_summary(self):
+        record = make_record(
+            source_code=CIRCLE_CODE,
+            title="Circle publishes an official update",
+            summary="The Circle summary describes stablecoin settlement infrastructure.",
+        )
+        client = ScriptedClient(title="unclear", content="bullish")
+
+        def forbidden_loader(_record):
+            raise AssertionError("Circle classification must use the saved summary")
+
+        run_news_analysis(client=client, article_loader=forbidden_loader)
+
+        result = NewsAnalysisResult.objects.get(news_record=record)
+        self.assertEqual([call[0] for call in client.calls], ["title_ai", "summary_ai"])
+        self.assertEqual(
+            client.calls[1][2][record.id],
+            "The Circle summary describes stablecoin settlement infrastructure.",
         )
         self.assertEqual(result.classification_stage, "summary_ai")
 

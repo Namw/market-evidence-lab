@@ -592,7 +592,7 @@ class NewsWorkflowPageTests(TestCase):
         self.assertContains(response, "官方与监管新闻工作流")
         self.assertContains(response, "CoinDesk 新闻工作流")
         self.assertContains(response, "Ethereum Foundation、Binance")
-        self.assertContains(response, "Tether 与 SlowMist Hacked")
+        self.assertContains(response, "SlowMist Hacked 与 Circle Pressroom")
         self.assertContains(response, "只采集 CoinDesk")
         self.assertContains(response, "每天")
         self.assertContains(response, "每 6 小时")

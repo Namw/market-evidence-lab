@@ -17,6 +17,7 @@ class NewsCollectionViewTests(TestCase):
         self.assertContains(response, "Tether News")
         self.assertContains(response, "SlowMist Hacked")
         self.assertContains(response, "CoinDesk")
+        self.assertContains(response, "Circle Pressroom")
         self.assertContains(response, "零可解析内容")
         self.assertContains(response, "新闻数据采集")
 

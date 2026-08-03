@@ -10,6 +10,7 @@ from email.utils import parsedate_to_datetime
 from html.parser import HTMLParser
 from time import monotonic, sleep
 from typing import Callable
+from urllib.parse import urljoin, urlsplit
 from xml.etree import ElementTree
 
 import httpx
@@ -704,3 +705,272 @@ def parse_slowmist_hacked_page(
         except (TypeError, ValueError, OverflowError):
             invalid += 1
     return parsed, invalid, parser.resolved_total_pages(page_number)
+
+
+class _CirclePressroomHTMLParser(HTMLParser):
+    def __init__(self) -> None:
+        super().__init__(convert_charrefs=True)
+        self.list_depth = 0
+        self.current_item: dict[str, str] | None = None
+        self.capture_name = ""
+        self.capture_tag = ""
+        self.capture_parts: list[str] = []
+        self.items: list[dict[str, str]] = []
+        self.next_page_href = ""
+        self.page_count_parts: list[str] = []
+        self.capture_page_count = False
+
+    @staticmethod
+    def _classes(attrs: list[tuple[str, str | None]]) -> set[str]:
+        return set((dict(attrs).get("class") or "").split())
+
+    def _start_capture(self, name: str, tag: str) -> None:
+        self.capture_name = name
+        self.capture_tag = tag
+        self.capture_parts = []
+
+    def _finish_capture(self) -> None:
+        if self.current_item is not None:
+            self.current_item[self.capture_name] = re.sub(
+                r"\s+", " ", " ".join(self.capture_parts)
+            ).strip()
+        self.capture_name = ""
+        self.capture_tag = ""
+        self.capture_parts = []
+
+    def handle_starttag(
+        self, tag: str, attrs: list[tuple[str, str | None]]
+    ) -> None:
+        attrs_dict = dict(attrs)
+        classes = self._classes(attrs)
+        if tag == "a" and "w-pagination-next" in classes:
+            self.next_page_href = (attrs_dict.get("href") or "").strip()
+        if tag == "div" and "w-page-count" in classes:
+            self.capture_page_count = True
+            self.page_count_parts = []
+
+        if tag == "div" and not self.list_depth and attrs_dict.get(
+            "fs-list-element"
+        ) == "list":
+            self.list_depth = 1
+            return
+        if not self.list_depth:
+            return
+        if tag == "div":
+            self.list_depth += 1
+        if (
+            tag == "a"
+            and self.current_item is None
+            and "press-link" in classes
+        ):
+            self.current_item = {
+                "href": (attrs_dict.get("href") or "").strip(),
+                "date": "",
+                "title": "",
+                "description": "",
+            }
+            return
+        if self.current_item is None or tag != "p":
+            return
+        if attrs_dict.get("fs-list-field") == "title":
+            self._start_capture("title", tag)
+        elif attrs_dict.get("fs-list-field") == "description":
+            self._start_capture("description", tag)
+        elif "caption-disclosure" in classes and not self.current_item["date"]:
+            self._start_capture("date", tag)
+
+    def handle_endtag(self, tag: str) -> None:
+        if self.capture_name and tag == self.capture_tag:
+            self._finish_capture()
+        if tag == "a" and self.current_item is not None:
+            self.items.append(self.current_item)
+            self.current_item = None
+        if self.capture_page_count and tag == "div":
+            self.capture_page_count = False
+        if self.list_depth and tag == "div":
+            self.list_depth -= 1
+
+    def handle_data(self, data: str) -> None:
+        if self.capture_name:
+            self.capture_parts.append(data)
+        if self.capture_page_count:
+            self.page_count_parts.append(data)
+
+    def total_pages(self) -> int:
+        text = re.sub(r"\s+", " ", " ".join(self.page_count_parts)).strip()
+        match = re.search(r"\b\d+\s*/\s*(\d+)\b", text)
+        return max(int(match.group(1)), 1) if match else 1
+
+
+def _circle_pressroom_url(href: str) -> str:
+    url = urljoin("https://www.circle.com/pressroom", href)
+    parts = urlsplit(url)
+    host = (parts.hostname or "").lower().rstrip(".")
+    if (
+        parts.scheme not in {"http", "https"}
+        or host not in {"circle.com", "www.circle.com"}
+        or not parts.path.startswith("/pressroom/")
+    ):
+        raise ValueError("invalid Circle pressroom URL")
+    return url
+
+
+def _parse_circle_pressroom_date(value: str) -> datetime:
+    text = re.sub(r"\s+", " ", value).strip()
+    for date_format in ("%B %d, %Y", "%b %d, %Y"):
+        try:
+            return datetime.strptime(text, date_format).replace(tzinfo=UTC)
+        except ValueError:
+            continue
+    raise ValueError("invalid Circle pressroom date")
+
+
+def parse_circle_pressroom_page(
+    content: bytes,
+) -> tuple[list[ParsedNewsItem], int, str, int]:
+    text = content.decode("utf-8", errors="replace")
+    lowered = text[:20_000].lower()
+    if any(marker in lowered for marker in CHALLENGE_MARKERS):
+        raise NewsCollectionError(
+            "Circle Pressroom returned a challenge or access restriction page.",
+            code="challenge_page",
+        )
+    parser = _CirclePressroomHTMLParser()
+    try:
+        parser.feed(text)
+        parser.close()
+    except (TypeError, ValueError) as exc:
+        raise NewsCollectionError(
+            "Circle Pressroom page could not be parsed.", code="invalid_html"
+        ) from exc
+
+    parsed: list[ParsedNewsItem] = []
+    invalid = 0
+    for entry in parser.items:
+        try:
+            original_url = _circle_pressroom_url(entry.get("href", ""))
+            title = entry.get("title", "").strip()
+            summary = entry.get("description", "").strip()
+            published_at = _parse_circle_pressroom_date(entry.get("date", ""))
+            source_item_id = urlsplit(original_url).path.rstrip("/").rsplit("/", 1)[-1]
+            if not source_item_id or not title or not summary:
+                raise ValueError("missing required press release field")
+            parsed.append(
+                ParsedNewsItem(
+                    source_item_id=source_item_id,
+                    original_url=original_url,
+                    title=title,
+                    summary=summary,
+                    published_at=published_at,
+                    updated_at_source=None,
+                    language="en",
+                    source_category="Press Release",
+                    source_tags=["Press Release", "Circle"],
+                    source_author="Circle",
+                    raw_payload={
+                        "list_date": entry.get("date", ""),
+                        "list_title": title,
+                        "list_description": summary,
+                        "article_text": "",
+                        "article_fetch_status": "not_requested",
+                    },
+                )
+            )
+        except (TypeError, ValueError, OverflowError):
+            invalid += 1
+    next_page_url = ""
+    if parser.next_page_href:
+        candidate = urljoin(
+            "https://www.circle.com/pressroom", parser.next_page_href
+        )
+        candidate_parts = urlsplit(candidate)
+        candidate_host = (candidate_parts.hostname or "").lower().rstrip(".")
+        if (
+            candidate_parts.scheme in {"http", "https"}
+            and candidate_host in {"circle.com", "www.circle.com"}
+            and candidate_parts.path.rstrip("/") == "/pressroom"
+        ):
+            next_page_url = candidate
+    return parsed, invalid, next_page_url, parser.total_pages()
+
+
+class _CircleArticleHTMLParser(HTMLParser):
+    block_tags = {"h2", "h3", "p", "li", "blockquote"}
+    skip_tags = {"script", "style", "noscript", "svg"}
+
+    def __init__(self) -> None:
+        super().__init__(convert_charrefs=True)
+        self.body_depth = 0
+        self.skip_depth = 0
+        self.current_tag = ""
+        self.current_parts: list[str] = []
+        self.chunks: list[str] = []
+
+    def handle_starttag(
+        self, tag: str, attrs: list[tuple[str, str | None]]
+    ) -> None:
+        classes = set((dict(attrs).get("class") or "").split())
+        if tag == "div" and not self.body_depth and "press-rich-text" in classes:
+            self.body_depth = 1
+            return
+        if not self.body_depth:
+            return
+        if tag == "div":
+            self.body_depth += 1
+        if tag in self.skip_tags:
+            self.skip_depth += 1
+        if tag in self.block_tags and not self.skip_depth and not self.current_tag:
+            self.current_tag = tag
+            self.current_parts = []
+
+    def handle_endtag(self, tag: str) -> None:
+        if self.current_tag and tag == self.current_tag:
+            text = re.sub(r"\s+", " ", " ".join(self.current_parts)).strip()
+            if text:
+                self.chunks.append(text)
+            self.current_tag = ""
+            self.current_parts = []
+        if self.body_depth and tag in self.skip_tags and self.skip_depth:
+            self.skip_depth -= 1
+        if self.body_depth and tag == "div":
+            self.body_depth -= 1
+
+    def handle_data(self, data: str) -> None:
+        if self.body_depth and self.current_tag and not self.skip_depth:
+            self.current_parts.append(data)
+
+    def article_text(self) -> str:
+        unique: list[str] = []
+        seen: set[str] = set()
+        for chunk in self.chunks:
+            key = chunk.casefold()
+            if key not in seen:
+                seen.add(key)
+                unique.append(chunk)
+        return "\n\n".join(unique)[:40_000]
+
+
+def parse_circle_pressroom_article(content: bytes) -> str:
+    text = content.decode("utf-8", errors="replace")
+    lowered = text[:20_000].lower()
+    if any(marker in lowered for marker in CHALLENGE_MARKERS):
+        raise NewsCollectionError(
+            "Circle press release returned a challenge or access restriction page.",
+            code="challenge_page",
+        )
+    parser = _CircleArticleHTMLParser()
+    try:
+        parser.feed(text)
+        parser.close()
+    except (TypeError, ValueError) as exc:
+        raise NewsCollectionError(
+            "Circle press release body could not be parsed.",
+            code="article_parse_failed",
+        ) from exc
+    article_text = parser.article_text()
+    if len(article_text) < 40:
+        raise NewsCollectionError(
+            "Circle press release body could not be parsed.",
+            code="article_parse_failed",
+        )
+    return article_text

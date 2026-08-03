@@ -13,6 +13,8 @@ from apps.inspection.models import NewsInspectionRun
 from apps.news_data.collectors import (
     NewsRequestClient,
     ParsedNewsItem,
+    parse_circle_pressroom_article,
+    parse_circle_pressroom_page,
     parse_rss_feed,
     parse_slowmist_hacked_page,
     parse_tether_page,
@@ -30,6 +32,7 @@ from apps.news_data.services import (
 )
 from apps.news_data.sources import (
     BINANCE_ANNOUNCEMENTS_CODE,
+    CIRCLE_PRESSROOM_CODE,
     COINDESK_CODE,
     ETHEREUM_FOUNDATION_CODE,
     SEC_LITIGATION_RELEASES_CODE,
@@ -114,6 +117,27 @@ def slowmist_page(page_number: int, event_date: str, target: str) -> bytes:
     </body></html>""".encode()
 
 
+def circle_page(
+    entries: list[tuple[str, str, str]], *, page_number: int = 1, total_pages: int = 1
+) -> bytes:
+    items = "".join(
+        f"""<div role='listitem' class='w-dyn-item'>
+        <a href='/pressroom/{slug}' class='press-link w-inline-block'>
+        <p class='caption-disclosure'>{published}</p>
+        <p fs-list-field='title' class='h6'>{slug} title</p>
+        <p fs-list-field='description'>{summary}</p></a></div>"""
+        for slug, published, summary in entries
+    )
+    next_link = (
+        f"<a href='?circle_page={page_number + 1}' class='w-pagination-next'>Next</a>"
+        if page_number < total_pages
+        else ""
+    )
+    return f"""<!doctype html><html><body><div fs-list-element='list'>{items}</div>
+    {next_link}<div class='w-page-count'>{page_number} / {total_pages}</div>
+    </body></html>""".encode()
+
+
 class NewsCollectionTests(TestCase):
     def setUp(self):
         self.ef = NewsSource.objects.get(code=ETHEREUM_FOUNDATION_CODE)
@@ -145,6 +169,11 @@ class NewsCollectionTests(TestCase):
         self.coindesk_feed.activated_at = END - timedelta(minutes=1)
         self.coindesk_feed.trusted_coverage_end = None
         self.coindesk_feed.save(update_fields=["activated_at", "trusted_coverage_end"])
+        self.circle = NewsSource.objects.get(code=CIRCLE_PRESSROOM_CODE)
+        self.circle_feed = NewsFeed.objects.get(code=CIRCLE_PRESSROOM_CODE)
+        self.circle_feed.activated_at = END - timedelta(minutes=1)
+        self.circle_feed.trusted_coverage_end = None
+        self.circle_feed.save(update_fields=["activated_at", "trusted_coverage_end"])
 
     def test_first_run_only_accepts_items_at_or_after_activation(self):
         result = collect_and_inspect(
@@ -362,6 +391,186 @@ class NewsCollectionTests(TestCase):
         self.assertNotIn("utm_source", newest.canonical_url)
         self.assertEqual(self.coindesk.authority_level, NewsSource.AuthorityLevel.GENERAL)
         self.assertEqual(self.coindesk.source_type, NewsSource.SourceType.MEDIA)
+
+    def test_circle_parsers_extract_list_fields_pagination_and_article_body(self):
+        parsed, invalid, next_page_url, total_pages = parse_circle_pressroom_page(
+            fixture("circle_pressroom_page.html")
+        )
+
+        self.assertEqual(len(parsed), 2)
+        self.assertEqual(invalid, 1)
+        self.assertEqual(total_pages, 27)
+        self.assertEqual(
+            next_page_url,
+            "https://www.circle.com/pressroom?29c9664d_page=2",
+        )
+        item = parsed[0]
+        self.assertEqual(item.source_item_id, "circle-update-one")
+        self.assertEqual(item.title, "Circle update one")
+        self.assertEqual(item.summary, "First official Circle summary.")
+        self.assertEqual(item.source_author, "Circle")
+        self.assertEqual(item.source_category, "Press Release")
+        self.assertEqual(item.source_tags, ["Press Release", "Circle"])
+
+        article_text = parse_circle_pressroom_article(
+            fixture("circle_pressroom_article.html")
+        )
+        self.assertIn("Circle announced an official company update", article_text)
+        self.assertIn("regulated internet financial infrastructure", article_text)
+        self.assertNotIn("Navigation must not be collected", article_text)
+        self.assertNotIn("Footer must not be collected", article_text)
+
+    def test_circle_first_run_bootstraps_homepage_and_saves_article_body(self):
+        def handler(request):
+            if request.url.path == "/pressroom":
+                return httpx.Response(
+                    200,
+                    content=fixture("circle_pressroom_page.html"),
+                    headers={"content-type": "text/html; charset=utf-8"},
+                    request=request,
+                )
+            return httpx.Response(
+                200,
+                content=fixture("circle_pressroom_article.html"),
+                headers={"content-type": "text/html; charset=utf-8"},
+                request=request,
+            )
+
+        result = collect_and_inspect(
+            data_type="news",
+            feed_code=CIRCLE_PRESSROOM_CODE,
+            range_end=END,
+            client=request_client(handler),
+        )
+
+        diagnostic = result.collection_run.news_diagnostics.get()
+        records = NewsRawRecord.objects.filter(source=self.circle).order_by(
+            "source_item_id"
+        )
+        self.assertEqual(result.collection_run.request_count, 3)
+        self.assertEqual(result.collection_run.inserted_count, 2)
+        self.assertEqual(records.count(), 2)
+        self.assertEqual(diagnostic.stop_reason, "source_history_limited")
+        self.assertTrue(diagnostic.coverage_complete)
+        self.assertEqual(diagnostic.details["detail_fetch_failure_count"], 0)
+        self.assertEqual(
+            records[0].raw_payload["article_fetch_status"], "fetched"
+        )
+        self.assertIn("official company update", records[0].raw_payload["article_text"])
+        self.assertEqual(self.circle.authority_level, NewsSource.AuthorityLevel.MEDIUM)
+        self.assertEqual(self.circle.source_type, NewsSource.SourceType.OFFICIAL)
+
+    def test_circle_detail_failure_keeps_summary_and_marks_warning(self):
+        listing = circle_page(
+            [
+                ("circle-update-one", "July 31, 2026", "First official Circle summary."),
+                ("circle-update-two", "July 30, 2026", "Second official Circle summary."),
+            ]
+        )
+
+        def handler(request):
+            if request.url.path == "/pressroom":
+                return httpx.Response(
+                    200,
+                    content=listing,
+                    headers={"content-type": "text/html; charset=utf-8"},
+                    request=request,
+                )
+            if request.url.path.endswith("circle-update-one"):
+                return httpx.Response(503, request=request)
+            return httpx.Response(
+                200,
+                content=fixture("circle_pressroom_article.html"),
+                headers={"content-type": "text/html; charset=utf-8"},
+                request=request,
+            )
+
+        result = collect_and_inspect(
+            data_type="news",
+            feed_code=CIRCLE_PRESSROOM_CODE,
+            range_end=END,
+            client=request_client(handler),
+        )
+
+        failed_record = NewsRawRecord.objects.get(
+            source=self.circle, source_item_id="circle-update-one"
+        )
+        diagnostic = result.collection_run.news_diagnostics.get()
+        self.assertEqual(result.collection_run.status, "success")
+        self.assertEqual(result.inspection_run.quality_status, "warning")
+        self.assertEqual(result.collection_run.inserted_count, 2)
+        self.assertEqual(failed_record.summary, "First official Circle summary.")
+        self.assertEqual(failed_record.raw_payload["article_fetch_status"], "failed")
+        self.assertEqual(diagnostic.details["detail_fetch_failure_count"], 1)
+        self.assertTrue(result.inspection_run.dimensions["key_fields"])
+        self.assertIn("已保留列表摘要", diagnostic.error_summary)
+
+    def test_circle_incremental_run_paginates_until_time_boundary(self):
+        self.circle_feed.bootstrap_visible_items = False
+        self.circle_feed.activated_at = datetime(2026, 7, 1, tzinfo=UTC)
+        self.circle_feed.trusted_coverage_end = datetime(2026, 7, 30, tzinfo=UTC)
+        self.circle_feed.save(
+            update_fields=[
+                "bootstrap_visible_items",
+                "activated_at",
+                "trusted_coverage_end",
+            ]
+        )
+        pages = {
+            "1": circle_page(
+                [
+                    ("circle-new-one", "July 31, 2026", "New Circle summary one."),
+                    ("circle-new-two", "July 30, 2026", "New Circle summary two."),
+                ],
+                page_number=1,
+                total_pages=2,
+            ),
+            "2": circle_page(
+                [("circle-old", "July 26, 2026", "Old Circle summary.")],
+                page_number=2,
+                total_pages=2,
+            ),
+        }
+
+        def handler(request):
+            if request.url.path != "/pressroom":
+                return httpx.Response(
+                    200,
+                    content=fixture("circle_pressroom_article.html"),
+                    headers={"content-type": "text/html; charset=utf-8"},
+                    request=request,
+                )
+            page_number = request.url.params.get("circle_page", "1")
+            return httpx.Response(
+                200,
+                content=pages[page_number],
+                headers={"content-type": "text/html; charset=utf-8"},
+                request=request,
+            )
+
+        result = collect_and_inspect(
+            data_type="news",
+            feed_code=CIRCLE_PRESSROOM_CODE,
+            range_end=END,
+            client=request_client(handler),
+        )
+
+        diagnostics = list(
+            result.collection_run.news_diagnostics.order_by("page_number")
+        )
+        self.assertEqual(len(diagnostics), 2)
+        self.assertEqual(diagnostics[-1].stop_reason, "reached_time_boundary")
+        self.assertTrue(diagnostics[-1].coverage_complete)
+        self.assertEqual(result.collection_run.inserted_count, 2)
+        self.assertEqual(result.inspection_run.quality_status, "passed")
+
+    def test_circle_request_client_has_source_rate_limit(self):
+        client = _default_request_client(self.circle_feed)
+        try:
+            self.assertEqual(client.rate_limit_key, "circle.com")
+            self.assertGreaterEqual(client.min_request_interval_seconds, 1.0)
+        finally:
+            client.close()
 
     def test_tether_parser_uses_excerpt_and_omits_article_body(self):
         payload = [

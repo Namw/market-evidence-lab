@@ -91,6 +91,10 @@ def inspect_news_collection(
         if invalid_count:
             reasons.append(f"有 {invalid_count} 条候选记录缺少关键字段或格式无效。")
         retry_count = sum(d.retry_count for d in diagnostics)
+        detail_fetch_failure_count = sum(
+            int((d.details or {}).get("detail_fetch_failure_count") or 0)
+            for d in diagnostics
+        )
         if retry_count:
             reasons.append(f"来源请求发生 {retry_count} 次有限重试。")
         if any(
@@ -104,7 +108,7 @@ def inspect_news_collection(
 
         if not all((availability, parsing, coverage, timeliness)):
             quality_status = NewsInspectionRun.QualityStatus.FAILED
-        elif retry_count or invalid_count or any(
+        elif retry_count or invalid_count or detail_fetch_failure_count or any(
             d.stop_reason == NewsCollectionDiagnostic.StopReason.SOURCE_HISTORY_LIMITED
             for d in diagnostics
         ) or any((d.details or {}).get("xml_recovered") for d in diagnostics):

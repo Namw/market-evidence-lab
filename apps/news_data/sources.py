@@ -10,6 +10,7 @@ CFTC_CODE = "cftc"
 TETHER_CODE = "tether_news"
 SLOWMIST_CODE = "slowmist_hacked"
 COINDESK_CODE = "coindesk"
+CIRCLE_CODE = "circle_pressroom"
 
 SEC_PRESS_RELEASES_CODE = "sec_press_releases"
 SEC_SPEECHES_STATEMENTS_CODE = "sec_speeches_statements"
@@ -19,6 +20,7 @@ CFTC_ENFORCEMENT_PRESS_CODE = "cftc_enforcement_press"
 CFTC_SPEECHES_TESTIMONY_CODE = "cftc_speeches_testimony"
 TETHER_NEWS_CODE = "tether_news"
 SLOWMIST_HACKED_CODE = "slowmist_hacked"
+CIRCLE_PRESSROOM_CODE = "circle_pressroom"
 
 
 @dataclass(frozen=True, slots=True)
@@ -102,6 +104,15 @@ SOURCE_DEFINITIONS = {
         base_url="https://www.coindesk.com",
         feed_url="https://www.coindesk.com/arc/outboundfeeds/rss",
         parser_version="generic-rss-v2",
+    ),
+    CIRCLE_CODE: SourceDefinition(
+        code=CIRCLE_CODE,
+        name="Circle Pressroom",
+        collection_method="web",
+        observation_scope="crypto_systemic",
+        base_url="https://www.circle.com",
+        feed_url="https://www.circle.com/pressroom",
+        parser_version="circle-pressroom-html-v1",
     ),
 }
 
@@ -203,6 +214,15 @@ FEED_DEFINITIONS = {
         parser_version="generic-rss-v2",
         bootstrap_visible_items=True,
     ),
+    CIRCLE_PRESSROOM_CODE: FeedDefinition(
+        code=CIRCLE_PRESSROOM_CODE,
+        source_code=CIRCLE_CODE,
+        name="Press Releases",
+        collection_method="web",
+        feed_url="https://www.circle.com/pressroom",
+        parser_version="circle-pressroom-html-v1",
+        bootstrap_visible_items=True,
+    ),
 }
 
 SEC_FEED_CODES = {
@@ -216,6 +236,7 @@ SUMMARY_ONLY_SOURCE_CODES = {
     TETHER_CODE,
     SLOWMIST_CODE,
     COINDESK_CODE,
+    CIRCLE_CODE,
 }
 
 BINANCE_PAGE_SIZE = 20
@@ -231,6 +252,7 @@ TETHER_LIST_PARAMS = {
 }
 SLOWMIST_SAFETY_PAGE_LIMIT = 25
 SLOWMIST_LIST_PARAMS = {"c": ""}
+CIRCLE_SAFETY_PAGE_LIMIT = 5
 TRACKING_QUERY_PARAMETERS = {
     "fbclid",
     "gclid",

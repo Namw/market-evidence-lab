@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import datetime, timedelta
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
@@ -19,6 +19,8 @@ from .collectors import (
     ParsedNewsItem,
     parse_binance_articles,
     parse_binance_page,
+    parse_circle_pressroom_article,
+    parse_circle_pressroom_page,
     parse_ethereum_feed,
     parse_rss_feed,
     parse_slowmist_hacked_page,
@@ -37,6 +39,8 @@ from .sources import (
     BINANCE_PAGE_SIZE,
     BINANCE_SAFETY_PAGE_LIMIT,
     BINANCE_ANNOUNCEMENTS_CODE,
+    CIRCLE_PRESSROOM_CODE,
+    CIRCLE_SAFETY_PAGE_LIMIT,
     COLLECTION_OVERLAP_DAYS,
     ETHEREUM_FOUNDATION_CODE,
     FEED_DEFINITIONS,
@@ -263,8 +267,15 @@ def _create_diagnostic(
     client: NewsRequestClient,
     fetch: FetchResult | None,
     page_number: int | None = None,
+    request_count_override: int | None = None,
+    retry_count_override: int | None = None,
     **values,
 ) -> NewsCollectionDiagnostic:
+    response_fields = _diagnostic_response_fields(fetch, client)
+    if request_count_override is not None:
+        response_fields["request_count"] = request_count_override
+    if retry_count_override is not None:
+        response_fields["retry_count"] = retry_count_override
     return NewsCollectionDiagnostic.objects.create(
         collection_run=run,
         source=source,
@@ -275,7 +286,7 @@ def _create_diagnostic(
         range_end=run.range_end,
         parser_version=feed.parser_version if feed else source.parser_version,
         page_number=page_number,
-        **_diagnostic_response_fields(fetch, client),
+        **response_fields,
         **values,
     )
 
@@ -805,6 +816,187 @@ def _collect_slowmist_hacked(
     )
 
 
+def _collect_circle_pressroom(
+    run: CollectionRun,
+    source: NewsSource,
+    feed: NewsFeed,
+    client: NewsRequestClient,
+    *,
+    safety_page_limit: int,
+) -> None:
+    seen_page_hashes: set[str] = set()
+    bootstrap = feed.bootstrap_visible_items and feed.trusted_coverage_end is None
+    page_url = feed.feed_url
+    for page_number in range(1, safety_page_limit + 1):
+        fetch = None
+        try:
+            fetch = client.get(page_url)
+            parsed, invalid, next_page_url, total_pages = parse_circle_pressroom_page(
+                fetch.response.content
+            )
+            if not parsed:
+                code = "zero_first_page" if page_number == 1 else "zero_page"
+                raise NewsCollectionError(
+                    "Circle Pressroom 页面解析为 0 条，疑似页面结构已变化。",
+                    code=code,
+                )
+            if page_number < total_pages and not next_page_url:
+                raise NewsCollectionError(
+                    "Circle Pressroom 缺少预期的下一页链接。",
+                    code="schema_changed",
+                )
+            page_identity = _sha256(
+                _stable_json(sorted(item.source_item_id for item in parsed))
+            )
+            if page_identity in seen_page_hashes:
+                raise NewsCollectionError(
+                    "Circle Pressroom 分页返回重复页面。",
+                    code="pagination_loop",
+                )
+            seen_page_hashes.add(page_identity)
+
+            eligible = [
+                item
+                for item in parsed
+                if (bootstrap and item.published_at < run.range_end)
+                or run.range_start <= item.published_at < run.range_end
+            ]
+            counts = SaveCounts()
+            seen_at = timezone.now()
+            detail_failure_count = 0
+            detail_request_count = 0
+            detail_retry_count = 0
+            detail_failure_items: list[str] = []
+            for item in eligible:
+                article_fetch = None
+                try:
+                    article_fetch = client.get(item.original_url)
+                    detail_request_count += article_fetch.request_count
+                    detail_retry_count += article_fetch.retry_count
+                    article_text = parse_circle_pressroom_article(
+                        article_fetch.response.content
+                    )
+                    item = replace(
+                        item,
+                        raw_payload={
+                            **item.raw_payload,
+                            "article_text": article_text,
+                            "article_fetch_status": "fetched",
+                        },
+                    )
+                except NewsCollectionError as exc:
+                    if article_fetch is None:
+                        detail_request_count += client.last_request_count
+                        detail_retry_count += client.last_retry_count
+                    detail_failure_count += 1
+                    detail_failure_items.append(item.source_item_id)
+                    item = replace(
+                        item,
+                        raw_payload={
+                            **item.raw_payload,
+                            "article_text": "",
+                            "article_fetch_status": "failed",
+                            "article_error_code": exc.code,
+                        },
+                    )
+                counts += save_news_item(
+                    source=source,
+                    feed=feed,
+                    item=item,
+                    run=run,
+                    seen_at=seen_at,
+                )
+
+            published = [item.published_at for item in parsed]
+            crossed_boundary = min(published) < run.range_start
+            reached_last_page = not next_page_url or page_number >= total_pages
+            complete = bootstrap or crossed_boundary or reached_last_page
+            if bootstrap:
+                stop_reason = NewsCollectionDiagnostic.StopReason.SOURCE_HISTORY_LIMITED
+            elif crossed_boundary:
+                stop_reason = NewsCollectionDiagnostic.StopReason.REACHED_TIME_BOUNDARY
+            elif reached_last_page:
+                stop_reason = NewsCollectionDiagnostic.StopReason.NO_NEXT_PAGE
+            else:
+                stop_reason = ""
+            _create_diagnostic(
+                run=run,
+                source=source,
+                feed=feed,
+                unit_type=NewsCollectionDiagnostic.UnitType.PAGE,
+                unit_identifier=f"circle_pressroom_page_{page_number}",
+                client=client,
+                fetch=fetch,
+                page_number=page_number,
+                request_count_override=fetch.request_count + detail_request_count,
+                retry_count_override=fetch.retry_count + detail_retry_count,
+                candidate_count=len(parsed) + invalid,
+                parsed_count=len(parsed),
+                eligible_count=len(eligible),
+                inserted_count=counts.inserted,
+                updated_count=counts.updated,
+                duplicate_count=counts.duplicate,
+                invalid_count=invalid,
+                earliest_published_at=min(published),
+                latest_published_at=max(published),
+                stop_reason=stop_reason,
+                coverage_complete=complete,
+                details={
+                    "total_pages": total_pages,
+                    "limited_initialization": bootstrap,
+                    "detail_fetch_failure_count": detail_failure_count,
+                    "detail_failure_items": detail_failure_items,
+                },
+                error_summary=(
+                    f"Circle 有 {detail_failure_count} 条新闻正文读取失败，已保留列表摘要。"
+                    if detail_failure_count
+                    else ""
+                ),
+            )
+            if complete:
+                return
+            page_url = next_page_url
+        except NewsCollectionError as exc:
+            stop_reason = (
+                NewsCollectionDiagnostic.StopReason.PAGINATION_LOOP
+                if exc.code == "pagination_loop"
+                else NewsCollectionDiagnostic.StopReason.REQUEST_FAILED
+            )
+            _create_diagnostic(
+                run=run,
+                source=source,
+                feed=feed,
+                unit_type=NewsCollectionDiagnostic.UnitType.PAGE,
+                unit_identifier=f"circle_pressroom_page_{page_number}",
+                client=client,
+                fetch=fetch,
+                page_number=page_number,
+                stop_reason=stop_reason,
+                error_code=exc.code,
+                error_summary=str(exc)[:500],
+            )
+            raise
+
+    last = NewsCollectionDiagnostic.objects.filter(collection_run=run).first()
+    if last:
+        last.stop_reason = NewsCollectionDiagnostic.StopReason.SAFETY_PAGE_LIMIT
+        last.coverage_complete = False
+        last.error_code = "safety_page_limit"
+        last.error_summary = "Circle Pressroom 达到 5 页安全上限，仍未覆盖读取起点。"
+        last.save(
+            update_fields=[
+                "stop_reason",
+                "coverage_complete",
+                "error_code",
+                "error_summary",
+            ]
+        )
+    raise NewsCollectionError(
+        "Circle Pressroom 达到安全页数上限，覆盖不完整。",
+        code="safety_page_limit",
+    )
+
+
 def _default_request_client(feed: NewsFeed) -> NewsRequestClient:
     if feed.code in SEC_FEED_CODES:
         return NewsRequestClient(
@@ -823,6 +1015,12 @@ def _default_request_client(feed: NewsFeed) -> NewsRequestClient:
             user_agent=settings.NEWS_COLLECTOR_USER_AGENT,
             rate_limit_key="hacked.slowmist.io",
             min_request_interval_seconds=settings.SLOWMIST_HACKED_MIN_REQUEST_INTERVAL_SECONDS,
+        )
+    if feed.code == CIRCLE_PRESSROOM_CODE:
+        return NewsRequestClient(
+            user_agent=settings.NEWS_COLLECTOR_USER_AGENT,
+            rate_limit_key="circle.com",
+            min_request_interval_seconds=settings.CIRCLE_PRESSROOM_MIN_REQUEST_INTERVAL_SECONDS,
         )
     return NewsRequestClient(user_agent=settings.NEWS_COLLECTOR_USER_AGENT)
 
@@ -894,6 +1092,14 @@ def collect_news_feed(
                 feed,
                 request_client,
                 safety_page_limit=safety_page_limit,
+            )
+        elif feed_code == CIRCLE_PRESSROOM_CODE:
+            _collect_circle_pressroom(
+                run,
+                source,
+                feed,
+                request_client,
+                safety_page_limit=min(safety_page_limit, CIRCLE_SAFETY_PAGE_LIMIT),
             )
         run.status = CollectionRun.Status.SUCCESS
     except Exception as exc:
