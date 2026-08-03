@@ -304,3 +304,8 @@ class ObjectiveFactExtractionResult(models.Model):
 
     def __str__(self) -> str:
         return f"{self.news_record_id}:{self.prompt_version}:{self.extraction_status}"
+
+    @property
+    def is_evidence_chain_eligible(self) -> bool:
+        """Return whether this complete extraction can enter a downstream evidence chain."""
+        return self.facts_count > 0 and self.validation_errors == []

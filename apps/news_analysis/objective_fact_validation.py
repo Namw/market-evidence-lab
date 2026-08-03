@@ -482,23 +482,13 @@ def validate_parsed_result(parsed: object, article: ObjectiveArticleInput) -> di
     if event_time is not None and event_time not in valid_fact_times:
         errors.append(_issue("EVENT_TIME_NOT_BACKED_BY_FACT", "event_time 必须等于至少一个有证据支持的 fact_time。", path="event_time"))
 
-    if completeness == "insufficient":
-        forced_fields = any(
-            (
-                parsed.get("event_title") is not None,
-                parsed.get("event_time") is not None,
-                bool(parsed.get("actors")),
-                parsed.get("action") is not None,
-                bool(parsed.get("object")),
-                status != "unknown",
-                bool(facts),
-                parsed.get("objective_summary") is not None,
+    if completeness == "insufficient" and facts:
+        warnings.append(
+            _issue(
+                "LIMITED_SOURCE_CONTEXT",
+                "输入信息不完整，但仍提取出了有原文证据支持的事实。",
             )
         )
-        if forced_fields:
-            errors.append(
-                _issue("INSUFFICIENT_WITH_CONCRETE_OUTPUT", "information_completeness=insufficient 时仍强行生成了具体事实或事件字段。")
-            )
     elif completeness in {"sufficient", "partial"} and not facts:
         warnings.append(_issue("NO_FACTS_WITH_NON_INSUFFICIENT", "非 insufficient 结果没有 facts。"))
     if not facts and parsed.get("objective_summary") is not None:

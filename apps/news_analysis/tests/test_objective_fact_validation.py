@@ -142,12 +142,13 @@ class StructureValidationTests(SimpleTestCase):
             {error["code"] for error in validation["errors"]},
         )
 
-    def test_insufficient_cannot_force_facts_or_summary(self):
+    def test_insufficient_with_supported_facts_is_a_non_blocking_warning(self):
         raw = result(information_completeness="insufficient")
         validation = validate_parsed_result(raw, article())
+        self.assertEqual(validation["errors"], [])
         self.assertIn(
-            "INSUFFICIENT_WITH_CONCRETE_OUTPUT",
-            {error["code"] for error in validation["errors"]},
+            "LIMITED_SOURCE_CONTEXT",
+            {warning["code"] for warning in validation["warnings"]},
         )
 
     def test_time_formats(self):

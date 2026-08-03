@@ -162,6 +162,7 @@ class ObjectiveFactServiceTests(TestCase):
         self.assertEqual(result.extraction_status, "failed")
         self.assertEqual(result.raw_model_output, "not-json")
         self.assertIn("Expecting value", result.json_parse_error)
+        self.assertFalse(result.is_evidence_chain_eligible)
 
     def test_parsed_result_with_validation_errors_is_still_extraction_success(self):
         record = make_record(summary="Company announced Product A.")
@@ -183,8 +184,25 @@ class ObjectiveFactServiceTests(TestCase):
         self.assertEqual(result.extraction_status, "success")
         self.assertEqual(result.validation_status, "error")
         self.assertEqual(result.parsed_result, parsed)
+        self.assertFalse(result.is_evidence_chain_eligible)
         self.assertEqual(run.success_count, 1)
         self.assertEqual(run.validation_error_count, 1)
+
+    def test_unexpected_exception_is_saved_and_never_defaults_to_eligible(self):
+        record = make_record(summary="Company announced Product A.")
+
+        run_objective_fact_extraction(
+            client=FakeClient(lambda article: RuntimeError("unexpected"))
+        )
+
+        saved = ObjectiveFactExtractionResult.objects.get(news_record=record)
+        self.assertEqual(saved.extraction_status, "failed")
+        self.assertEqual(saved.validation_status, "error")
+        self.assertIn(
+            "OBJECTIVE_FACT_INTERNAL_ERROR",
+            {error["code"] for error in saved.validation_errors},
+        )
+        self.assertFalse(saved.is_evidence_chain_eligible)
 
     def test_incremental_skip_failed_retry_and_new_version_history(self):
         record = make_record(summary="Company announced Product A.")
@@ -254,7 +272,7 @@ class ObjectiveFactFullChainTests(TestCase):
                 }
             ],
             "objective_summary": title,
-            "information_completeness": "partial",
+            "information_completeness": "insufficient",
         }
         client = full_chain_client([parsed])
         try:
@@ -269,7 +287,13 @@ class ObjectiveFactFullChainTests(TestCase):
         self.assertEqual(saved.input_snapshot["title"], title)
         self.assertEqual(saved.parsed_result["facts"], parsed["facts"])
         self.assertEqual(saved.facts_count, 1)
-        self.assertEqual(saved.validation_status, "passed")
+        self.assertEqual(saved.validation_status, "warning")
+        self.assertEqual(saved.validation_errors, [])
+        self.assertIn(
+            "LIMITED_SOURCE_CONTEXT",
+            {warning["code"] for warning in saved.validation_warnings},
+        )
+        self.assertTrue(saved.is_evidence_chain_eligible)
         self.assertEqual(saved.evidence_matches[0]["matched_field"], "title")
 
     def test_same_title_and_summary_fact_is_deduplicated_and_traced(self):
@@ -311,6 +335,7 @@ class ObjectiveFactFullChainTests(TestCase):
             "DUPLICATE_FACT_REMOVED",
             {warning["code"] for warning in saved.validation_warnings},
         )
+        self.assertTrue(saved.is_evidence_chain_eligible)
 
     def test_opinion_only_title_does_not_create_fact(self):
         title = "Op-Ed | What Markets Might Do Next"
@@ -336,6 +361,42 @@ class ObjectiveFactFullChainTests(TestCase):
         self.assertEqual(saved.facts_count, 0)
         self.assertEqual(saved.parsed_result["facts"], [])
         self.assertEqual(saved.validation_status, "passed")
+        self.assertFalse(saved.is_evidence_chain_eligible)
+
+    def test_unmatched_evidence_is_saved_but_not_eligible(self):
+        record = make_record(summary="Company announced Product A.")
+        parsed = valid_parsed("Evidence absent from every input field.")
+        client = full_chain_client([parsed])
+        try:
+            run_objective_fact_extraction(record_ids=[record.id], client=client)
+        finally:
+            client.close()
+
+        saved = ObjectiveFactExtractionResult.objects.get(news_record=record)
+        self.assertEqual(saved.extraction_status, "success")
+        self.assertEqual(saved.facts_count, 1)
+        self.assertIn(
+            "EVIDENCE_NOT_MATCHED",
+            {error["code"] for error in saved.validation_errors},
+        )
+        self.assertFalse(saved.is_evidence_chain_eligible)
+
+    def test_structurally_invalid_json_is_saved_but_not_eligible(self):
+        record = make_record(summary="Company announced Product A.")
+        client = full_chain_client([["not", "an", "object"]])
+        try:
+            run_objective_fact_extraction(record_ids=[record.id], client=client)
+        finally:
+            client.close()
+
+        saved = ObjectiveFactExtractionResult.objects.get(news_record=record)
+        self.assertEqual(saved.extraction_status, "success")
+        self.assertTrue(saved.json_parse_succeeded)
+        self.assertIn(
+            "RESULT_NOT_OBJECT",
+            {error["code"] for error in saved.validation_errors},
+        )
+        self.assertFalse(saved.is_evidence_chain_eligible)
 
     def test_every_declared_event_status_validates_and_is_saved(self):
         records = [
@@ -406,3 +467,4 @@ class ObjectiveFactFullChainTests(TestCase):
             "INVALID_EVENT_STATUS",
             {error["code"] for error in saved.validation_errors},
         )
+        self.assertFalse(saved.is_evidence_chain_eligible)
