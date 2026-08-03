@@ -29,16 +29,25 @@ class KlineScheduleForm(forms.ModelForm):
 
 
 class NewsWorkflowScheduleForm(forms.ModelForm):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        interval_hours = self.instance.interval_hours if self.instance.pk else 24
+        group_label = self.instance.get_feed_group_display()
+        self.fields["enabled"].label = f"启用{group_label}工作流"
+        if interval_hours == 24:
+            self.fields["run_time"].label = "每日执行时间"
+            self.fields["run_time"].help_text = (
+                "Asia/Shanghai，每天执行一次，不需要填写 Cron。"
+            )
+        else:
+            self.fields["run_time"].label = "每日首轮执行时间"
+            self.fields["run_time"].help_text = (
+                f"Asia/Shanghai，以该时间为每日首轮，此后每 {interval_hours} 小时执行一次。"
+            )
+
     class Meta:
         model = NewsWorkflowSchedule
         fields = ["enabled", "run_time"]
-        labels = {
-            "enabled": "启用新闻每日工作流",
-            "run_time": "每日执行时间",
-        }
-        help_texts = {
-            "run_time": "Asia/Shanghai，本地每日执行，不需要填写 Cron。",
-        }
         widgets = {
             "enabled": forms.CheckboxInput(),
             "run_time": forms.TimeInput(attrs={"type": "time", "step": "60"}),

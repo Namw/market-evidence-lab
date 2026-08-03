@@ -25,11 +25,11 @@
 <nav class="filter-tabs" aria-label="任务类型筛选">
     <a class="filter-tab{% if selected_task == 'all' %} is-active{% endif %}" href="?task=all&amp;start_date={{ filter_start }}&amp;end_date={{ filter_end }}">全部 <span>{{ market_count|add:news_count }}</span></a>
     <a class="filter-tab{% if selected_task == 'market' %} is-active{% endif %}" href="?task=market&amp;start_date={{ filter_start }}&amp;end_date={{ filter_end }}">行情原始数据 <span>{{ market_count }}</span></a>
-    <a class="filter-tab{% if selected_task == 'news' %} is-active{% endif %}" href="?task=news&amp;start_date={{ filter_start }}&amp;end_date={{ filter_end }}">新闻每日工作流 <span>{{ news_count }}</span></a>
+    <a class="filter-tab{% if selected_task == 'news' %} is-active{% endif %}" href="?task=news&amp;start_date={{ filter_start }}&amp;end_date={{ filter_end }}">新闻工作流 <span>{{ news_count }}</span></a>
 </nav>
 
 <section class="run-log-section" aria-labelledby="runs-title">
-    <div class="run-log-heading"><div><p class="eyebrow">{{ date_range_label }}</p><h2 id="runs-title">{% if selected_task == 'market' %}行情原始数据{% elif selected_task == 'news' %}新闻每日工作流{% else %}全部任务{% endif %}</h2></div><p><strong>{{ attention_count }}</strong> 条需要关注<span>·</span>最多展示 100 条</p></div>
+    <div class="run-log-heading"><div><p class="eyebrow">{{ date_range_label }}</p><h2 id="runs-title">{% if selected_task == 'market' %}行情原始数据{% elif selected_task == 'news' %}新闻工作流{% else %}全部任务{% endif %}</h2></div><p><strong>{{ attention_count }}</strong> 条需要关注<span>·</span>最多展示 100 条</p></div>
     <div class="schedule-run-timeline">
         {% for item in run_items %}
         <div class="run-timeline-entry{% if item.needs_attention %} needs-attention{% endif %}">

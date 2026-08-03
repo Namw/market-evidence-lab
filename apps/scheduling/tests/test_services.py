@@ -12,6 +12,7 @@ from apps.collection.models import CollectionRun
 from apps.inspection.models import KlineInspectionRun
 from apps.scheduling.models import SchedulerHeartbeat, WorkflowRun
 from apps.scheduling.services import (
+    calculate_next_interval_run_at,
     calculate_next_run_at,
     calculate_utc_range,
     claim_due_schedules,
@@ -82,6 +83,26 @@ class TimeCalculationTests(TestCase):
         self.assertEqual(
             calculate_next_run_at(time(8, 5), after=after_run),
             datetime(2026, 8, 1, 0, 5, tzinfo=UTC),
+        )
+
+    def test_interval_schedule_uses_six_hour_slots_from_daily_anchor(self):
+        anchor = time(8, 35)
+
+        self.assertEqual(
+            calculate_next_interval_run_at(
+                anchor,
+                interval_hours=6,
+                after=datetime(2026, 8, 1, 1, 0, tzinfo=UTC),
+            ),
+            datetime(2026, 8, 1, 6, 35, tzinfo=UTC),
+        )
+        self.assertEqual(
+            calculate_next_interval_run_at(
+                anchor,
+                interval_hours=6,
+                after=datetime(2026, 8, 1, 19, 0, tzinfo=UTC),
+            ),
+            datetime(2026, 8, 2, 0, 35, tzinfo=UTC),
         )
 
 

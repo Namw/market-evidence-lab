@@ -14,13 +14,20 @@ from apps.inspection.models import DerivativesInspectionRun, KlineInspectionRun
 from apps.news_data.models import NewsFeed
 
 from .forms import KlineScheduleForm, NewsWorkflowScheduleForm
-from .models import NewsWorkflowRun, SCHEDULE_TIMEZONE, WorkflowRun
+from .models import (
+    NewsWorkflowRun,
+    NewsWorkflowSchedule,
+    SCHEDULE_TIMEZONE,
+    WorkflowRun,
+)
 from .news_workflow import (
+    NEWS_FEED_GROUP_CODES,
     NewsWorkflowAlreadyRunning,
     execute_news_workflow,
     get_builtin_news_schedule,
 )
 from .services import (
+    calculate_next_interval_run_at,
     calculate_next_run_at,
     execute_workflow,
     get_builtin_schedule,
@@ -30,6 +37,7 @@ from .services import (
 
 RUN_TOKEN_SESSION_KEY = "scheduling_manual_run_token"
 NEWS_RUN_TOKEN_SESSION_KEY = "scheduling_news_manual_run_token"
+COINDESK_RUN_TOKEN_SESSION_KEY = "scheduling_coindesk_manual_run_token"
 
 
 def _step_runs(workflow_run):
@@ -128,9 +136,14 @@ def _news_workflow_summary(run: NewsWorkflowRun) -> str:
 
 def _run_list_item(run, *, kind: str) -> dict:
     is_market = kind == "market"
+    kind_label = (
+        "行情原始数据"
+        if is_market
+        else f"{run.get_feed_group_display()}工作流"
+    )
     return {
         "kind": kind,
-        "kind_label": "行情原始数据" if is_market else "新闻每日工作流",
+        "kind_label": kind_label,
         "id": run.pk,
         "trigger": run.get_trigger_display(),
         "status": run.status,
@@ -212,9 +225,16 @@ def schedule_index(request):
             )
 
     schedule = get_builtin_schedule()
-    news_schedule = get_builtin_news_schedule()
+    news_schedule = get_builtin_news_schedule(NewsWorkflowSchedule.FeedGroup.CORE)
+    coindesk_schedule = get_builtin_news_schedule(
+        NewsWorkflowSchedule.FeedGroup.COINDESK
+    )
     form = KlineScheduleForm(instance=schedule, auto_id="market_%s")
     news_form = NewsWorkflowScheduleForm(instance=news_schedule, auto_id="news_%s")
+    coindesk_form = NewsWorkflowScheduleForm(
+        instance=coindesk_schedule,
+        auto_id="coindesk_%s",
+    )
     open_dialog = ""
     if request.method == "POST":
         action = request.POST.get("action")
@@ -241,11 +261,31 @@ def schedule_index(request):
             if news_form.is_valid():
                 updated = news_form.save(commit=False)
                 updated.timezone = SCHEDULE_TIMEZONE
-                updated.next_run_at = calculate_next_run_at(updated.run_time)
+                updated.next_run_at = calculate_next_interval_run_at(
+                    updated.run_time,
+                    interval_hours=updated.interval_hours,
+                )
                 updated.save()
-                messages.success(request, "新闻每日工作流配置已保存。")
+                messages.success(request, "官方与监管新闻工作流配置已保存。")
                 return redirect("scheduling:index")
             open_dialog = "news-config-dialog"
+        elif action == "save_coindesk":
+            coindesk_form = NewsWorkflowScheduleForm(
+                request.POST,
+                instance=coindesk_schedule,
+                auto_id="coindesk_%s",
+            )
+            if coindesk_form.is_valid():
+                updated = coindesk_form.save(commit=False)
+                updated.timezone = SCHEDULE_TIMEZONE
+                updated.next_run_at = calculate_next_interval_run_at(
+                    updated.run_time,
+                    interval_hours=updated.interval_hours,
+                )
+                updated.save()
+                messages.success(request, "CoinDesk 新闻工作流配置已保存。")
+                return redirect("scheduling:index")
+            open_dialog = "coindesk-config-dialog"
         elif action == "run":
             submitted_token = request.POST.get("run_token", "")
             expected_token = request.session.pop(RUN_TOKEN_SESSION_KEY, "")
@@ -282,19 +322,51 @@ def schedule_index(request):
                 run = execute_news_workflow(
                     trigger=NewsWorkflowRun.Trigger.MANUAL,
                     schedule=None,
+                    feed_group=NewsWorkflowSchedule.FeedGroup.CORE,
                 )
             except NewsWorkflowAlreadyRunning:
-                messages.warning(request, "已有新闻每日工作流正在运行，未重复启动。")
+                messages.warning(request, "已有新闻工作流正在运行，未重复启动。")
                 return redirect("scheduling:index")
             except Exception:
-                messages.error(request, "新闻每日工作流发生内部错误，未输出外部响应详情。")
+                messages.error(request, "官方与监管新闻工作流发生内部错误，未输出外部响应详情。")
                 return redirect("scheduling:index")
             if run.status == NewsWorkflowRun.Status.SUCCESS:
-                messages.success(request, "新闻每日工作流执行成功。")
+                messages.success(request, "官方与监管新闻工作流执行成功。")
             elif run.status == NewsWorkflowRun.Status.PARTIAL:
-                messages.warning(request, "新闻每日工作流部分成功，请分别查看三个环节。")
+                messages.warning(request, "官方与监管新闻工作流部分成功，请查看运行详情。")
             else:
-                messages.error(request, "新闻每日工作流失败，请分别查看三个环节。")
+                messages.error(request, "官方与监管新闻工作流失败，请查看运行详情。")
+            return redirect("scheduling:run_detail", run_kind="news", run_id=run.pk)
+        elif action == "run_coindesk":
+            submitted_token = request.POST.get("coindesk_run_token", "")
+            expected_token = request.session.pop(
+                COINDESK_RUN_TOKEN_SESSION_KEY,
+                "",
+            )
+            if not submitted_token or not secrets.compare_digest(
+                submitted_token,
+                expected_token,
+            ):
+                messages.warning(request, "该 CoinDesk 工作流请求已处理或已失效，未重复执行。")
+                return redirect("scheduling:index")
+            try:
+                run = execute_news_workflow(
+                    trigger=NewsWorkflowRun.Trigger.MANUAL,
+                    schedule=None,
+                    feed_group=NewsWorkflowSchedule.FeedGroup.COINDESK,
+                )
+            except NewsWorkflowAlreadyRunning:
+                messages.warning(request, "已有新闻工作流正在运行，未重复启动。")
+                return redirect("scheduling:index")
+            except Exception:
+                messages.error(request, "CoinDesk 工作流发生内部错误，未输出外部响应详情。")
+                return redirect("scheduling:index")
+            if run.status == NewsWorkflowRun.Status.SUCCESS:
+                messages.success(request, "CoinDesk 工作流执行成功。")
+            elif run.status == NewsWorkflowRun.Status.PARTIAL:
+                messages.warning(request, "CoinDesk 工作流部分成功，请查看运行详情。")
+            else:
+                messages.error(request, "CoinDesk 工作流失败，请查看运行详情。")
             return redirect("scheduling:run_detail", run_kind="news", run_id=run.pk)
         else:
             messages.error(request, "无法识别的操作。")
@@ -304,12 +376,27 @@ def schedule_index(request):
         "form": form,
         "news_schedule": news_schedule,
         "news_form": news_form,
+        "coindesk_schedule": coindesk_schedule,
+        "coindesk_form": coindesk_form,
         "scheduler": scheduler_status(),
         "run_token": _new_run_token(request, RUN_TOKEN_SESSION_KEY),
         "news_run_token": _new_run_token(request, NEWS_RUN_TOKEN_SESSION_KEY),
+        "coindesk_run_token": _new_run_token(
+            request,
+            COINDESK_RUN_TOKEN_SESSION_KEY,
+        ),
         "open_dialog": open_dialog,
         "news_feeds": NewsFeed.objects.filter(
-            enabled=True, source__enabled=True
+            enabled=True,
+            source__enabled=True,
+            code__in=NEWS_FEED_GROUP_CODES[NewsWorkflowSchedule.FeedGroup.CORE],
+        ).select_related("source"),
+        "coindesk_feeds": NewsFeed.objects.filter(
+            enabled=True,
+            source__enabled=True,
+            code__in=NEWS_FEED_GROUP_CODES[
+                NewsWorkflowSchedule.FeedGroup.COINDESK
+            ],
         ).select_related("source"),
     }
     return render(request, "scheduling/index.html", context)

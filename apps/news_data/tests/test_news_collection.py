@@ -30,6 +30,7 @@ from apps.news_data.services import (
 )
 from apps.news_data.sources import (
     BINANCE_ANNOUNCEMENTS_CODE,
+    COINDESK_CODE,
     ETHEREUM_FOUNDATION_CODE,
     SEC_LITIGATION_RELEASES_CODE,
     SLOWMIST_HACKED_CODE,
@@ -139,6 +140,11 @@ class NewsCollectionTests(TestCase):
         self.slowmist_feed.activated_at = END - timedelta(minutes=1)
         self.slowmist_feed.trusted_coverage_end = None
         self.slowmist_feed.save(update_fields=["activated_at", "trusted_coverage_end"])
+        self.coindesk = NewsSource.objects.get(code=COINDESK_CODE)
+        self.coindesk_feed = NewsFeed.objects.get(code=COINDESK_CODE)
+        self.coindesk_feed.activated_at = END - timedelta(minutes=1)
+        self.coindesk_feed.trusted_coverage_end = None
+        self.coindesk_feed.save(update_fields=["activated_at", "trusted_coverage_end"])
 
     def test_first_run_only_accepts_items_at_or_after_activation(self):
         result = collect_and_inspect(
@@ -326,6 +332,36 @@ class NewsCollectionTests(TestCase):
         self.assertEqual([item.source_item_id for item in parsed], ["valid"])
         self.assertEqual(invalid, 1)
         self.assertFalse(recovered)
+
+    def test_coindesk_first_run_bootstraps_current_rss_window(self):
+        result = collect_and_inspect(
+            data_type="news",
+            feed_code=COINDESK_CODE,
+            range_end=END,
+            client=request_client(
+                response_for(fixture("coindesk_feed.xml"), "application/rss+xml")
+            ),
+        )
+
+        records = NewsRawRecord.objects.filter(source=self.coindesk).order_by(
+            "source_item_id"
+        )
+        self.assertEqual(result.collection_run.inserted_count, 2)
+        self.assertEqual(list(records.values_list("source_item_id", flat=True)), [
+            "coindesk-1",
+            "coindesk-2",
+        ])
+        newest = records.get(source_item_id="coindesk-1")
+        self.assertEqual(newest.source_author, "CoinDesk Reporter")
+        self.assertEqual(newest.source_category, "Markets")
+        self.assertEqual(newest.source_tags, [
+            "Markets",
+            "Ethereum",
+            "全部新闻 RSS",
+        ])
+        self.assertNotIn("utm_source", newest.canonical_url)
+        self.assertEqual(self.coindesk.authority_level, NewsSource.AuthorityLevel.GENERAL)
+        self.assertEqual(self.coindesk.source_type, NewsSource.SourceType.MEDIA)
 
     def test_tether_parser_uses_excerpt_and_omits_article_body(self):
         payload = [

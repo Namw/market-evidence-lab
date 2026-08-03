@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<rss version="2.0" xmlns:dc="http://purl.org/dc/elements/1.1/">
+  <channel>
+    <title>CoinDesk: Bitcoin, Ethereum, Crypto News and Price Data</title>
+    <item>
+      <title>Ethereum market update</title>
+      <link>https://www.coindesk.com/markets/2026/08/01/ethereum-market-update?utm_source=rss</link>
+      <guid isPermaLink="false">coindesk-1</guid>
+      <dc:creator>CoinDesk Reporter</dc:creator>
+      <description>ETH markets reacted to the latest industry development.</description>
+      <pubDate>Fri, 31 Jul 2026 22:30:00 +0000</pubDate>
+      <category>Markets</category>
+      <category>Ethereum</category>
+    </item>
+    <item>
+      <title>Digital asset policy update</title>
+      <link>https://www.coindesk.com/policy/2026/07/31/digital-asset-policy-update</link>
+      <guid isPermaLink="false">coindesk-2</guid>
+      <dc:creator>Policy Desk</dc:creator>
+      <description>Lawmakers discussed a new digital asset policy proposal.</description>
+      <pubDate>Thu, 30 Jul 2026 18:30:00 +0000</pubDate>
+      <category>Policy</category>
+    </item>
+  </channel>
+</rss>

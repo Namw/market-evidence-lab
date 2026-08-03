@@ -30,7 +30,7 @@
     <div class="section-title-row">
         <div>
             <p class="eyebrow">可调度任务</p>
-            <h2 id="task-list-title">任务列表 <span>2</span></h2>
+            <h2 id="task-list-title">任务列表 <span>3</span></h2>
         </div>
         <p>手动执行会先显示本次运行内容，不会直接启动。</p>
     </div>
@@ -58,10 +58,10 @@
         <article class="scheduled-task-card">
             <header class="task-card-header">
                 <span class="task-type-icon news-icon" aria-hidden="true">N</span>
-                <div><span class="task-kicker">NEWS INTELLIGENCE</span><h3>新闻采集与分析工作流</h3></div>
+                <div><span class="task-kicker">NEWS · OFFICIAL &amp; REGULATORY</span><h3>官方与监管新闻工作流</h3></div>
                 {% if news_schedule.enabled %}<span class="task-state is-enabled"><i></i>已启用</span>{% else %}<span class="task-state"><i></i>已停用</span>{% endif %}
             </header>
-            <p class="task-description">统一采集 Ethereum Foundation、Binance、SEC、CFTC、Tether 与 SlowMist Hacked 栏目，经质量检查后执行当前 ETH 方向增量分类。</p>
+            <p class="task-description">采集 Ethereum Foundation、Binance、SEC、CFTC、Tether 与 SlowMist Hacked，经质量检查后执行当前 ETH 方向增量分类。</p>
             <div class="task-next-run">
                 <span>下次计划运行</span>
                 {% if news_schedule.enabled %}<strong>{% timezone news_schedule.timezone %}{{ news_schedule.next_run_at|date:"m月d日 H:i" }}{% endtimezone %}</strong><small>{{ news_schedule.timezone }}</small>{% else %}<strong>启用后计算</strong><small>当前自动计划已停用</small>{% endif %}
@@ -72,6 +72,25 @@
                 <div><dt>上次计划运行</dt><dd>{% if news_schedule.last_run_at %}{{ news_schedule.last_run_at|date:"m-d H:i" }} UTC{% else %}尚未运行{% endif %}</dd></div>
             </dl>
             <footer class="task-card-actions"><button class="task-config-button" type="button" data-dialog-target="news-config-dialog">配置自动任务</button><button class="task-run-button" type="button" data-dialog-target="news-run-dialog"><span aria-hidden="true">▶</span> 手动执行</button></footer>
+        </article>
+
+        <article class="scheduled-task-card">
+            <header class="task-card-header">
+                <span class="task-type-icon news-icon" aria-hidden="true">C</span>
+                <div><span class="task-kicker">NEWS · COINDESK</span><h3>CoinDesk 新闻工作流</h3></div>
+                {% if coindesk_schedule.enabled %}<span class="task-state is-enabled"><i></i>已启用</span>{% else %}<span class="task-state"><i></i>已停用</span>{% endif %}
+            </header>
+            <p class="task-description">单独采集 CoinDesk 全部新闻 RSS，经质量检查后使用标题与 RSS 摘要执行当前 ETH 方向增量分类。</p>
+            <div class="task-next-run">
+                <span>下次计划运行</span>
+                {% if coindesk_schedule.enabled %}<strong>{% timezone coindesk_schedule.timezone %}{{ coindesk_schedule.next_run_at|date:"m月d日 H:i" }}{% endtimezone %}</strong><small>{{ coindesk_schedule.timezone }}</small>{% else %}<strong>启用后计算</strong><small>当前自动计划已停用</small>{% endif %}
+            </div>
+            <dl class="task-facts">
+                <div><dt>调度频率</dt><dd>每 6 小时（首轮 {{ coindesk_schedule.run_time|time:"H:i" }}）</dd></div>
+                <div><dt>执行流程</dt><dd>采集 → 质检 → 分析</dd></div>
+                <div><dt>上次计划运行</dt><dd>{% if coindesk_schedule.last_run_at %}{{ coindesk_schedule.last_run_at|date:"m-d H:i" }} UTC{% else %}尚未运行{% endif %}</dd></div>
+            </dl>
+            <footer class="task-card-actions"><button class="task-config-button" type="button" data-dialog-target="coindesk-config-dialog">配置自动任务</button><button class="task-run-button" type="button" data-dialog-target="coindesk-run-dialog"><span aria-hidden="true">▶</span> 手动执行</button></footer>
         </article>
     </div>
 </section>
@@ -90,11 +109,23 @@
 
 <dialog class="schedule-dialog" id="news-config-dialog"{% if open_dialog == 'news-config-dialog' %} data-open-dialog{% endif %}>
     <div class="dialog-card">
-        <div class="dialog-heading"><div><p class="eyebrow">自动配置</p><h2>新闻采集与分析工作流</h2></div><button type="button" class="dialog-close" data-dialog-close aria-label="关闭">×</button></div>
+        <div class="dialog-heading"><div><p class="eyebrow">自动配置</p><h2>官方与监管新闻工作流</h2></div><button type="button" class="dialog-close" data-dialog-close aria-label="关闭">×</button></div>
         <form method="post" class="dialog-form" id="news-schedule-config-form">
             {% csrf_token %}<input type="hidden" name="action" value="save_news">
             {% if news_form.non_field_errors %}<div class="form-errors" role="alert">{{ news_form.non_field_errors }}</div>{% endif %}
             {% for field in news_form %}<div class="form-field{% if field.name == 'enabled' %} checkbox-field{% endif %}"><label for="{{ field.id_for_label }}">{% if field.name == 'enabled' %}{{ field }} {% endif %}{{ field.label }}</label>{% if field.name != 'enabled' %}{{ field }}{% endif %}{% if field.errors %}<div class="field-errors">{{ field.errors }}</div>{% endif %}{% if field.help_text %}<small>{{ field.help_text }}</small>{% endif %}</div>{% endfor %}
+            <div class="dialog-actions"><button type="button" class="secondary-button" data-dialog-close>取消</button><button class="primary-button" type="submit" data-waiting-text="保存中…">保存配置</button></div>
+        </form>
+    </div>
+</dialog>
+
+<dialog class="schedule-dialog" id="coindesk-config-dialog"{% if open_dialog == 'coindesk-config-dialog' %} data-open-dialog{% endif %}>
+    <div class="dialog-card">
+        <div class="dialog-heading"><div><p class="eyebrow">自动配置</p><h2>CoinDesk 新闻工作流</h2></div><button type="button" class="dialog-close" data-dialog-close aria-label="关闭">×</button></div>
+        <form method="post" class="dialog-form" id="coindesk-schedule-config-form">
+            {% csrf_token %}<input type="hidden" name="action" value="save_coindesk">
+            {% if coindesk_form.non_field_errors %}<div class="form-errors" role="alert">{{ coindesk_form.non_field_errors }}</div>{% endif %}
+            {% for field in coindesk_form %}<div class="form-field{% if field.name == 'enabled' %} checkbox-field{% endif %}"><label for="{{ field.id_for_label }}">{% if field.name == 'enabled' %}{{ field }} {% endif %}{{ field.label }}</label>{% if field.name != 'enabled' %}{{ field }}{% endif %}{% if field.errors %}<div class="field-errors">{{ field.errors }}</div>{% endif %}{% if field.help_text %}<small>{{ field.help_text }}</small>{% endif %}</div>{% endfor %}
             <div class="dialog-actions"><button type="button" class="secondary-button" data-dialog-close>取消</button><button class="primary-button" type="submit" data-waiting-text="保存中…">保存配置</button></div>
         </form>
     </div>
@@ -114,12 +145,24 @@
 
 <dialog class="schedule-dialog" id="news-run-dialog">
     <div class="dialog-card">
-        <div class="dialog-heading"><div><p class="eyebrow">手动调度</p><h2>新闻采集与分析工作流</h2></div><button type="button" class="dialog-close" data-dialog-close aria-label="关闭">×</button></div>
-        <p class="dialog-intro">本次将同步执行完整新闻工作流。任务带有并发保护，已有新闻工作流运行时不会重复启动。</p>
+        <div class="dialog-heading"><div><p class="eyebrow">手动调度</p><h2>官方与监管新闻工作流</h2></div><button type="button" class="dialog-close" data-dialog-close aria-label="关闭">×</button></div>
+        <p class="dialog-intro">本次只执行官方、监管与安全事件新闻工作流，不采集 CoinDesk。任务带有并发保护，已有新闻工作流运行时不会重复启动。</p>
         <dl class="manual-run-summary"><div><dt>新闻来源</dt><dd>Ethereum Foundation、Binance、SEC、CFTC、Tether、SlowMist Hacked</dd></div><div><dt>新闻栏目</dt><dd>{% for feed in news_feeds %}{{ feed.source.name }} · {{ feed.name }}{% if not forloop.last %}；{% endif %}{% endfor %}</dd></div><div><dt>执行内容</dt><dd>逐栏目采集与质检 → 当前 ETH 方向增量分类</dd></div><div><dt>结果位置</dt><dd>完成后自动进入调度详情</dd></div></dl>
         <form method="post" id="news-schedule-run-form" class="dialog-actions">
             {% csrf_token %}<input type="hidden" name="action" value="run_news"><input type="hidden" name="news_run_token" value="{{ news_run_token }}">
             <button type="button" class="secondary-button" data-dialog-close>取消</button><button class="primary-button" type="submit" data-waiting-text="新闻工作流执行中，请稍候…">确认执行</button>
+        </form>
+    </div>
+</dialog>
+
+<dialog class="schedule-dialog" id="coindesk-run-dialog">
+    <div class="dialog-card">
+        <div class="dialog-heading"><div><p class="eyebrow">手动调度</p><h2>CoinDesk 新闻工作流</h2></div><button type="button" class="dialog-close" data-dialog-close aria-label="关闭">×</button></div>
+        <p class="dialog-intro">本次只采集 CoinDesk RSS、执行质量检查和增量分类，不请求其他新闻来源。</p>
+        <dl class="manual-run-summary"><div><dt>新闻来源</dt><dd>CoinDesk</dd></div><div><dt>新闻栏目</dt><dd>{% for feed in coindesk_feeds %}{{ feed.source.name }} · {{ feed.name }}{% endfor %}</dd></div><div><dt>执行内容</dt><dd>RSS 采集与质检 → 标题与摘要增量分类</dd></div><div><dt>结果位置</dt><dd>完成后自动进入调度详情</dd></div></dl>
+        <form method="post" id="coindesk-schedule-run-form" class="dialog-actions">
+            {% csrf_token %}<input type="hidden" name="action" value="run_coindesk"><input type="hidden" name="coindesk_run_token" value="{{ coindesk_run_token }}">
+            <button type="button" class="secondary-button" data-dialog-close>取消</button><button class="primary-button" type="submit" data-waiting-text="CoinDesk 工作流执行中，请稍候…">确认执行</button>
         </form>
     </div>
 </dialog>

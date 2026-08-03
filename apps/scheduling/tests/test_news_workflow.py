@@ -15,11 +15,16 @@ from apps.news_analysis.tests.helpers import make_record
 from apps.news_data.models import NewsFeed, NewsRawRecord, NewsSource
 from apps.news_data.sources import (
     BINANCE_ANNOUNCEMENTS_CODE,
+    COINDESK_CODE,
     ETHEREUM_FOUNDATION_CODE,
     FEED_DEFINITIONS,
     SOURCE_DEFINITIONS,
 )
-from apps.scheduling.models import NewsWorkflowFeedRun, NewsWorkflowRun
+from apps.scheduling.models import (
+    NewsWorkflowFeedRun,
+    NewsWorkflowRun,
+    NewsWorkflowSchedule,
+)
 from apps.scheduling.news_workflow import (
     NewsWorkflowAlreadyRunning,
     _create_news_workflow_run,
@@ -27,6 +32,7 @@ from apps.scheduling.news_workflow import (
     execute_claimed_news_workflow,
     execute_news_workflow,
     get_builtin_news_schedule,
+    get_builtin_news_schedules,
 )
 
 
@@ -179,6 +185,27 @@ class NewsWorkflowExecutionTests(TestCase):
             ),
             (7, 7, 0, 0),
         )
+
+    def test_coindesk_manual_workflow_only_collects_coindesk(
+        self,
+        collect,
+        inspect,
+        analyze,
+    ):
+        NewsFeed.objects.filter(code=COINDESK_CODE).update(enabled=True)
+        coindesk = child_pipeline(COINDESK_CODE)
+        collect.return_value = coindesk.collection_run
+        inspect.return_value = coindesk.inspection_run
+        analyze.return_value = analysis_run()
+
+        run = execute_news_workflow(
+            feed_group=NewsWorkflowSchedule.FeedGroup.COINDESK,
+            range_end=FIXED_NOW,
+        )
+
+        self.assertEqual([call.args[0] for call in collect.call_args_list], [COINDESK_CODE])
+        self.assertEqual(run.feed_group, NewsWorkflowSchedule.FeedGroup.COINDESK)
+        self.assertEqual(run.feed_steps.count(), 1)
 
     def test_one_source_exception_does_not_block_other_source_or_analysis(self, collect, inspect, analyze):
         binance = child_pipeline(BINANCE_ANNOUNCEMENTS_CODE)
@@ -393,13 +420,14 @@ class RegulatoryFeedWorkflowTests(TestCase):
 
         run = execute_news_workflow(range_end=FIXED_NOW)
 
+        core_feed_codes = [code for code in FEED_DEFINITIONS if code != COINDESK_CODE]
         self.assertEqual(
             [call.args[0] for call in collect.call_args_list],
-            list(FEED_DEFINITIONS),
+            core_feed_codes,
         )
         self.assertEqual(
             NewsWorkflowFeedRun.objects.filter(workflow_run=run).count(),
-            len(FEED_DEFINITIONS),
+            len(core_feed_codes),
         )
         self.assertEqual(run.status, NewsWorkflowRun.Status.SUCCESS)
 
@@ -422,9 +450,48 @@ class NewsScheduleTests(TestCase):
         run = NewsWorkflowRun.objects.get(pk=claimed[0])
         self.assertEqual(run.trigger, NewsWorkflowRun.Trigger.SCHEDULED)
         self.assertEqual(run.schedule, schedule)
+        self.assertEqual(run.feed_group, NewsWorkflowSchedule.FeedGroup.CORE)
         schedule.refresh_from_db()
         self.assertEqual(schedule.last_run_at, FIXED_NOW)
         self.assertGreater(schedule.next_run_at, FIXED_NOW)
+        self.assertLessEqual(schedule.next_run_at - FIXED_NOW, timedelta(hours=24))
+
+    def test_builtin_news_schedules_have_independent_groups_and_intervals(self):
+        schedules = get_builtin_news_schedules()
+
+        self.assertEqual(
+            [schedule.feed_group for schedule in schedules],
+            [
+                NewsWorkflowSchedule.FeedGroup.CORE,
+                NewsWorkflowSchedule.FeedGroup.COINDESK,
+            ],
+        )
+        self.assertEqual([schedule.interval_hours for schedule in schedules], [24, 6])
+
+    def test_two_due_news_schedules_are_claimed_serially_without_skipping(self):
+        core, coindesk = get_builtin_news_schedules()
+        for schedule in (core, coindesk):
+            schedule.enabled = True
+            schedule.next_run_at = FIXED_NOW - timedelta(minutes=1)
+            schedule.save()
+
+        first_claim = claim_due_news_schedules(now=FIXED_NOW)
+        first_run = NewsWorkflowRun.objects.get(pk=first_claim[0])
+        coindesk.refresh_from_db()
+
+        self.assertEqual(first_run.feed_group, NewsWorkflowSchedule.FeedGroup.CORE)
+        self.assertEqual(coindesk.next_run_at, FIXED_NOW - timedelta(minutes=1))
+
+        first_run.status = NewsWorkflowRun.Status.SUCCESS
+        first_run.finished_at = FIXED_NOW
+        first_run.save(update_fields=["status", "finished_at"])
+        second_claim = claim_due_news_schedules(now=FIXED_NOW)
+        second_run = NewsWorkflowRun.objects.get(pk=second_claim[0])
+
+        self.assertEqual(
+            second_run.feed_group,
+            NewsWorkflowSchedule.FeedGroup.COINDESK,
+        )
 
     def test_disabled_schedule_is_not_claimed(self):
         schedule = get_builtin_news_schedule()
@@ -450,7 +517,7 @@ class NewsScheduleTests(TestCase):
         self.assertEqual(claimed, [])
         self.assertEqual(NewsWorkflowRun.objects.count(), 1)
         schedule.refresh_from_db()
-        self.assertGreater(schedule.next_run_at, FIXED_NOW)
+        self.assertEqual(schedule.next_run_at, FIXED_NOW - timedelta(minutes=1))
 
     @patch("apps.scheduling.news_workflow.execute_news_workflow")
     def test_claimed_scheduled_entry_calls_same_workflow_service(self, execute):
@@ -521,10 +588,14 @@ class NewsWorkflowPageTests(TestCase):
 
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, "任务列表")
-        self.assertContains(response, "新闻采集与分析工作流")
+        self.assertContains(response, "任务列表 <span>3</span>", html=True)
+        self.assertContains(response, "官方与监管新闻工作流")
+        self.assertContains(response, "CoinDesk 新闻工作流")
         self.assertContains(response, "Ethereum Foundation、Binance")
         self.assertContains(response, "Tether 与 SlowMist Hacked")
-        self.assertContains(response, "Tether、SlowMist Hacked")
+        self.assertContains(response, "只采集 CoinDesk")
+        self.assertContains(response, "每天")
+        self.assertContains(response, "每 6 小时")
         self.assertContains(response, "手动调度")
 
     def test_news_configuration_saves_without_changing_kline_schedule(self):
@@ -540,7 +611,25 @@ class NewsWorkflowPageTests(TestCase):
         news_schedule.refresh_from_db()
         self.assertTrue(news_schedule.enabled)
         self.assertEqual((news_schedule.run_time.hour, news_schedule.run_time.minute), (9, 40))
+        self.assertEqual(news_schedule.interval_hours, 24)
         self.assertEqual(self.client.get(self.url).context["schedule"].enabled, kline_enabled)
+
+    def test_coindesk_configuration_is_saved_independently(self):
+        core = get_builtin_news_schedule(NewsWorkflowSchedule.FeedGroup.CORE)
+        coindesk = get_builtin_news_schedule(NewsWorkflowSchedule.FeedGroup.COINDESK)
+
+        response = self.client.post(
+            self.url,
+            {"action": "save_coindesk", "enabled": "on", "run_time": "10:15"},
+        )
+
+        self.assertRedirects(response, self.url)
+        core.refresh_from_db()
+        coindesk.refresh_from_db()
+        self.assertFalse(core.enabled)
+        self.assertTrue(coindesk.enabled)
+        self.assertEqual((coindesk.run_time.hour, coindesk.run_time.minute), (10, 15))
+        self.assertEqual(coindesk.interval_hours, 6)
 
     @patch("apps.scheduling.views.execute_news_workflow")
     def test_manual_entry_calls_unified_service_and_duplicate_token_is_rejected(self, execute):
@@ -562,8 +651,33 @@ class NewsWorkflowPageTests(TestCase):
         execute.assert_called_once_with(
             trigger=NewsWorkflowRun.Trigger.MANUAL,
             schedule=None,
+            feed_group=NewsWorkflowSchedule.FeedGroup.CORE,
         )
         self.assertContains(duplicate, "未重复执行")
+
+    @patch("apps.scheduling.views.execute_news_workflow")
+    def test_coindesk_manual_entry_only_requests_coindesk_group(self, execute):
+        execute.return_value = SimpleNamespace(
+            pk=92,
+            status=NewsWorkflowRun.Status.SUCCESS,
+        )
+        token = self.client.get(self.url).context["coindesk_run_token"]
+
+        response = self.client.post(
+            self.url,
+            {"action": "run_coindesk", "coindesk_run_token": token},
+        )
+
+        self.assertRedirects(
+            response,
+            "/system/schedules/runs/news/92/",
+            fetch_redirect_response=False,
+        )
+        execute.assert_called_once_with(
+            trigger=NewsWorkflowRun.Trigger.MANUAL,
+            schedule=None,
+            feed_group=NewsWorkflowSchedule.FeedGroup.COINDESK,
+        )
 
 
 class ConcurrentNewsWorkflowTests(TransactionTestCase):

@@ -18,6 +18,7 @@ from apps.news_analysis.services import (
 from apps.news_data.models import NewsFeed
 from apps.news_data.sources import (
     BINANCE_ANNOUNCEMENTS_CODE,
+    COINDESK_CODE,
     ETHEREUM_FOUNDATION_CODE,
     FEED_DEFINITIONS,
 )
@@ -29,40 +30,79 @@ from .models import (
     NewsWorkflowSchedule,
     SCHEDULE_TIMEZONE,
 )
-from .services import calculate_next_run_at
+from .services import calculate_next_interval_run_at
 
 
-NEWS_WORKFLOW_SCHEDULE_NAME = "新闻每日采集、质量检查与增量分析"
+CORE_NEWS_WORKFLOW_SCHEDULE_NAME = "官方与监管新闻每日采集、质量检查与增量分析"
+COINDESK_WORKFLOW_SCHEDULE_NAME = "CoinDesk 每6小时采集、质量检查与增量分析"
 NEWS_WORKFLOW_DEFAULT_RUN_TIME = time(8, 35)
+NEWS_WORKFLOW_SCHEDULES = {
+    NewsWorkflowSchedule.FeedGroup.CORE: {
+        "name": CORE_NEWS_WORKFLOW_SCHEDULE_NAME,
+        "interval_hours": 24,
+    },
+    NewsWorkflowSchedule.FeedGroup.COINDESK: {
+        "name": COINDESK_WORKFLOW_SCHEDULE_NAME,
+        "interval_hours": 6,
+    },
+}
+NEWS_FEED_GROUP_CODES = {
+    NewsWorkflowSchedule.FeedGroup.CORE: set(FEED_DEFINITIONS) - {COINDESK_CODE},
+    NewsWorkflowSchedule.FeedGroup.COINDESK: {COINDESK_CODE},
+}
 
 
 class NewsWorkflowAlreadyRunning(Exception):
     pass
 
 
-def get_builtin_news_schedule() -> NewsWorkflowSchedule:
+def get_builtin_news_schedule(
+    feed_group: str = NewsWorkflowSchedule.FeedGroup.CORE,
+) -> NewsWorkflowSchedule:
+    try:
+        definition = NEWS_WORKFLOW_SCHEDULES[feed_group]
+    except KeyError as exc:
+        raise ValueError(f"Unsupported news feed group: {feed_group}") from exc
     schedule, _ = NewsWorkflowSchedule.objects.get_or_create(
-        name=NEWS_WORKFLOW_SCHEDULE_NAME,
+        feed_group=feed_group,
         defaults={
+            "name": definition["name"],
             "enabled": False,
+            "interval_hours": definition["interval_hours"],
             "run_time": NEWS_WORKFLOW_DEFAULT_RUN_TIME,
             "timezone": SCHEDULE_TIMEZONE,
-            "next_run_at": calculate_next_run_at(NEWS_WORKFLOW_DEFAULT_RUN_TIME),
+            "next_run_at": calculate_next_interval_run_at(
+                NEWS_WORKFLOW_DEFAULT_RUN_TIME,
+                interval_hours=definition["interval_hours"],
+            ),
         },
     )
     return schedule
+
+
+def get_builtin_news_schedules() -> list[NewsWorkflowSchedule]:
+    return [get_builtin_news_schedule(feed_group) for feed_group in NEWS_WORKFLOW_SCHEDULES]
 
 
 def _create_news_workflow_run(
     *,
     trigger: str,
     schedule: NewsWorkflowSchedule | None,
+    feed_group: str | None = None,
     started_at: datetime | None = None,
 ) -> NewsWorkflowRun:
+    resolved_feed_group = (
+        schedule.feed_group
+        if schedule is not None
+        else feed_group or NewsWorkflowSchedule.FeedGroup.CORE
+    )
+    if resolved_feed_group not in NEWS_FEED_GROUP_CODES:
+        raise ValueError(f"Unsupported news feed group: {resolved_feed_group}")
     try:
         with transaction.atomic():
             return NewsWorkflowRun.objects.create(
                 schedule=schedule,
+                feed_group=resolved_feed_group,
                 trigger=trigger,
                 status=NewsWorkflowRun.Status.RUNNING,
                 started_at=started_at or timezone.now(),
@@ -72,7 +112,7 @@ def _create_news_workflow_run(
             status=NewsWorkflowRun.Status.RUNNING
         ).exists():
             raise NewsWorkflowAlreadyRunning(
-                "已有新闻每日工作流正在运行。"
+                "已有新闻工作流正在运行。"
             ) from exc
         raise
 
@@ -134,6 +174,7 @@ def execute_news_workflow(
     *,
     trigger: str = NewsWorkflowRun.Trigger.MANUAL,
     schedule: NewsWorkflowSchedule | None = None,
+    feed_group: str | None = None,
     workflow_run: NewsWorkflowRun | None = None,
     range_end: datetime | None = None,
     collection_clients: dict[str, object] | None = None,
@@ -145,6 +186,7 @@ def execute_news_workflow(
         workflow_run = _create_news_workflow_run(
             trigger=trigger,
             schedule=schedule,
+            feed_group=feed_group,
         )
     elif workflow_run.status != NewsWorkflowRun.Status.RUNNING:
         return workflow_run
@@ -162,7 +204,11 @@ def execute_news_workflow(
             pass
 
     feeds = list(
-        NewsFeed.objects.filter(enabled=True, source__enabled=True)
+        NewsFeed.objects.filter(
+            enabled=True,
+            source__enabled=True,
+            code__in=NEWS_FEED_GROUP_CODES[workflow_run.feed_group],
+        )
         .select_related("source")
         .order_by("source__code", "code")
     )
@@ -376,26 +422,23 @@ def claim_due_news_schedules(*, now: datetime | None = None) -> list[int]:
         .order_by("next_run_at", "pk")
     )
     for schedule in due_schedules:
-        claimed_this_schedule = False
-        if not NewsWorkflowRun.objects.filter(
+        if NewsWorkflowRun.objects.filter(
             status=NewsWorkflowRun.Status.RUNNING
         ).exists():
-            run = _create_news_workflow_run(
-                trigger=NewsWorkflowRun.Trigger.SCHEDULED,
-                schedule=schedule,
-                started_at=claimed_at,
-            )
-            claimed_run_ids.append(run.pk)
-            schedule.last_run_at = claimed_at
-            claimed_this_schedule = True
-        schedule.next_run_at = calculate_next_run_at(
+            continue
+        run = _create_news_workflow_run(
+            trigger=NewsWorkflowRun.Trigger.SCHEDULED,
+            schedule=schedule,
+            started_at=claimed_at,
+        )
+        claimed_run_ids.append(run.pk)
+        schedule.last_run_at = claimed_at
+        schedule.next_run_at = calculate_next_interval_run_at(
             schedule.run_time,
+            interval_hours=schedule.interval_hours,
             after=claimed_at,
         )
-        update_fields = ["next_run_at", "updated_at"]
-        if claimed_this_schedule:
-            update_fields.append("last_run_at")
-        schedule.save(update_fields=update_fields)
+        schedule.save(update_fields=["last_run_at", "next_run_at", "updated_at"])
     return claimed_run_ids
 
 

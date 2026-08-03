@@ -9,6 +9,7 @@ from django.utils import timezone
 class NewsSource(models.Model):
     class SourceType(models.TextChoices):
         OFFICIAL = "official", "官方"
+        MEDIA = "media", "媒体"
 
     class CollectionMethod(models.TextChoices):
         RSS = "rss", "RSS / Atom"

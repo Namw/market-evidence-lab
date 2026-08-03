@@ -130,8 +130,19 @@ class SchedulerHeartbeat(models.Model):
 
 
 class NewsWorkflowSchedule(models.Model):
+    class FeedGroup(models.TextChoices):
+        CORE = "core", "官方与监管新闻"
+        COINDESK = "coindesk", "CoinDesk 新闻"
+
     name = models.CharField(max_length=120, unique=True)
+    feed_group = models.CharField(
+        max_length=20,
+        choices=FeedGroup.choices,
+        default=FeedGroup.CORE,
+        unique=True,
+    )
     enabled = models.BooleanField(default=False)
+    interval_hours = models.PositiveSmallIntegerField(default=24)
     run_time = models.TimeField(default=time(8, 35))
     timezone = models.CharField(max_length=64, default=SCHEDULE_TIMEZONE, editable=False)
     next_run_at = models.DateTimeField()
@@ -177,6 +188,11 @@ class NewsWorkflowRun(models.Model):
         null=True,
         blank=True,
         related_name="workflow_runs",
+    )
+    feed_group = models.CharField(
+        max_length=20,
+        choices=NewsWorkflowSchedule.FeedGroup.choices,
+        default=NewsWorkflowSchedule.FeedGroup.CORE,
     )
     trigger = models.CharField(max_length=20, choices=Trigger.choices)
     status = models.CharField(

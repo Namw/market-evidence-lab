@@ -13,7 +13,7 @@ from apps.scheduling.services import (
 from apps.scheduling.news_workflow import (
     claim_due_news_schedules,
     execute_claimed_news_workflow,
-    get_builtin_news_schedule,
+    get_builtin_news_schedules,
 )
 
 
@@ -40,7 +40,7 @@ class Command(BaseCommand):
             raise CommandError("--poll-interval must be between 1 and 3600 seconds")
 
         get_builtin_schedule()
-        get_builtin_news_schedule()
+        get_builtin_news_schedules()
         executor_id = str(uuid4())
         stop_event = threading.Event()
 

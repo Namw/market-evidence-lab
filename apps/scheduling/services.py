@@ -66,6 +66,32 @@ def calculate_next_run_at(
     return candidate.astimezone(UTC)
 
 
+def calculate_next_interval_run_at(
+    run_time: time,
+    *,
+    interval_hours: int,
+    after: datetime | None = None,
+) -> datetime:
+    if interval_hours <= 0 or 24 % interval_hours:
+        raise ValueError("interval_hours must be a positive divisor of 24")
+    current = after or timezone.now()
+    if timezone.is_naive(current):
+        raise ValueError("after must be timezone-aware")
+    schedule_zone = ZoneInfo(SCHEDULE_TIMEZONE)
+    local_current = current.astimezone(schedule_zone)
+    candidate = datetime.combine(
+        local_current.date(),
+        run_time.replace(tzinfo=None),
+        tzinfo=schedule_zone,
+    )
+    if candidate <= local_current:
+        elapsed_seconds = (local_current - candidate).total_seconds()
+        interval_seconds = interval_hours * 60 * 60
+        steps = int(elapsed_seconds // interval_seconds) + 1
+        candidate += timedelta(hours=steps * interval_hours)
+    return candidate.astimezone(UTC)
+
+
 def get_builtin_schedule() -> KlineSchedule:
     schedule, _ = KlineSchedule.objects.get_or_create(
         name=BUILT_IN_SCHEDULE_NAME,

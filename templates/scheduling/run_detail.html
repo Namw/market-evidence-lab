@@ -4,7 +4,7 @@
 
 {% block content %}
 <header class="page-header detail-page-header">
-    <div><p class="eyebrow">调度情况 / 运行 #{{ run.id }}</p><h1>{% if run_kind == 'market' %}行情原始数据工作流{% else %}新闻每日工作流{% endif %}</h1><p class="page-intro">查看本次调度的触发方式、执行结果、异常说明与各环节状态。</p></div>
+    <div><p class="eyebrow">调度情况 / 运行 #{{ run.id }}</p><h1>{% if run_kind == 'market' %}行情原始数据工作流{% else %}{{ run.get_feed_group_display }}工作流{% endif %}</h1><p class="page-intro">查看本次调度的触发方式、执行结果、异常说明与各环节状态。</p></div>
     <a class="secondary-button" href="{% url 'scheduling:runs' %}">返回调度情况</a>
 </header>
 

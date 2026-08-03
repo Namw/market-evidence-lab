@@ -9,6 +9,7 @@ SEC_CODE = "sec"
 CFTC_CODE = "cftc"
 TETHER_CODE = "tether_news"
 SLOWMIST_CODE = "slowmist_hacked"
+COINDESK_CODE = "coindesk"
 
 SEC_PRESS_RELEASES_CODE = "sec_press_releases"
 SEC_SPEECHES_STATEMENTS_CODE = "sec_speeches_statements"
@@ -92,6 +93,15 @@ SOURCE_DEFINITIONS = {
         base_url="https://hacked.slowmist.io",
         feed_url="https://hacked.slowmist.io/",
         parser_version="slowmist-hacked-html-v1",
+    ),
+    COINDESK_CODE: SourceDefinition(
+        code=COINDESK_CODE,
+        name="CoinDesk",
+        collection_method="rss",
+        observation_scope="crypto_systemic",
+        base_url="https://www.coindesk.com",
+        feed_url="https://www.coindesk.com/arc/outboundfeeds/rss",
+        parser_version="generic-rss-v2",
     ),
 }
 
@@ -184,6 +194,15 @@ FEED_DEFINITIONS = {
         parser_version="slowmist-hacked-html-v1",
         bootstrap_visible_items=True,
     ),
+    COINDESK_CODE: FeedDefinition(
+        code=COINDESK_CODE,
+        source_code=COINDESK_CODE,
+        name="全部新闻 RSS",
+        collection_method="rss",
+        feed_url="https://www.coindesk.com/arc/outboundfeeds/rss",
+        parser_version="generic-rss-v2",
+        bootstrap_visible_items=True,
+    ),
 }
 
 SEC_FEED_CODES = {
@@ -191,7 +210,13 @@ SEC_FEED_CODES = {
     SEC_SPEECHES_STATEMENTS_CODE,
     SEC_LITIGATION_RELEASES_CODE,
 }
-SUMMARY_ONLY_SOURCE_CODES = {SEC_CODE, CFTC_CODE, TETHER_CODE, SLOWMIST_CODE}
+SUMMARY_ONLY_SOURCE_CODES = {
+    SEC_CODE,
+    CFTC_CODE,
+    TETHER_CODE,
+    SLOWMIST_CODE,
+    COINDESK_CODE,
+}
 
 BINANCE_PAGE_SIZE = 20
 BINANCE_SAFETY_PAGE_LIMIT = 25
