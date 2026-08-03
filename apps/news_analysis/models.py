@@ -3,6 +3,8 @@ from __future__ import annotations
 from django.core.exceptions import ValidationError
 from django.db import models
 
+from .objective_fact_schema import EVENT_STATUS_CHOICES
+
 
 class NewsAnalysisRun(models.Model):
     class Trigger(models.TextChoices):
@@ -154,3 +156,151 @@ class NewsAnalysisResult(models.Model):
 
     def __str__(self) -> str:
         return f"{self.news_record_id}:{self.analysis_version}:{self.status}"
+
+
+class ObjectiveFactExtractionRun(models.Model):
+    class Trigger(models.TextChoices):
+        MANUAL = "manual", "页面手动"
+        COMMAND = "command", "命令行"
+
+    class Mode(models.TextChoices):
+        INCREMENTAL = "incremental", "增量提取"
+        RETRY_FAILED = "retry_failed", "重试失败"
+
+    class Status(models.TextChoices):
+        RUNNING = "running", "运行中"
+        SUCCESS = "success", "成功"
+        PARTIAL = "partial", "部分成功"
+        FAILED = "failed", "失败"
+        NOT_RUN = "not_run", "未执行"
+
+    trigger = models.CharField(max_length=20, choices=Trigger.choices)
+    mode = models.CharField(max_length=20, choices=Mode.choices)
+    status = models.CharField(
+        max_length=20, choices=Status.choices, default=Status.RUNNING
+    )
+    provider = models.CharField(max_length=80)
+    model = models.CharField(max_length=160)
+    prompt_version = models.CharField(max_length=80)
+    generation_parameters = models.JSONField(default=dict)
+    started_at = models.DateTimeField()
+    finished_at = models.DateTimeField(null=True, blank=True)
+    candidate_count = models.PositiveIntegerField(default=0)
+    request_count = models.PositiveIntegerField(default=0)
+    success_count = models.PositiveIntegerField(default=0)
+    failed_count = models.PositiveIntegerField(default=0)
+    skipped_count = models.PositiveIntegerField(default=0)
+    validation_passed_count = models.PositiveIntegerField(default=0)
+    validation_warning_count = models.PositiveIntegerField(default=0)
+    validation_error_count = models.PositiveIntegerField(default=0)
+    facts_count = models.PositiveIntegerField(default=0)
+    safe_error_summary = models.CharField(max_length=500, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["-started_at", "-id"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["prompt_version"],
+                condition=models.Q(status="running"),
+                name="objective_fact_one_running_prompt",
+            )
+        ]
+        indexes = [
+            models.Index(
+                fields=["prompt_version", "-started_at"],
+                name="obj_fact_run_prompt_idx",
+            )
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.prompt_version}:{self.mode}:{self.status}"
+
+
+class ObjectiveFactExtractionResult(models.Model):
+    class ExtractionStatus(models.TextChoices):
+        PENDING = "pending", "提取中"
+        SUCCESS = "success", "提取成功"
+        FAILED = "failed", "提取失败"
+
+    class ValidationStatus(models.TextChoices):
+        PASSED = "passed", "校验通过"
+        WARNING = "warning", "校验警告"
+        ERROR = "error", "校验错误"
+
+    news_record = models.ForeignKey(
+        "news_data.NewsRawRecord",
+        on_delete=models.PROTECT,
+        related_name="objective_fact_results",
+    )
+    extraction_run = models.ForeignKey(
+        ObjectiveFactExtractionRun,
+        on_delete=models.PROTECT,
+        related_name="results",
+    )
+    extraction_status = models.CharField(
+        max_length=20,
+        choices=ExtractionStatus.choices,
+        default=ExtractionStatus.PENDING,
+    )
+    validation_status = models.CharField(
+        max_length=20,
+        choices=ValidationStatus.choices,
+        default=ValidationStatus.ERROR,
+    )
+    ai_call_succeeded = models.BooleanField(default=False)
+    json_parse_succeeded = models.BooleanField(default=False)
+    provider = models.CharField(max_length=80)
+    model = models.CharField(max_length=160)
+    prompt_version = models.CharField(max_length=80)
+    generation_parameters = models.JSONField(default=dict)
+    input_snapshot = models.JSONField(default=dict)
+    has_stored_body = models.BooleanField(default=False)
+    stored_body_included = models.BooleanField(default=False)
+    input_scope_note = models.CharField(max_length=300, blank=True)
+    system_prompt = models.TextField()
+    user_prompt = models.TextField()
+    api_response = models.JSONField(null=True, blank=True)
+    raw_model_output = models.TextField(blank=True)
+    parsed_result = models.JSONField(null=True, blank=True)
+    json_parse_error = models.TextField(blank=True)
+    validation_errors = models.JSONField(default=list)
+    validation_warnings = models.JSONField(default=list)
+    evidence_matches = models.JSONField(default=list)
+    safe_error_summary = models.CharField(max_length=500, blank=True)
+    objective_summary = models.TextField(blank=True)
+    event_status = models.CharField(
+        max_length=40, choices=EVENT_STATUS_CHOICES, blank=True
+    )
+    information_completeness = models.CharField(max_length=20, blank=True)
+    facts_count = models.PositiveIntegerField(default=0)
+    extracted_at = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["-extracted_at", "-id"]
+        indexes = [
+            models.Index(
+                fields=["news_record", "prompt_version", "-id"],
+                name="obj_fact_news_prompt_idx",
+            ),
+            models.Index(
+                fields=["prompt_version", "extraction_status"],
+                name="obj_fact_prompt_extract_idx",
+            ),
+            models.Index(
+                fields=["prompt_version", "validation_status"],
+                name="obj_fact_prompt_valid_idx",
+            ),
+            models.Index(
+                fields=["event_status", "information_completeness"],
+                name="obj_fact_event_info_idx",
+            ),
+            models.Index(fields=["facts_count"], name="obj_fact_count_idx"),
+            models.Index(fields=["has_stored_body"], name="obj_fact_body_idx"),
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.news_record_id}:{self.prompt_version}:{self.extraction_status}"

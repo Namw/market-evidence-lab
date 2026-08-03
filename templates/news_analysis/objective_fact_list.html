@@ -1,0 +1,60 @@
+{% extends "base.html" %}
+
+{% block title %}客观事实提取 · Market Evidence Lab{% endblock %}
+
+{% block content %}
+<header class="page-header">
+    <div>
+        <p class="eyebrow">新闻观察 / 数据加工</p>
+        <h1>客观事实提取</h1>
+        <p class="page-intro">逐篇查看数据库原始新闻与 DeepSeek V1 客观事实提取结果。列表一行对应一篇原始新闻，校验错误不会丢弃已成功解析的结果。</p>
+    </div>
+    <span class="phase-badge">{{ prompt_version }}</span>
+</header>
+
+<section class="panel objective-fact-list-panel">
+    <div class="panel-heading">
+        <div><p class="eyebrow">新闻级结果</p><h2>原始新闻与最新提取状态</h2></div>
+        <span class="status-label">共 {{ page.paginator.count }} 篇</span>
+    </div>
+    <form method="get" class="analysis-filter-form objective-fact-filter-form">
+        {% for field in filter_form %}<label><span>{{ field.label }}</span>{{ field }}</label>{% endfor %}
+        <div class="analysis-filter-actions"><button class="compact-button" type="submit">筛选</button><a class="text-link" href="{% url 'news_analysis:objective_fact_list' %}">清除</a></div>
+        {% if filter_form.non_field_errors %}<div class="filter-form-errors">{{ filter_form.non_field_errors }}</div>{% endif %}
+    </form>
+    <div class="table-scroll">
+        <table class="runs-table objective-fact-table">
+            <thead><tr><th>新闻时间</th><th>来源</th><th>原始标题 / 客观摘要</th><th>事件状态</th><th>完整度</th><th>事实数</th><th>提取状态</th><th>校验状态</th><th>提取时间</th><th>操作</th></tr></thead>
+            <tbody>
+            {% for record in page %}
+                {% with result=record.objective_fact_result %}
+                <tr>
+                    <td class="nowrap">{{ record.published_at|date:"Y-m-d H:i" }}</td>
+                    <td>{{ record.source.name }}</td>
+                    <td class="objective-fact-copy"><strong>{{ record.title }}</strong><p>{% if result and result.objective_summary %}{{ result.objective_summary }}{% elif result and result.extraction_status == 'failed' %}提取失败：{{ result.safe_error_summary|default:"未获得可解析结果" }}{% else %}尚无客观摘要{% endif %}</p></td>
+                    <td>{{ result.event_status|default:"—" }}</td>
+                    <td>{{ result.information_completeness|default:"—" }}</td>
+                    <td>{% if result %}{{ result.facts_count }}{% else %}—{% endif %}</td>
+                    <td>
+                        {% if not result %}<span class="fact-status fact-status-unextracted">尚未提取</span>
+                        {% elif result.extraction_status == 'failed' %}<span class="fact-status fact-status-failed">提取失败</span>
+                        {% elif result.extraction_status == 'pending' %}<span class="fact-status fact-status-pending">提取中</span>
+                        {% else %}<span class="fact-status fact-status-success">提取成功</span>{% endif %}
+                    </td>
+                    <td>
+                        {% if not result %}<span class="fact-status fact-status-unextracted">未校验</span>
+                        {% elif result.validation_status == 'passed' %}<span class="fact-status fact-status-passed">校验通过</span>
+                        {% elif result.validation_status == 'warning' %}<span class="fact-status fact-status-warning">校验警告</span>
+                        {% else %}<span class="fact-status fact-status-error">校验错误</span>{% endif %}
+                    </td>
+                    <td class="nowrap">{{ result.extracted_at|date:"Y-m-d H:i"|default:"—" }}</td>
+                    <td><a class="text-link" href="{% url 'news_analysis:objective_fact_detail' record.id %}">查看对比</a></td>
+                </tr>
+                {% endwith %}
+            {% empty %}<tr><td colspan="10" class="empty-state">没有符合当前组合筛选条件的新闻。</td></tr>{% endfor %}
+            </tbody>
+        </table>
+    </div>
+    {% if page.paginator.num_pages > 1 %}<nav class="pagination" aria-label="分页">{% if page.has_previous %}<a class="text-link" href="?{% if pagination_query %}{{ pagination_query }}&amp;{% endif %}page={{ page.previous_page_number }}">上一页</a>{% endif %}<span>第 {{ page.number }} / {{ page.paginator.num_pages }} 页</span>{% if page.has_next %}<a class="text-link" href="?{% if pagination_query %}{{ pagination_query }}&amp;{% endif %}page={{ page.next_page_number }}">下一页</a>{% endif %}</nav>{% endif %}
+</section>
+{% endblock %}

@@ -63,8 +63,10 @@ class NewsClassificationViewTests(TestCase):
         self.assertContains(response, record.title)
         self.assertContains(response, "利好")
         navigation = response.content.decode().split('<nav class="navigation">', 1)[1].split("</nav>", 1)[0]
-        self.assertEqual(navigation.count('class="nav-subitem'), 6)
-        self.assertNotIn("数据采集", navigation)
+        self.assertEqual(navigation.count('class="nav-subitem'), 8)
+        self.assertIn("客观事实提取", navigation)
+        self.assertIn("每日分析结果", navigation)
+        self.assertIn("数据采集", navigation)
 
     def test_filters_by_source_conclusion_and_stage(self):
         record = make_record(title="Ethereum protocol event")
