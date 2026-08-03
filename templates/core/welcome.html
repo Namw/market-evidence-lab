@@ -1,0 +1,58 @@
+{% load static %}
+<!doctype html>
+<html lang="zh-Hans">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="description" content="Market Evidence Lab 市场证据实验室欢迎页">
+    <title>Market Evidence Lab · 欢迎</title>
+    <link rel="stylesheet" href="{% static 'core/css/styles.css' %}?v=20">
+</head>
+<body class="welcome-page">
+    <main class="welcome-shell">
+        <a class="welcome-brand" href="{% url 'core:home' %}" aria-label="进入 Market Evidence Lab 系统总览">
+            {% include "core/_brand_symbol.html" %}
+            <span class="welcome-brand-copy">
+                <strong>Market Evidence Lab</strong>
+                <small>市场证据实验室</small>
+            </span>
+        </a>
+
+        <header class="home-hero welcome-hero" aria-labelledby="welcome-thesis">
+            <div class="home-hero-copy">
+                <div class="home-hero-meta">
+                    <p class="eyebrow">Market Evidence Lab · Core Question</p>
+                    <span class="home-phase">阶段 8</span>
+                </div>
+                <h1 id="welcome-thesis" aria-label="市场如何形成价值共识"><span>市场如何形成</span><strong>价值共识</strong></h1>
+                <p class="home-thesis-note">价格记录结果，证据保留过程；共识，在时间里缓慢生成。</p>
+                <nav class="home-hero-actions" aria-label="核心入口">
+                    <a href="{% url 'market_monitoring:index' %}">观察今日市场</a>
+                    <a href="{% url 'news_analysis:index' %}">阅读新闻证据 <span aria-hidden="true">→</span></a>
+                </nav>
+            </div>
+
+            <div class="consensus-field" aria-hidden="true">
+                <span class="consensus-orbit orbit-outer"></span>
+                <span class="consensus-orbit orbit-middle"></span>
+                <span class="consensus-orbit orbit-inner"></span>
+                <span class="consensus-axis axis-horizontal"></span>
+                <span class="consensus-axis axis-vertical"></span>
+                <span class="consensus-point point-fact"></span>
+                <span class="consensus-point point-evidence"></span>
+                <span class="consensus-point point-time"></span>
+                <span class="consensus-label label-fact">事实</span>
+                <span class="consensus-label label-evidence">证据</span>
+                <span class="consensus-label label-time">时间</span>
+                <div class="consensus-core"><small>VALUE</small><strong>共识</strong></div>
+            </div>
+
+            <ol class="home-principles" aria-label="价值共识形成路径">
+                <li><span>01</span><div><strong>观察事实</strong><small>不先替市场下结论</small></div></li>
+                <li><span>02</span><div><strong>保存证据</strong><small>让每一次判断可复现</small></div></li>
+                <li><span>03</span><div><strong>等待共识</strong><small>让时间完成最后的验证</small></div></li>
+            </ol>
+        </header>
+    </main>
+</body>
+</html>

@@ -51,29 +51,50 @@ def parsed_navigation(response):
     return parser
 
 
-class HomePageTests(TestCase):
-    def test_home_page_returns_http_200(self):
-        response = self.client.get(reverse("core:home"))
+class WelcomePageTests(TestCase):
+    def test_root_returns_http_200(self):
+        response = self.client.get(reverse("core:welcome"))
 
         self.assertEqual(response.status_code, 200)
 
-    def test_home_page_uses_correct_template(self):
-        response = self.client.get(reverse("core:home"))
+    def test_root_uses_standalone_welcome_template(self):
+        response = self.client.get(reverse("core:welcome"))
 
-        self.assertTemplateUsed(response, "core/home.html")
+        self.assertTemplateUsed(response, "core/welcome.html")
+        self.assertNotContains(response, 'class="app-shell"')
+        self.assertNotContains(response, 'class="sidebar"')
 
-    def test_home_page_contains_brand_name(self):
-        response = self.client.get(reverse("core:home"))
+    def test_welcome_page_contains_brand_name(self):
+        response = self.client.get(reverse("core:welcome"))
 
         self.assertContains(response, "Market Evidence Lab")
+        self.assertContains(response, 'class="brand-symbol"')
+        self.assertNotContains(response, 'class="brand-mark"')
 
-    def test_home_page_presents_core_value_consensus_question(self):
-        response = self.client.get(reverse("core:home"))
+    def test_welcome_page_presents_core_value_consensus_question(self):
+        response = self.client.get(reverse("core:welcome"))
 
-        self.assertContains(response, "市场如何形成价值共识。")
+        self.assertContains(response, "市场如何形成价值共识")
         for principle in ("观察事实", "保存证据", "等待共识"):
             with self.subTest(principle=principle):
                 self.assertContains(response, principle)
+
+    def test_welcome_page_links_to_main_product_areas(self):
+        response = self.client.get(reverse("core:welcome"))
+
+        for url_name in ("core:home", "market_monitoring:index", "news_analysis:index"):
+            with self.subTest(url_name=url_name):
+                self.assertContains(response, f'href="{reverse(url_name)}"')
+
+
+class HomePageTests(TestCase):
+    def test_overview_page_uses_dashboard_template_without_welcome_hero(self):
+        response = self.client.get(reverse("core:home"))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertTemplateUsed(response, "core/home.html")
+        self.assertContains(response, "系统总览")
+        self.assertNotContains(response, "市场如何形成价值共识")
 
     def test_home_page_contains_complete_system_flow(self):
         response = self.client.get(reverse("core:home"))
@@ -100,6 +121,7 @@ class SidebarNavigationTests(TestCase):
         self.assertContains(response, 'data-sidebar-toggle')
         self.assertContains(response, 'aria-controls="primary-sidebar"')
         self.assertContains(response, 'aria-label="收起侧边栏"')
+        self.assertContains(response, 'class="brand-symbol"')
 
     def test_sidebar_uses_real_entries_in_fixed_order_without_duplicates(self):
         response = self.client.get(reverse("core:home"))
