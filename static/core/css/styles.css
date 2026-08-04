@@ -3503,6 +3503,24 @@ h2 {
         align-items: flex-start;
         padding-top: 16px;
         overflow-x: auto;
+        scrollbar-width: none;
+    }
+
+    .navigation::-webkit-scrollbar {
+        display: none;
+    }
+
+    .navigation > .nav-item,
+    .navigation > .nav-group {
+        flex: 0 0 auto;
+    }
+
+    .nav-submenu {
+        display: flex;
+        min-width: max-content;
+        margin-left: 0;
+        padding-left: 0;
+        border-left: 0;
     }
 
     .nav-item {
@@ -4618,29 +4636,637 @@ body.summary-dialog-open {
 }
 
 /* Objective fact extraction V1 */
+.objective-fact-page .main-content {
+    max-width: 1560px;
+    padding-top: 34px;
+    padding-bottom: 48px;
+}
+
+.objective-fact-page .app-shell,
+.objective-fact-page .sidebar,
+.objective-fact-page .main-content,
+.objective-fact-list-panel,
+.objective-audit-disclosure {
+    min-width: 0;
+    max-width: 100%;
+}
+
+.objective-fact-page .app-shell {
+    width: 100%;
+}
+
+.objective-audit-disclosure .table-scroll {
+    width: 100%;
+    max-width: 100%;
+    overflow-x: auto;
+}
+
+.objective-fact-page-header {
+    align-items: center;
+    margin-bottom: 22px;
+}
+
+.objective-fact-heading-copy {
+    min-width: 0;
+}
+
+.objective-fact-page-header h1 {
+    margin: 0;
+    font-size: clamp(34px, 3.3vw, 48px);
+    letter-spacing: -0.045em;
+}
+
+.objective-fact-page-header .page-intro {
+    max-width: 680px;
+    margin-top: 10px;
+    font-size: 15px;
+    line-height: 1.65;
+}
+
+.objective-fact-header-actions,
+.objective-fact-row-actions,
+.objective-confirm-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+    align-items: center;
+}
+
+.objective-fact-header-actions {
+    justify-content: flex-end;
+}
+
+.objective-fact-row-actions form,
+.objective-fact-header-actions form {
+    margin: 0;
+}
+
+.objective-action-button {
+    display: inline-flex;
+    min-height: 44px;
+    gap: 7px;
+    align-items: center;
+    justify-content: center;
+    border-radius: 10px;
+    text-decoration: none;
+    box-shadow: 0 5px 14px rgba(49, 91, 206, 0.08);
+}
+
+.objective-action-button span {
+    font-size: 18px;
+    font-weight: 500;
+    line-height: 1;
+}
+
+.objective-active-run {
+    display: flex;
+    gap: 16px;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 18px;
+}
+
+.objective-fact-version-summary {
+    display: grid;
+    grid-template-columns: minmax(320px, 1.35fr) repeat(2, minmax(220px, 0.8fr));
+    gap: 12px;
+    margin-bottom: 24px;
+}
+
+.objective-version-card,
+.objective-summary-card {
+    min-width: 0;
+    padding: 20px 22px;
+    border: 1px solid #dde4ef;
+    border-radius: 14px;
+    background: #fff;
+    box-shadow: 0 8px 24px rgba(23, 32, 50, 0.045);
+}
+
+.objective-version-card {
+    color: #fff;
+    border-color: #1d3152;
+    background:
+        radial-gradient(circle at 90% 18%, rgba(94, 132, 231, 0.32), transparent 30%),
+        linear-gradient(135deg, #15243c, #1e3559);
+}
+
+.objective-version-card-heading {
+    display: flex;
+    gap: 9px;
+    align-items: center;
+    color: #c9d5ea;
+    font-size: 12px;
+    font-weight: 650;
+}
+
+.objective-summary-icon {
+    display: grid;
+    width: 24px;
+    height: 24px;
+    border: 1px solid rgba(255, 255, 255, 0.2);
+    border-radius: 7px;
+    place-items: center;
+    color: #fff;
+    background: rgba(255, 255, 255, 0.1);
+    font-size: 11px;
+}
+
+.objective-version-card > strong {
+    display: block;
+    margin-top: 15px;
+    overflow: hidden;
+    font-size: clamp(17px, 1.5vw, 22px);
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.objective-version-card > p,
+.objective-summary-card > p {
+    margin: 7px 0 0;
+    color: inherit;
+    font-size: 12px;
+    line-height: 1.5;
+    opacity: 0.72;
+}
+
+.objective-summary-card > span {
+    color: var(--muted);
+    font-size: 12px;
+    font-weight: 650;
+}
+
+.objective-summary-card > strong {
+    display: block;
+    margin-top: 8px;
+    color: #1a2941;
+    font-size: 28px;
+    letter-spacing: -0.035em;
+}
+
+.objective-summary-card > strong small {
+    color: var(--muted);
+    font-size: 13px;
+    font-weight: 600;
+    letter-spacing: 0;
+}
+
+.objective-summary-card progress {
+    display: block;
+    width: 100%;
+    height: 6px;
+    margin-top: 12px;
+    overflow: hidden;
+    border: 0;
+    border-radius: 999px;
+    background: #e9edf4;
+}
+
+.objective-summary-card progress::-webkit-progress-bar {
+    border-radius: 999px;
+    background: #e9edf4;
+}
+
+.objective-summary-card progress::-webkit-progress-value {
+    border-radius: 999px;
+    background: linear-gradient(90deg, #315bce, #5f83e2);
+}
+
+.objective-summary-card progress::-moz-progress-bar {
+    border-radius: 999px;
+    background: linear-gradient(90deg, #315bce, #5f83e2);
+}
+
+.objective-summary-history {
+    background: linear-gradient(145deg, #fff, #f9fbff);
+}
+
+.objective-version-note {
+    grid-column: 1 / -1;
+    display: flex;
+    gap: 9px;
+    align-items: center;
+    margin: 0;
+    padding: 10px 14px;
+    border: 1px solid #dfe6f2;
+    border-radius: 10px;
+    color: #58677e;
+    background: rgba(255, 255, 255, 0.62);
+    font-size: 12px;
+    line-height: 1.5;
+}
+
+.objective-version-note span {
+    display: grid;
+    flex: 0 0 auto;
+    width: 20px;
+    height: 20px;
+    border-radius: 50%;
+    place-items: center;
+    color: var(--blue);
+    background: var(--blue-soft);
+    font-size: 11px;
+    font-weight: 800;
+}
+
+.objective-fact-list-panel {
+    margin-top: 0;
+    padding: 0;
+    overflow: hidden;
+    border-radius: 16px;
+    box-shadow: 0 14px 36px rgba(23, 32, 50, 0.06);
+}
+
+.objective-results-heading {
+    align-items: center;
+    padding: 24px 28px 20px;
+    border-bottom: 1px solid var(--line);
+}
+
+.objective-results-heading h2 {
+    margin-top: 2px;
+    font-size: 22px;
+}
+
+.objective-results-heading div > p:last-child {
+    margin: 7px 0 0;
+    color: var(--muted);
+    font-size: 12px;
+}
+
+.objective-results-heading .status-label {
+    padding: 8px 12px;
+    color: #42516a;
+    background: #f0f3f8;
+}
+
 .objective-fact-filter-form {
-    grid-template-columns: repeat(5, minmax(150px, 1fr));
+    padding: 20px 28px;
+    border-bottom: 1px solid var(--line);
+    background: #f8faff;
+}
+
+.objective-filter-primary,
+.objective-filter-advanced-grid {
+    display: grid;
+    gap: 14px;
+}
+
+.objective-filter-primary {
+    grid-template-columns: minmax(260px, 1.45fr) repeat(3, minmax(160px, 1fr));
+}
+
+.objective-filter-advanced-grid {
+    grid-template-columns: repeat(3, minmax(160px, 1fr));
+    padding-top: 15px;
+}
+
+.objective-fact-filter-form label {
+    min-width: 0;
+}
+
+.objective-fact-filter-form label > span {
+    display: block;
+    margin-bottom: 7px;
+    color: #56657b;
+    font-size: 11px;
+    font-weight: 650;
+}
+
+.objective-fact-filter-form input,
+.objective-fact-filter-form select {
+    width: 100%;
+    min-height: 42px;
+    margin: 0;
+    padding: 8px 11px;
+    border: 1px solid #cfd8e7;
+    border-radius: 9px;
+    color: var(--ink);
+    background: #fff;
+    font: inherit;
+    font-size: 13px;
+    outline: none;
+    transition: border-color .15s ease, box-shadow .15s ease, background-color .15s ease;
+}
+
+.objective-fact-filter-form input::placeholder {
+    color: #98a2b3;
+}
+
+.objective-fact-filter-form input:focus,
+.objective-fact-filter-form select:focus {
+    border-color: #7593df;
+    background: #fff;
+    box-shadow: 0 0 0 3px rgba(49, 91, 206, 0.1);
+}
+
+.objective-filter-advanced {
+    margin-top: 14px;
+    padding: 0 14px;
+    border: 1px solid #dfe5ef;
+    border-radius: 10px;
+    background: rgba(255, 255, 255, 0.72);
+}
+
+.objective-filter-advanced summary,
+.objective-audit-disclosure > summary {
+    list-style: none;
+    cursor: pointer;
+}
+
+.objective-filter-advanced summary::-webkit-details-marker,
+.objective-audit-disclosure > summary::-webkit-details-marker {
+    display: none;
+}
+
+.objective-filter-advanced summary {
+    display: flex;
+    min-height: 44px;
+    gap: 9px;
+    align-items: center;
+    color: #34445e;
+    font-size: 12px;
+    font-weight: 700;
+}
+
+.objective-filter-advanced summary small {
+    color: var(--muted);
+    font-size: 11px;
+    font-weight: 500;
+}
+
+.objective-filter-chevron,
+.objective-audit-chevron {
+    width: 8px;
+    height: 8px;
+    margin-left: auto;
+    border-right: 1.5px solid currentColor;
+    border-bottom: 1.5px solid currentColor;
+    transform: rotate(45deg) translate(-2px, 2px);
+    transition: transform .16s ease;
+}
+
+.objective-filter-advanced[open] .objective-filter-chevron,
+.objective-audit-disclosure[open] .objective-audit-chevron {
+    transform: rotate(225deg) translate(-2px, 2px);
+}
+
+.objective-filter-advanced[open] {
+    padding-bottom: 15px;
+}
+
+.objective-filter-footer {
+    display: flex;
+    min-height: 44px;
+    gap: 16px;
+    align-items: flex-end;
+    justify-content: flex-end;
+    margin-top: 14px;
+}
+
+.objective-filter-actions {
+    display: flex;
+    gap: 16px;
+    align-items: center;
+}
+
+.objective-filter-actions .primary-button {
+    display: inline-flex;
+    min-height: 40px;
+    align-items: center;
+    justify-content: center;
+    border-radius: 9px;
+}
+
+.objective-fact-table-scroll {
+    margin-top: 0;
 }
 
 .objective-fact-table {
-    min-width: 1500px;
+    min-width: 840px;
+    table-layout: fixed;
+    font-size: 12px;
+}
+
+.objective-fact-table th,
+.objective-fact-table td {
+    padding: 15px 14px;
+    vertical-align: middle;
+}
+
+.objective-fact-table th {
+    color: #627087;
+    background: #fbfcfe;
+    font-size: 10px;
+    letter-spacing: .055em;
+    text-transform: uppercase;
+}
+
+.objective-fact-table th:nth-child(1) { width: 15%; }
+.objective-fact-table th:nth-child(2) { width: 40%; }
+.objective-fact-table th:nth-child(3) { width: 16%; }
+.objective-fact-table th:nth-child(4) { width: 19%; }
+.objective-fact-table th:nth-child(5) { width: 10%; }
+
+.objective-fact-table tbody tr {
+    transition: background-color .14s ease;
+}
+
+.objective-fact-table tbody tr:hover {
+    background: #f9fbff;
+}
+
+.objective-news-origin time {
+    display: block;
+    color: #2d3b50;
+    font-weight: 700;
+}
+
+.objective-news-origin time small {
+    display: inline;
+    margin-left: 5px;
+    color: #8a96a8;
+    font-size: 10px;
+    font-weight: 600;
+}
+
+.objective-source-chip {
+    display: inline-flex;
+    max-width: 100%;
+    margin-top: 7px;
+    padding: 4px 7px;
+    overflow: hidden;
+    border-radius: 6px;
+    color: #4e5f78;
+    background: #eef2f7;
+    font-size: 10px;
+    font-weight: 650;
+    text-overflow: ellipsis;
+    white-space: nowrap;
 }
 
 .objective-fact-copy {
     min-width: 320px;
-    max-width: 520px;
 }
 
-.objective-fact-copy strong,
+.objective-fact-copy > a {
+    display: -webkit-box;
+    overflow: hidden;
+    color: #1d2a3f;
+    font-size: 13px;
+    font-weight: 720;
+    line-height: 1.45;
+    text-decoration: none;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 2;
+}
+
+.objective-fact-copy > a:hover {
+    color: var(--blue);
+}
+
 .objective-fact-copy p {
+    display: -webkit-box;
+    margin: 6px 0 0;
+    overflow: hidden;
+    color: #78869a;
+    font-size: 11px;
+    line-height: 1.5;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 2;
+}
+
+.objective-result-primary {
+    display: flex;
+    gap: 7px;
+    align-items: center;
+}
+
+.objective-result-primary strong {
+    overflow: hidden;
+    color: #2b3a50;
+    font-size: 11px;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.objective-result-primary > span,
+.objective-result-meta > span,
+.objective-empty-result {
+    color: #7a8799;
+    font-size: 10px;
+}
+
+.objective-result-meta {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 5px;
+    margin-top: 7px;
+}
+
+.objective-result-meta > span {
+    padding: 3px 6px;
+    border: 1px solid #e1e6ee;
+    border-radius: 5px;
+    background: #fafbfc;
+}
+
+.objective-empty-result {
+    display: inline-flex;
+    padding: 5px 8px;
+    border: 1px dashed #d4dbe6;
+    border-radius: 6px;
+    background: #fafbfc;
+}
+
+.objective-state-badges {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 5px;
+}
+
+.objective-state-cell > small {
     display: block;
+    margin-top: 7px;
+    color: #939eae;
+    font-size: 9px;
+}
+
+.objective-fact-row-actions {
+    justify-content: flex-end;
+}
+
+.objective-row-link {
+    color: #52617a;
+    font-size: 11px;
+    font-weight: 650;
+    text-decoration: none;
+}
+
+.objective-row-link:hover {
+    color: var(--blue);
+}
+
+.objective-fact-row-actions .compact-button {
+    min-height: 30px;
+    padding: 0 9px;
+    border-radius: 6px;
+    background: #fff;
+    font-size: 10px;
+}
+
+.objective-fact-runs-panel,
+.objective-fact-history-panel {
+    margin-top: 18px;
+}
+
+.objective-audit-disclosure {
+    padding: 0;
+    overflow: hidden;
+}
+
+.objective-audit-disclosure > summary {
+    display: flex;
+    gap: 18px;
+    align-items: center;
+    padding: 20px 24px;
+}
+
+.objective-audit-disclosure > summary h2 {
+    margin-top: 2px;
+    font-size: 18px;
+}
+
+.objective-audit-disclosure > summary div > span {
+    display: block;
+    margin-top: 5px;
+    color: var(--muted);
+    font-size: 11px;
+}
+
+.objective-audit-disclosure[open] > summary {
+    border-bottom: 1px solid var(--line);
+}
+
+.objective-audit-disclosure .table-scroll {
     margin: 0;
 }
 
-.objective-fact-copy p {
-    margin-top: 0.45rem;
-    color: var(--muted-text);
-    line-height: 1.55;
+.objective-audit-table {
+    min-width: 920px;
+}
+
+.objective-confirm-actions {
+    justify-content: flex-end;
+    margin-top: 1.25rem;
+}
+
+.objective-fact-confirm-panel {
+    max-width: 880px;
+}
+
+.runs-table tr.is-selected td {
+    background: var(--canvas);
 }
 
 .fact-status {
@@ -4648,7 +5274,7 @@ body.summary-dialog-open {
     align-items: center;
     width: max-content;
     padding: 0.25rem 0.55rem;
-    border: 1px solid var(--border-color);
+    border: 1px solid var(--line);
     border-radius: 999px;
     font-size: 0.76rem;
     font-weight: 700;
@@ -4677,8 +5303,8 @@ body.summary-dialog-open {
 }
 
 .fact-status-unextracted {
-    color: var(--muted-text);
-    background: var(--subtle-background);
+    color: var(--muted);
+    background: var(--canvas);
 }
 
 .objective-fact-comparison {
@@ -4705,12 +5331,12 @@ body.summary-dialog-open {
     grid-template-columns: 145px minmax(0, 1fr);
     gap: 1rem;
     padding: 0.75rem 0;
-    border-bottom: 1px solid var(--border-color);
+    border-bottom: 1px solid var(--line);
 }
 
 .objective-meta-list dt,
 .fact-fields dt {
-    color: var(--muted-text);
+    color: var(--muted);
     font-size: 0.8rem;
     font-weight: 700;
 }
@@ -4737,9 +5363,9 @@ body.summary-dialog-open {
 
 .objective-input-field {
     padding: 0.8rem;
-    border: 1px solid var(--border-color);
+    border: 1px solid var(--line);
     border-radius: 10px;
-    background: var(--subtle-background);
+    background: var(--canvas);
 }
 
 .objective-input-field + .objective-input-field {
@@ -4763,11 +5389,11 @@ body.summary-dialog-open {
 .body-scope-warning {
     padding: 0.75rem 0.9rem;
     border-left: 3px solid var(--accent-color);
-    background: var(--subtle-background);
+    background: var(--canvas);
 }
 
 .empty-copy {
-    color: var(--muted-text);
+    color: var(--muted);
 }
 
 .fact-status-summary,
@@ -4784,9 +5410,9 @@ body.summary-dialog-open {
 
 .objective-fact-card {
     padding: 1rem;
-    border: 1px solid var(--border-color);
+    border: 1px solid var(--line);
     border-radius: 12px;
-    background: var(--panel-background);
+    background: var(--surface);
 }
 
 .objective-fact-card + .objective-fact-card {
@@ -4804,7 +5430,7 @@ body.summary-dialog-open {
     margin: 0.12rem 0.25rem 0.12rem 0;
     padding: 0.22rem 0.48rem;
     border-radius: 6px;
-    background: var(--subtle-background);
+    background: var(--canvas);
     font-size: 0.78rem;
 }
 
@@ -4853,7 +5479,7 @@ body.summary-dialog-open {
 .objective-technical-details {
     margin-top: 1.25rem;
     padding: 0.9rem;
-    border: 1px solid var(--border-color);
+    border: 1px solid var(--line);
     border-radius: 10px;
 }
 
@@ -4874,18 +5500,81 @@ body.summary-dialog-open {
 }
 
 @media (max-width: 1100px) {
-    .objective-fact-filter-form {
+    .objective-filter-primary,
+    .objective-filter-advanced-grid {
         grid-template-columns: repeat(2, minmax(0, 1fr));
     }
 
     .objective-fact-comparison {
         grid-template-columns: 1fr;
     }
+
+    .objective-fact-version-summary {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+
+    .objective-version-card,
+    .objective-version-note {
+        grid-column: 1 / -1;
+    }
 }
 
-@media (max-width: 640px) {
-    .objective-fact-filter-form {
+@media (max-width: 720px) {
+    .objective-fact-page .main-content {
+        padding: 24px 16px 36px;
+    }
+
+    .objective-fact-page-header {
+        display: grid;
+        gap: 18px;
+        align-items: start;
+    }
+
+    .objective-fact-header-actions {
+        width: 100%;
+        justify-content: stretch;
+    }
+
+    .objective-fact-header-actions .objective-action-button {
+        flex: 1 1 140px;
+    }
+
+    .objective-fact-version-summary,
+    .objective-filter-primary,
+    .objective-filter-advanced-grid {
         grid-template-columns: 1fr;
+    }
+
+    .objective-version-card,
+    .objective-version-note {
+        grid-column: auto;
+    }
+
+    .objective-results-heading {
+        align-items: flex-start;
+        padding: 20px;
+    }
+
+    .objective-fact-filter-form {
+        padding: 18px 20px;
+    }
+
+    .objective-filter-footer {
+        align-items: stretch;
+    }
+
+    .objective-filter-actions {
+        width: 100%;
+        justify-content: space-between;
+    }
+
+    .objective-filter-actions .primary-button {
+        min-width: 120px;
+    }
+
+    .objective-active-run {
+        align-items: flex-start;
+        flex-direction: column;
     }
 
     .objective-meta-list > div,

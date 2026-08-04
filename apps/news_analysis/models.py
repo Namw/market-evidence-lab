@@ -166,6 +166,9 @@ class ObjectiveFactExtractionRun(models.Model):
     class Mode(models.TextChoices):
         INCREMENTAL = "incremental", "增量提取"
         RETRY_FAILED = "retry_failed", "重试失败"
+        SINGLE = "single", "单条提取"
+        RETRY_SINGLE = "retry_single", "单条重试"
+        REEXTRACT = "reextract", "重新提取"
 
     class Status(models.TextChoices):
         RUNNING = "running", "运行中"
@@ -175,6 +178,7 @@ class ObjectiveFactExtractionRun(models.Model):
         NOT_RUN = "not_run", "未执行"
 
     trigger = models.CharField(max_length=20, choices=Trigger.choices)
+    triggered_by = models.CharField(max_length=150, blank=True)
     mode = models.CharField(max_length=20, choices=Mode.choices)
     status = models.CharField(
         max_length=20, choices=Status.choices, default=Status.RUNNING
@@ -183,9 +187,11 @@ class ObjectiveFactExtractionRun(models.Model):
     model = models.CharField(max_length=160)
     prompt_version = models.CharField(max_length=80)
     generation_parameters = models.JSONField(default=dict)
+    concurrency_slot = models.CharField(max_length=40, default="objective_fact")
     started_at = models.DateTimeField()
     finished_at = models.DateTimeField(null=True, blank=True)
     candidate_count = models.PositiveIntegerField(default=0)
+    processed_count = models.PositiveIntegerField(default=0)
     request_count = models.PositiveIntegerField(default=0)
     success_count = models.PositiveIntegerField(default=0)
     failed_count = models.PositiveIntegerField(default=0)
@@ -194,6 +200,9 @@ class ObjectiveFactExtractionRun(models.Model):
     validation_warning_count = models.PositiveIntegerField(default=0)
     validation_error_count = models.PositiveIntegerField(default=0)
     facts_count = models.PositiveIntegerField(default=0)
+    prompt_tokens = models.PositiveIntegerField(default=0)
+    completion_tokens = models.PositiveIntegerField(default=0)
+    total_tokens = models.PositiveIntegerField(default=0)
     safe_error_summary = models.CharField(max_length=500, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
@@ -202,9 +211,9 @@ class ObjectiveFactExtractionRun(models.Model):
         ordering = ["-started_at", "-id"]
         constraints = [
             models.UniqueConstraint(
-                fields=["prompt_version"],
+                fields=["concurrency_slot"],
                 condition=models.Q(status="running"),
-                name="objective_fact_one_running_prompt",
+                name="objective_fact_one_running_global",
             )
         ]
         indexes = [
@@ -255,6 +264,10 @@ class ObjectiveFactExtractionResult(models.Model):
     model = models.CharField(max_length=160)
     prompt_version = models.CharField(max_length=80)
     generation_parameters = models.JSONField(default=dict)
+    request_count = models.PositiveIntegerField(default=0)
+    prompt_tokens = models.PositiveIntegerField(default=0)
+    completion_tokens = models.PositiveIntegerField(default=0)
+    total_tokens = models.PositiveIntegerField(default=0)
     input_snapshot = models.JSONField(default=dict)
     has_stored_body = models.BooleanField(default=False)
     stored_body_included = models.BooleanField(default=False)

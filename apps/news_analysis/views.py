@@ -19,9 +19,18 @@ from .models import (
     NewsAnalysisResult,
     NewsAnalysisRun,
     ObjectiveFactExtractionResult,
+    ObjectiveFactExtractionRun,
 )
 from .objective_fact_presentation import highlighted_segments
-from .objective_facts import get_objective_fact_config
+from .objective_facts import (
+    BATCH_MODES,
+    SINGLE_MODES,
+    ObjectiveFactAlreadyRunning,
+    get_objective_fact_config,
+    objective_fact_selection_count,
+    objective_fact_single_mode,
+    run_objective_fact_extraction,
+)
 from .services import AnalysisAlreadyRunning, prune_expired_news, run_news_analysis
 from apps.news_data.models import NewsRawRecord
 from apps.news_data.sources import SUMMARY_ONLY_SOURCE_CODES
@@ -250,8 +259,19 @@ def objective_fact_list(request):
     }
     for record in page.object_list:
         record.objective_fact_result = results.get(record.latest_result_id)
+        record.objective_fact_action = objective_fact_single_mode(
+            record.objective_fact_result
+        )
+        record.objective_fact_action_label = {
+            ObjectiveFactExtractionRun.Mode.SINGLE: "提取",
+            ObjectiveFactExtractionRun.Mode.RETRY_SINGLE: "重试",
+            ObjectiveFactExtractionRun.Mode.REEXTRACT: "重新提取",
+        }[record.objective_fact_action]
     pagination_query = request.GET.copy()
     pagination_query.pop("page", None)
+    current_results = ObjectiveFactExtractionResult.objects.filter(
+        prompt_version=config.prompt_version
+    )
     return render(
         request,
         "news_analysis/objective_fact_list.html",
@@ -260,7 +280,134 @@ def objective_fact_list(request):
             "filter_form": form,
             "prompt_version": config.prompt_version,
             "pagination_query": pagination_query.urlencode(),
+            "api_configured": bool(settings.NEWS_AI_API_KEY),
+            "active_run": ObjectiveFactExtractionRun.objects.filter(
+                status=ObjectiveFactExtractionRun.Status.RUNNING
+            ).first(),
+            "recent_runs": ObjectiveFactExtractionRun.objects.all()[:5],
+            "current_result_count": current_results.count(),
+            "current_news_count": current_results.values("news_record_id")
+            .distinct()
+            .count(),
+            "total_news_count": NewsRawRecord.objects.count(),
+            "historical_result_count": ObjectiveFactExtractionResult.objects.exclude(
+                prompt_version=config.prompt_version
+            ).count(),
         },
+    )
+
+
+def _objective_fact_operator(request) -> str:
+    user = getattr(request, "user", None)
+    if user is not None and getattr(user, "is_authenticated", False):
+        username = user.get_username()
+        return username or f"user:{user.pk}"
+    return "anonymous"
+
+
+def _batch_mode(mode: str) -> str | None:
+    return mode if mode in BATCH_MODES else None
+
+
+@require_GET
+def objective_fact_run_confirm(request, mode: str):
+    mode = _batch_mode(mode)
+    if mode is None:
+        messages.error(request, "无法识别的客观事实批量运行模式。")
+        return redirect("news_analysis:objective_fact_list")
+    config = get_objective_fact_config()
+    candidate_count, skipped_count = objective_fact_selection_count(mode=mode)
+    scope_text = {
+        ObjectiveFactExtractionRun.Mode.INCREMENTAL: (
+            "处理当前版本下没有任何成功提取结果的新闻；旧版本成功结果不会导致跳过。"
+        ),
+        ObjectiveFactExtractionRun.Mode.RETRY_FAILED: (
+            "仅处理当前版本最新结果为模型/解析失败、校验 error 或其他无效执行的新闻；可用 warning 不重试。"
+        ),
+    }[mode]
+    return render(
+        request,
+        "news_analysis/objective_fact_confirm.html",
+        {
+            "mode": mode,
+            "mode_label": dict(ObjectiveFactExtractionRun.Mode.choices)[mode],
+            "prompt_version": config.prompt_version,
+            "model": config.model,
+            "candidate_count": candidate_count,
+            "skipped_count": skipped_count,
+            "scope_text": scope_text,
+            "api_configured": bool(settings.NEWS_AI_API_KEY),
+            "active_run": ObjectiveFactExtractionRun.objects.filter(
+                status=ObjectiveFactExtractionRun.Status.RUNNING
+            ).first(),
+        },
+    )
+
+
+@require_POST
+def objective_fact_run(request, mode: str):
+    mode = _batch_mode(mode)
+    if mode is None or request.POST.get("confirm") != "yes":
+        messages.error(request, "客观事实提取确认参数无效。")
+        return redirect("news_analysis:objective_fact_list")
+    if not settings.NEWS_AI_API_KEY:
+        messages.error(request, "DeepSeek API 未配置，无法启动客观事实提取。")
+        return redirect("news_analysis:objective_fact_run_confirm", mode=mode)
+    try:
+        run = run_objective_fact_extraction(
+            mode=mode,
+            trigger=ObjectiveFactExtractionRun.Trigger.MANUAL,
+            triggered_by=_objective_fact_operator(request),
+        )
+    except ObjectiveFactAlreadyRunning:
+        messages.warning(request, "当前已有客观事实提取任务正在运行，请勿重复启动。")
+        return redirect("news_analysis:objective_fact_list")
+    except Exception:
+        messages.error(request, "客观事实提取未能启动，请检查运行记录和服务日志。")
+        return redirect("news_analysis:objective_fact_list")
+    return redirect("news_analysis:objective_fact_run_detail", run_id=run.id)
+
+
+@require_POST
+def objective_fact_single_run(request, news_id: int, mode: str):
+    record = get_object_or_404(NewsRawRecord, pk=news_id)
+    if mode not in SINGLE_MODES:
+        messages.error(request, "无法识别的单条客观事实提取模式。")
+        return redirect("news_analysis:objective_fact_detail", news_id=record.id)
+    try:
+        objective_fact_selection_count(mode=mode, record_ids=[record.id])
+    except ValueError as exc:
+        messages.error(request, str(exc))
+        return redirect("news_analysis:objective_fact_detail", news_id=record.id)
+    if not settings.NEWS_AI_API_KEY:
+        messages.error(request, "DeepSeek API 未配置，无法启动客观事实提取。")
+        return redirect("news_analysis:objective_fact_detail", news_id=record.id)
+    try:
+        run = run_objective_fact_extraction(
+            mode=mode,
+            trigger=ObjectiveFactExtractionRun.Trigger.MANUAL,
+            triggered_by=_objective_fact_operator(request),
+            record_ids=[record.id],
+        )
+    except ObjectiveFactAlreadyRunning:
+        messages.warning(request, "当前已有客观事实提取任务正在运行，请稍后重试。")
+        return redirect("news_analysis:objective_fact_detail", news_id=record.id)
+    except Exception:
+        messages.error(request, "单条客观事实提取未能启动，请检查运行记录。")
+        return redirect("news_analysis:objective_fact_detail", news_id=record.id)
+    return redirect("news_analysis:objective_fact_run_detail", run_id=run.id)
+
+
+@require_GET
+def objective_fact_run_detail(request, run_id: int):
+    run = get_object_or_404(ObjectiveFactExtractionRun, pk=run_id)
+    results = run.results.select_related("news_record__source").order_by(
+        "created_at", "id"
+    )
+    return render(
+        request,
+        "news_analysis/objective_fact_run_detail.html",
+        {"run": run, "results": results},
     )
 
 
@@ -288,14 +435,42 @@ def objective_fact_detail(request, news_id: int):
         NewsRawRecord.objects.select_related("source"), pk=news_id
     )
     config = get_objective_fact_config()
-    result = (
+    history = list(
         ObjectiveFactExtractionResult.objects.filter(
-            news_record=record, prompt_version=config.prompt_version
+            news_record=record
         )
         .select_related("extraction_run")
         .order_by("-extracted_at", "-id")
-        .first()
     )
+    current_result = next(
+        (
+            item
+            for item in history
+            if item.prompt_version == config.prompt_version
+        ),
+        None,
+    )
+    selected_result_id = request.GET.get("result")
+    if selected_result_id:
+        try:
+            selected_id = int(selected_result_id)
+        except (TypeError, ValueError):
+            selected_id = -1
+        result = next((item for item in history if item.id == selected_id), None)
+        if result is None:
+            result = get_object_or_404(
+                ObjectiveFactExtractionResult,
+                pk=selected_id,
+                news_record=record,
+            )
+    else:
+        result = current_result
+    action_mode = objective_fact_single_mode(current_result)
+    action_label = {
+        ObjectiveFactExtractionRun.Mode.SINGLE: "提取",
+        ObjectiveFactExtractionRun.Mode.RETRY_SINGLE: "重试",
+        ObjectiveFactExtractionRun.Mode.REEXTRACT: "重新提取",
+    }[action_mode]
     current_input = database_article_input(record)
     input_snapshot = (
         result.input_snapshot
@@ -383,5 +558,13 @@ def objective_fact_detail(request, news_id: int):
             "saved_body": current_input.stored_body,
             "source_url": _safe_source_url(record),
             "prompt_version": config.prompt_version,
+            "current_result": current_result,
+            "history": history,
+            "action_mode": action_mode,
+            "action_label": action_label,
+            "api_configured": bool(settings.NEWS_AI_API_KEY),
+            "active_run": ObjectiveFactExtractionRun.objects.filter(
+                status=ObjectiveFactExtractionRun.Status.RUNNING
+            ).first(),
         },
     )

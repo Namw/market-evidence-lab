@@ -1,60 +1,123 @@
 {% extends "base.html" %}
 
 {% block title %}客观事实提取 · Market Evidence Lab{% endblock %}
+{% block body_class %}objective-fact-page{% endblock %}
 
 {% block content %}
-<header class="page-header">
-    <div>
+<header class="page-header objective-fact-page-header">
+    <div class="objective-fact-heading-copy">
         <p class="eyebrow">新闻观察 / 数据加工</p>
         <h1>客观事实提取</h1>
-        <p class="page-intro">逐篇查看数据库原始新闻与 DeepSeek V1 客观事实提取结果。列表一行对应一篇原始新闻，校验错误不会丢弃已成功解析的结果。</p>
+        <p class="page-intro">把数据库新闻转成可追溯、可校验的结构化事实，并保留每次模型执行的完整审计记录。</p>
     </div>
-    <span class="phase-badge">{{ prompt_version }}</span>
+    <div class="objective-fact-header-actions">
+        <a class="secondary-button objective-action-button" href="{% url 'news_analysis:objective_fact_run_confirm' 'retry_failed' %}"><span aria-hidden="true">↻</span>重试失败</a>
+        <a class="primary-button objective-action-button" href="{% url 'news_analysis:objective_fact_run_confirm' 'incremental' %}"><span aria-hidden="true">＋</span>增量提取</a>
+    </div>
 </header>
 
+{% if messages %}<div class="message-stack" aria-live="polite">{% for message in messages %}<div class="message message-{{ message.tags|default:'info' }}">{{ message }}</div>{% endfor %}</div>{% endif %}
+
+{% if active_run %}<div class="message message-warning objective-active-run"><span>运行 #{{ active_run.id }} 正在处理，执行入口已暂时锁定。</span><a class="text-link" href="{% url 'news_analysis:objective_fact_run_detail' active_run.id %}">查看运行详情 →</a></div>{% endif %}
+
+<section class="objective-fact-version-summary" aria-label="版本结果统计">
+    <article class="objective-version-card">
+        <div class="objective-version-card-heading"><span class="objective-summary-icon" aria-hidden="true">V</span><span>当前提取版本</span></div>
+        <strong>{{ prompt_version }}</strong>
+        <p>列表与执行口径均严格按此版本计算。</p>
+    </article>
+    <article class="objective-summary-card objective-summary-current">
+        <span>当前版本覆盖</span>
+        <strong>{{ current_news_count }}<small> / {{ total_news_count }} 篇</small></strong>
+        <progress value="{{ current_news_count }}" max="{{ total_news_count }}">{{ current_news_count }} / {{ total_news_count }}</progress>
+        <p>共保存 {{ current_result_count }} 条当前版本结果</p>
+    </article>
+    <article class="objective-summary-card objective-summary-history">
+        <span>历史版本结果</span>
+        <strong>{{ historical_result_count }}<small> 条</small></strong>
+        <p>历史记录保留审计，但不占用当前版本状态。</p>
+    </article>
+    <p class="objective-version-note"><span aria-hidden="true">i</span>历史版本成功结果不会显示为当前版本已提取，也不会阻止 V1.1 增量提取。</p>
+</section>
+
 <section class="panel objective-fact-list-panel">
-    <div class="panel-heading">
-        <div><p class="eyebrow">新闻级结果</p><h2>原始新闻与最新提取状态</h2></div>
-        <span class="status-label">共 {{ page.paginator.count }} 篇</span>
+    <div class="panel-heading objective-results-heading">
+        <div><p class="eyebrow">新闻级结果</p><h2>原始新闻与最新提取状态</h2><p>筛选并审阅当前版本下每篇新闻的最新一次结果。</p></div>
+        <span class="status-label">{{ page.paginator.count }} 篇新闻</span>
     </div>
-    <form method="get" class="analysis-filter-form objective-fact-filter-form">
-        {% for field in filter_form %}<label><span>{{ field.label }}</span>{{ field }}</label>{% endfor %}
-        <div class="analysis-filter-actions"><button class="compact-button" type="submit">筛选</button><a class="text-link" href="{% url 'news_analysis:objective_fact_list' %}">清除</a></div>
-        {% if filter_form.non_field_errors %}<div class="filter-form-errors">{{ filter_form.non_field_errors }}</div>{% endif %}
+
+    <form method="get" class="objective-fact-filter-form">
+        <div class="objective-filter-primary">
+            <label class="objective-filter-keyword"><span>{{ filter_form.keyword.label }}</span>{{ filter_form.keyword }}{{ filter_form.keyword.errors }}</label>
+            <label><span>{{ filter_form.source.label }}</span>{{ filter_form.source }}{{ filter_form.source.errors }}</label>
+            <label><span>{{ filter_form.extraction_status.label }}</span>{{ filter_form.extraction_status }}{{ filter_form.extraction_status.errors }}</label>
+            <label><span>{{ filter_form.validation_status.label }}</span>{{ filter_form.validation_status }}{{ filter_form.validation_status.errors }}</label>
+        </div>
+        <details class="objective-filter-advanced"{% if request.GET.published_start or request.GET.published_end or request.GET.event_status or request.GET.information_completeness or request.GET.has_body or request.GET.facts_count %} open{% endif %}>
+            <summary><span>高级筛选</span><small>日期、事件状态、完整度、正文与事实数量</small><span class="objective-filter-chevron" aria-hidden="true"></span></summary>
+            <div class="objective-filter-advanced-grid">
+                <label><span>{{ filter_form.published_start.label }}</span>{{ filter_form.published_start }}{{ filter_form.published_start.errors }}</label>
+                <label><span>{{ filter_form.published_end.label }}</span>{{ filter_form.published_end }}{{ filter_form.published_end.errors }}</label>
+                <label><span>{{ filter_form.event_status.label }}</span>{{ filter_form.event_status }}{{ filter_form.event_status.errors }}</label>
+                <label><span>{{ filter_form.information_completeness.label }}</span>{{ filter_form.information_completeness }}{{ filter_form.information_completeness.errors }}</label>
+                <label><span>{{ filter_form.has_body.label }}</span>{{ filter_form.has_body }}{{ filter_form.has_body.errors }}</label>
+                <label><span>{{ filter_form.facts_count.label }}</span>{{ filter_form.facts_count }}{{ filter_form.facts_count.errors }}</label>
+            </div>
+        </details>
+        <div class="objective-filter-footer">
+            {% if filter_form.non_field_errors %}<div class="filter-form-errors">{{ filter_form.non_field_errors }}</div>{% endif %}
+            <div class="objective-filter-actions"><a class="text-link" href="{% url 'news_analysis:objective_fact_list' %}">重置筛选</a><button class="primary-button" type="submit">应用筛选</button></div>
+        </div>
     </form>
-    <div class="table-scroll">
+
+    <div class="table-scroll objective-fact-table-scroll">
         <table class="runs-table objective-fact-table">
-            <thead><tr><th>新闻时间</th><th>来源</th><th>原始标题 / 客观摘要</th><th>事件状态</th><th>完整度</th><th>事实数</th><th>提取状态</th><th>校验状态</th><th>提取时间</th><th>操作</th></tr></thead>
+            <thead><tr><th>新闻</th><th>原始标题 / 客观摘要</th><th>结构化结果</th><th>执行状态</th><th>操作</th></tr></thead>
             <tbody>
             {% for record in page %}
                 {% with result=record.objective_fact_result %}
                 <tr>
-                    <td class="nowrap">{{ record.published_at|date:"Y-m-d H:i" }}</td>
-                    <td>{{ record.source.name }}</td>
-                    <td class="objective-fact-copy"><strong>{{ record.title }}</strong><p>{% if result and result.objective_summary %}{{ result.objective_summary }}{% elif result and result.extraction_status == 'failed' %}提取失败：{{ result.safe_error_summary|default:"未获得可解析结果" }}{% else %}尚无客观摘要{% endif %}</p></td>
-                    <td>{{ result.event_status|default:"—" }}</td>
-                    <td>{{ result.information_completeness|default:"—" }}</td>
-                    <td>{% if result %}{{ result.facts_count }}{% else %}—{% endif %}</td>
-                    <td>
-                        {% if not result %}<span class="fact-status fact-status-unextracted">尚未提取</span>
-                        {% elif result.extraction_status == 'failed' %}<span class="fact-status fact-status-failed">提取失败</span>
-                        {% elif result.extraction_status == 'pending' %}<span class="fact-status fact-status-pending">提取中</span>
-                        {% else %}<span class="fact-status fact-status-success">提取成功</span>{% endif %}
+                    <td class="objective-news-origin"><time datetime="{{ record.published_at|date:'c' }}">{{ record.published_at|date:"Y-m-d" }}<small>{{ record.published_at|date:"H:i" }}</small></time><span class="objective-source-chip">{{ record.source.name }}</span></td>
+                    <td class="objective-fact-copy"><a href="{% url 'news_analysis:objective_fact_detail' record.id %}">{{ record.title }}</a><p>{% if result and result.objective_summary %}{{ result.objective_summary }}{% elif result and result.extraction_status == 'failed' %}提取失败：{{ result.safe_error_summary|default:"未获得可解析结果" }}{% else %}尚无客观摘要，等待当前版本处理。{% endif %}</p></td>
+                    <td class="objective-result-cell">
+                        {% if result %}
+                            <div class="objective-result-primary"><strong>{{ result.event_status|default:"状态未知" }}</strong><span>{{ result.facts_count }} 条事实</span></div>
+                            <div class="objective-result-meta"><span>{{ result.information_completeness|default:"完整度未知" }}</span>{% if result.has_stored_body %}<span>含正文</span>{% endif %}</div>
+                        {% else %}<span class="objective-empty-result">等待提取</span>{% endif %}
                     </td>
-                    <td>
-                        {% if not result %}<span class="fact-status fact-status-unextracted">未校验</span>
-                        {% elif result.validation_status == 'passed' %}<span class="fact-status fact-status-passed">校验通过</span>
-                        {% elif result.validation_status == 'warning' %}<span class="fact-status fact-status-warning">校验警告</span>
-                        {% else %}<span class="fact-status fact-status-error">校验错误</span>{% endif %}
+                    <td class="objective-state-cell">
+                        <div class="objective-state-badges">
+                            {% if not result %}<span class="fact-status fact-status-unextracted">尚未提取</span><span class="fact-status fact-status-unextracted">未校验</span>
+                            {% else %}
+                                {% if result.extraction_status == 'failed' %}<span class="fact-status fact-status-failed">提取失败</span>{% elif result.extraction_status == 'pending' %}<span class="fact-status fact-status-pending">提取中</span>{% else %}<span class="fact-status fact-status-success">提取成功</span>{% endif %}
+                                {% if result.validation_status == 'passed' %}<span class="fact-status fact-status-passed">校验通过</span>{% elif result.validation_status == 'warning' %}<span class="fact-status fact-status-warning">校验警告</span>{% else %}<span class="fact-status fact-status-error">校验错误</span>{% endif %}
+                            {% endif %}
+                        </div>
+                        <small>{% if result and result.extracted_at %}{{ result.extracted_at|date:"Y-m-d H:i" }}{% else %}暂无执行时间{% endif %}</small>
                     </td>
-                    <td class="nowrap">{{ result.extracted_at|date:"Y-m-d H:i"|default:"—" }}</td>
-                    <td><a class="text-link" href="{% url 'news_analysis:objective_fact_detail' record.id %}">查看对比</a></td>
+                    <td class="objective-fact-row-actions">
+                        <a class="objective-row-link" href="{% url 'news_analysis:objective_fact_detail' record.id %}">审阅</a>
+                        <form method="post" action="{% url 'news_analysis:objective_fact_single_run' record.id record.objective_fact_action %}" data-objective-run-form>
+                            {% csrf_token %}
+                            <button class="compact-button" type="submit"{% if active_run or not api_configured %} disabled{% endif %}>{{ record.objective_fact_action_label }}</button>
+                        </form>
+                    </td>
                 </tr>
                 {% endwith %}
-            {% empty %}<tr><td colspan="10" class="empty-state">没有符合当前组合筛选条件的新闻。</td></tr>{% endfor %}
+            {% empty %}<tr><td colspan="5" class="empty-state">没有符合当前组合筛选条件的新闻。</td></tr>{% endfor %}
             </tbody>
         </table>
     </div>
     {% if page.paginator.num_pages > 1 %}<nav class="pagination" aria-label="分页">{% if page.has_previous %}<a class="text-link" href="?{% if pagination_query %}{{ pagination_query }}&amp;{% endif %}page={{ page.previous_page_number }}">上一页</a>{% endif %}<span>第 {{ page.number }} / {{ page.paginator.num_pages }} 页</span>{% if page.has_next %}<a class="text-link" href="?{% if pagination_query %}{{ pagination_query }}&amp;{% endif %}page={{ page.next_page_number }}">下一页</a>{% endif %}</nav>{% endif %}
 </section>
+
+<details class="panel objective-fact-runs-panel objective-audit-disclosure">
+    <summary><div><p class="eyebrow">运行审计</p><h2>最近运行</h2><span>查看最近 5 次任务的处理数量、校验状态与 Token 消耗</span></div><span class="objective-audit-chevron" aria-hidden="true"></span></summary>
+    <div class="table-scroll"><table class="runs-table objective-audit-table"><thead><tr><th>运行</th><th>模式</th><th>版本</th><th>状态</th><th>预计 / 实际</th><th>通过 / warning / error</th><th>Token</th><th>开始时间</th></tr></thead><tbody>
+        {% for run in recent_runs %}<tr><td><a class="text-link" href="{% url 'news_analysis:objective_fact_run_detail' run.id %}">#{{ run.id }}</a></td><td>{{ run.get_mode_display }}</td><td>{{ run.prompt_version }}</td><td>{{ run.get_status_display }}</td><td>{{ run.candidate_count }} / {{ run.processed_count }}</td><td>{{ run.validation_passed_count }} / {{ run.validation_warning_count }} / {{ run.validation_error_count }}</td><td>{{ run.total_tokens }}</td><td>{{ run.started_at|date:"Y-m-d H:i:s" }}</td></tr>
+        {% empty %}<tr><td colspan="8" class="empty-state">暂无客观事实提取运行。</td></tr>{% endfor %}
+    </tbody></table></div>
+</details>
 {% endblock %}
+
+{% block extra_js %}{% load static %}<script src="{% static 'news_analysis/js/objective_facts.js' %}?v=1" defer></script>{% endblock %}

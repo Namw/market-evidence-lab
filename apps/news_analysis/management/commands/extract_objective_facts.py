@@ -27,6 +27,7 @@ class Command(BaseCommand):
             run = run_objective_fact_extraction(
                 mode=options["mode"],
                 trigger=ObjectiveFactExtractionRun.Trigger.COMMAND,
+                triggered_by="management_command",
                 record_ids=options.get("news_id"),
                 prompt_version=options.get("prompt_version"),
             )
