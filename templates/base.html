@@ -5,7 +5,7 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>{% block title %}Market Evidence Lab{% endblock %}</title>
-    <link rel="stylesheet" href="{% static 'core/css/styles.css' %}?v=22">
+    <link rel="stylesheet" href="{% static 'core/css/styles.css' %}?v=23">
     <script>
         try {
             if (localStorage.getItem("market-evidence-sidebar-collapsed") === "true") {
@@ -55,6 +55,7 @@
                 <details class="nav-group{% if request.resolver_match.namespace == 'news_analysis' or request.resolver_match.namespace == 'news_data' %} is-active{% endif %}" data-nav-group="news"{% if request.resolver_match.namespace == 'news_analysis' or request.resolver_match.namespace == 'news_data' %} open{% endif %}>
                     <summary class="nav-item"><span>新闻观察</span><span class="nav-chevron" aria-hidden="true"></span></summary>
                     <div class="nav-submenu" aria-label="新闻观察">
+                        <a class="nav-subitem{% if request.resolver_match.namespace == 'news_analysis' and 'event_' in request.resolver_match.url_name %} is-active{% endif %}" href="{% url 'news_analysis:event_overview' %}"{% if request.resolver_match.namespace == 'news_analysis' and 'event_' in request.resolver_match.url_name %} aria-current="page"{% endif %}>新闻事件库</a>
                         <a class="nav-subitem{% if request.resolver_match.namespace == 'news_analysis' and request.resolver_match.url_name == 'objective_fact_list' or request.resolver_match.namespace == 'news_analysis' and request.resolver_match.url_name == 'objective_fact_detail' %} is-active{% endif %}" href="{% url 'news_analysis:objective_fact_list' %}"{% if request.resolver_match.namespace == 'news_analysis' and request.resolver_match.url_name == 'objective_fact_list' or request.resolver_match.namespace == 'news_analysis' and request.resolver_match.url_name == 'objective_fact_detail' %} aria-current="page"{% endif %}>客观事实提取</a>
                         <a class="nav-subitem{% if request.resolver_match.namespace == 'news_analysis' and request.resolver_match.url_name == 'index' %} is-active{% endif %}" href="{% url 'news_analysis:index' %}"{% if request.resolver_match.namespace == 'news_analysis' and request.resolver_match.url_name == 'index' %} aria-current="page"{% endif %}>每日分析结果</a>
                         <a class="nav-subitem{% if request.resolver_match.namespace == 'news_data' %} is-active{% endif %}" href="{% url 'news_data:index' %}"{% if request.resolver_match.namespace == 'news_data' %} aria-current="page"{% endif %}>数据采集</a>

@@ -1,0 +1,5 @@
+<nav class="event-tabs" aria-label="新闻事件库视图">
+    <a class="{% if event_tab == 'overview' %}is-active{% endif %}" href="{% url 'news_analysis:event_overview' %}">处理概览</a>
+    <a class="{% if event_tab == 'runs' %}is-active{% endif %}" href="{% url 'news_analysis:event_run_list' %}">运行记录</a>
+    <a class="{% if event_tab == 'events' %}is-active{% endif %}" href="{% url 'news_analysis:event_list' %}">事件结果</a>
+</nav>

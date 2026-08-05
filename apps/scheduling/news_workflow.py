@@ -9,7 +9,20 @@ from django.utils import timezone
 from apps.collection.models import CollectionRun
 from apps.inspection.models import NewsInspectionRun
 from apps.inspection.news import inspect_news_collection
-from apps.news_analysis.models import NewsAnalysisRun
+from apps.news_analysis.event_merge import (
+    EventMergeAlreadyRunning,
+    event_merge_inputs_changed,
+    run_event_merge,
+)
+from apps.news_analysis.models import (
+    EventMergeRun,
+    NewsAnalysisRun,
+    ObjectiveFactExtractionRun,
+)
+from apps.news_analysis.objective_facts import (
+    ObjectiveFactAlreadyRunning,
+    run_objective_fact_extraction,
+)
 from apps.news_analysis.services import (
     AnalysisAlreadyRunning,
     AnalysisExecutionFailed,
@@ -179,6 +192,8 @@ def execute_news_workflow(
     range_end: datetime | None = None,
     collection_clients: dict[str, object] | None = None,
     analysis_client=None,
+    objective_fact_client=None,
+    event_merge_client=None,
     heartbeat_callback: Callable[[], None] | None = None,
 ) -> NewsWorkflowRun:
     """Collect, inspect and incrementally analyze news with isolated child runs."""
@@ -372,6 +387,82 @@ def execute_news_workflow(
         "analysis_skipped_count",
     )
 
+    beat()
+    objective_run = None
+    try:
+        objective_run = run_objective_fact_extraction(
+            mode=ObjectiveFactExtractionRun.Mode.INCREMENTAL,
+            trigger=ObjectiveFactExtractionRun.Trigger.COMMAND,
+            triggered_by=f"news_workflow:{workflow_run.id}",
+            client=objective_fact_client,
+        )
+    except ObjectiveFactAlreadyRunning:
+        workflow_run.objective_fact_status = NewsWorkflowRun.StepStatus.NOT_RUN
+        safe_errors.append("Objective fact extraction was not run because it is busy.")
+    except Exception as exc:
+        workflow_run.objective_fact_status = NewsWorkflowRun.StepStatus.FAILED
+        safe_errors.append(_safe_exception(exc, "Objective fact extraction"))
+    if objective_run is not None:
+        workflow_run.objective_fact_run = objective_run
+        workflow_run.objective_fact_success_count = objective_run.success_count
+        workflow_run.objective_fact_failure_count = objective_run.failed_count
+        workflow_run.objective_fact_status = {
+            ObjectiveFactExtractionRun.Status.SUCCESS: NewsWorkflowRun.StepStatus.SUCCESS,
+            ObjectiveFactExtractionRun.Status.PARTIAL: NewsWorkflowRun.StepStatus.PARTIAL,
+            ObjectiveFactExtractionRun.Status.FAILED: NewsWorkflowRun.StepStatus.FAILED,
+            ObjectiveFactExtractionRun.Status.NOT_RUN: NewsWorkflowRun.StepStatus.NOT_RUN,
+            ObjectiveFactExtractionRun.Status.RUNNING: NewsWorkflowRun.StepStatus.PENDING,
+        }[objective_run.status]
+        if objective_run.status != ObjectiveFactExtractionRun.Status.SUCCESS:
+            safe_errors.append(
+                objective_run.safe_error_summary
+                or _status_summary("Objective fact extraction", objective_run.pk, objective_run.status)
+            )
+    _save_progress(
+        workflow_run,
+        "objective_fact_run",
+        "objective_fact_status",
+        "objective_fact_success_count",
+        "objective_fact_failure_count",
+    )
+
+    beat()
+    if workflow_run.objective_fact_status in {
+        NewsWorkflowRun.StepStatus.SUCCESS,
+        NewsWorkflowRun.StepStatus.PARTIAL,
+    } and event_merge_inputs_changed():
+        try:
+            merge_run = run_event_merge(
+                trigger=EventMergeRun.Trigger.SCHEDULED,
+                client=event_merge_client,
+            )
+        except EventMergeAlreadyRunning:
+            workflow_run.event_merge_status = NewsWorkflowRun.StepStatus.NOT_RUN
+            safe_errors.append("Event library rebuild was not run because it is busy.")
+        except Exception as exc:
+            workflow_run.event_merge_status = NewsWorkflowRun.StepStatus.FAILED
+            safe_errors.append(_safe_exception(exc, "Event library rebuild"))
+        else:
+            workflow_run.event_merge_run = merge_run
+            workflow_run.event_merge_status = {
+                EventMergeRun.Status.SUCCEEDED: NewsWorkflowRun.StepStatus.SUCCESS,
+                EventMergeRun.Status.SUCCEEDED_WITH_WARNINGS: NewsWorkflowRun.StepStatus.PARTIAL,
+                EventMergeRun.Status.FAILED: NewsWorkflowRun.StepStatus.FAILED,
+                EventMergeRun.Status.CANCELLED: NewsWorkflowRun.StepStatus.NOT_RUN,
+                EventMergeRun.Status.PENDING: NewsWorkflowRun.StepStatus.PENDING,
+                EventMergeRun.Status.RUNNING: NewsWorkflowRun.StepStatus.PENDING,
+            }[merge_run.status]
+            if merge_run.status != EventMergeRun.Status.SUCCEEDED:
+                safe_errors.append(
+                    merge_run.safe_error_summary
+                    or _status_summary("Event library rebuild", merge_run.pk, merge_run.status)
+                )
+    elif workflow_run.objective_fact_status == NewsWorkflowRun.StepStatus.SUCCESS:
+        workflow_run.event_merge_status = NewsWorkflowRun.StepStatus.NOT_RUN
+    else:
+        workflow_run.event_merge_status = NewsWorkflowRun.StepStatus.NOT_RUN
+    _save_progress(workflow_run, "event_merge_run", "event_merge_status")
+
     collection_statuses = [step.collection_status for step in feed_steps.values()]
     quality_statuses = [step.quality_status for step in feed_steps.values()]
     all_normal = (
@@ -385,6 +476,9 @@ def execute_news_workflow(
             for status in quality_statuses
         )
         and workflow_run.analysis_status == NewsWorkflowRun.StepStatus.SUCCESS
+        and workflow_run.objective_fact_status == NewsWorkflowRun.StepStatus.SUCCESS
+        and workflow_run.event_merge_status
+        in {NewsWorkflowRun.StepStatus.SUCCESS, NewsWorkflowRun.StepStatus.NOT_RUN}
     )
     all_collections_failed = bool(collection_statuses) and all(
         status == NewsWorkflowRun.StepStatus.FAILED for status in collection_statuses

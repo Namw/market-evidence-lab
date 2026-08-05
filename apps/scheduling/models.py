@@ -260,6 +260,30 @@ class NewsWorkflowRun(models.Model):
         choices=StepStatus.choices,
         default=StepStatus.PENDING,
     )
+    objective_fact_run = models.ForeignKey(
+        "news_analysis.ObjectiveFactExtractionRun",
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="news_workflows",
+    )
+    objective_fact_status = models.CharField(
+        max_length=20,
+        choices=StepStatus.choices,
+        default=StepStatus.PENDING,
+    )
+    event_merge_run = models.ForeignKey(
+        "news_analysis.EventMergeRun",
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="news_workflows",
+    )
+    event_merge_status = models.CharField(
+        max_length=20,
+        choices=StepStatus.choices,
+        default=StepStatus.PENDING,
+    )
     inserted_count = models.PositiveIntegerField(default=0)
     updated_count = models.PositiveIntegerField(default=0)
     skipped_count = models.PositiveIntegerField(default=0)
@@ -268,6 +292,8 @@ class NewsWorkflowRun(models.Model):
     analysis_success_count = models.PositiveIntegerField(default=0)
     analysis_failure_count = models.PositiveIntegerField(default=0)
     analysis_skipped_count = models.PositiveIntegerField(default=0)
+    objective_fact_success_count = models.PositiveIntegerField(default=0)
+    objective_fact_failure_count = models.PositiveIntegerField(default=0)
     safe_error_summary = models.TextField(blank=True)
     started_at = models.DateTimeField()
     finished_at = models.DateTimeField(null=True, blank=True)

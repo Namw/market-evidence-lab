@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
+from unittest.mock import patch
 
 import httpx
 from django.test import TestCase
@@ -224,14 +225,15 @@ class NewsCollectionTests(TestCase):
         self.ef.activated_at = datetime(2026, 7, 1, tzinfo=UTC)
         self.ef.save(update_fields=["activated_at"])
 
-        result = collect_and_inspect(
-            data_type="news",
-            source_code=self.ef.code,
-            range_end=END,
-            client=request_client(
-                response_for(fixture("ethereum_feed.xml"), "application/xml")
-            ),
-        )
+        with patch("apps.inspection.news.timezone.now", return_value=END):
+            result = collect_and_inspect(
+                data_type="news",
+                source_code=self.ef.code,
+                range_end=END,
+                client=request_client(
+                    response_for(fixture("ethereum_feed.xml"), "application/xml")
+                ),
+            )
 
         self.assertEqual(result.inspection_run.quality_status, "warning")
         self.assertTrue(result.inspection_run.coverage_complete)

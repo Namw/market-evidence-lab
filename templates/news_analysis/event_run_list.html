@@ -1,0 +1,9 @@
+{% extends "base.html" %}
+{% block title %}事件库运行记录 · Market Evidence Lab{% endblock %}
+{% block body_class %}event-library-page{% endblock %}
+{% block content %}
+<header class="page-header"><div><p class="eyebrow">新闻事件库</p><h1>运行记录</h1><p class="page-intro">查看完整构建、定时构建和失败重试的冻结配置与结果。</p></div></header>
+{% include "news_analysis/_event_tabs.html" with event_tab="runs" %}
+<section class="panel event-filter-panel"><form method="get" class="event-filter-grid">{% for field in filter_form %}<label><span>{{ field.label }}</span>{{ field }}</label>{% endfor %}<div class="event-filter-actions"><button class="primary-button" type="submit">筛选</button><a class="text-link" href="{% url 'news_analysis:event_run_list' %}">重置</a></div></form></section>
+<section class="panel"><div class="table-scroll"><table class="runs-table event-runs-table"><thead><tr><th>运行</th><th>触发 / 状态</th><th>输入</th><th>候选</th><th>AI 调用 / 失败</th><th>事件</th><th>当前</th><th>开始 / 结束</th></tr></thead><tbody>{% for run in page %}<tr><td><a href="{% url 'news_analysis:event_run_detail' run.id %}">#{{ run.id }}</a>{% if run.original_run_id %}<br><small>源自 #{{ run.original_run_id }}</small>{% endif %}</td><td>{{ run.get_trigger_display }}<br><span class="run-status status-{{ run.status }}">{{ run.get_status_display }}</span></td><td>{{ run.eligible_count }} / {{ run.input_count }}</td><td>{{ run.candidate_pair_count }}</td><td>{{ run.ai_decision_count }} / {{ run.ai_failure_count }}</td><td>{{ run.final_event_count }}</td><td>{{ run.is_current_snapshot|yesno:"是,否" }}</td><td>{{ run.started_at|date:"Y-m-d H:i:s" }}<br>{{ run.finished_at|date:"Y-m-d H:i:s"|default:"—" }}</td></tr>{% empty %}<tr><td colspan="8">没有符合条件的运行。</td></tr>{% endfor %}</tbody></table></div></section>
+{% endblock %}

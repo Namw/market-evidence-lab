@@ -5583,3 +5583,234 @@ body.summary-dialog-open {
         gap: 0.3rem;
     }
 }
+
+/* Provisional news event library V1 */
+.event-library-page .main-content {
+    max-width: 1560px;
+    padding-top: 34px;
+    padding-bottom: 48px;
+}
+
+.event-tabs {
+    display: flex;
+    gap: 6px;
+    margin: -4px 0 22px;
+    padding: 5px;
+    width: max-content;
+    max-width: 100%;
+    border: 1px solid var(--line);
+    border-radius: 11px;
+    background: #f4f6fa;
+}
+
+.event-tabs a {
+    padding: 8px 14px;
+    border-radius: 7px;
+    color: var(--muted);
+    font-size: 12px;
+    font-weight: 700;
+    text-decoration: none;
+}
+
+.event-tabs a.is-active {
+    color: var(--blue);
+    background: #fff;
+    box-shadow: 0 2px 8px rgba(23, 32, 50, .08);
+}
+
+.event-hero-grid,
+.event-detail-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 18px;
+    margin-bottom: 18px;
+}
+
+.event-snapshot-card,
+.event-latest-card {
+    min-width: 0;
+}
+
+.event-snapshot-card {
+    color: #eef4ff;
+    border-color: #1d3152;
+    background: linear-gradient(140deg, #15243c, #1e3559);
+}
+
+.event-snapshot-card .eyebrow,
+.event-snapshot-card .event-snapshot-time,
+.event-snapshot-card dt {
+    color: #b9c8df;
+}
+
+.event-snapshot-card h2,
+.event-snapshot-card dd {
+    color: #fff;
+}
+
+.event-metric-grid {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 10px;
+    margin: 20px 0;
+}
+
+.event-metric-grid > div {
+    min-width: 0;
+    padding: 12px;
+    border: 1px solid rgba(128, 148, 179, .2);
+    border-radius: 9px;
+    background: rgba(255, 255, 255, .06);
+}
+
+.event-metric-grid dt {
+    color: var(--muted);
+    font-size: 10px;
+}
+
+.event-metric-grid dd {
+    margin: 5px 0 0;
+    font-size: 20px;
+    font-weight: 750;
+}
+
+.event-actions,
+.event-filter-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+    align-items: center;
+}
+
+.event-actions form {
+    margin: 0;
+}
+
+.event-actions button:disabled,
+.event-filter-actions button:disabled {
+    cursor: not-allowed;
+    opacity: .48;
+}
+
+.event-filter-panel {
+    margin-bottom: 18px;
+}
+
+.event-filter-grid {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(150px, 1fr));
+    gap: 14px;
+    align-items: end;
+}
+
+.event-filter-grid label > span {
+    display: block;
+    margin-bottom: 6px;
+    color: var(--muted);
+    font-size: 11px;
+    font-weight: 700;
+}
+
+.event-filter-grid input,
+.event-filter-grid select {
+    width: 100%;
+    min-height: 40px;
+    padding: 7px 10px;
+    border: 1px solid #cfd8e7;
+    border-radius: 8px;
+    background: #fff;
+    font: inherit;
+    font-size: 12px;
+}
+
+.event-stage-list {
+    display: grid;
+    grid-template-columns: repeat(7, minmax(105px, 1fr));
+    gap: 8px;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+}
+
+.event-stage-list li {
+    display: flex;
+    gap: 7px;
+    align-items: center;
+    padding: 10px;
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    color: var(--muted);
+    font-size: 11px;
+}
+
+.event-stage-list li span {
+    display: grid;
+    width: 22px;
+    height: 22px;
+    flex: 0 0 auto;
+    border-radius: 50%;
+    place-items: center;
+    background: #eef1f6;
+    font-weight: 750;
+}
+
+.event-stage-list li.is-reached {
+    color: #176c4c;
+    border-color: #b7e4cc;
+    background: #f4fbf7;
+}
+
+.event-member-stack {
+    display: grid;
+    gap: 14px;
+}
+
+.event-member-stack h3,
+.event-member-stack h4 {
+    margin: 0;
+}
+
+.event-runs-table,
+.event-results-table {
+    min-width: 1050px;
+}
+
+.event-messages {
+    margin-bottom: 18px;
+}
+
+@media (max-width: 1000px) {
+    .event-hero-grid,
+    .event-detail-grid {
+        grid-template-columns: 1fr;
+    }
+
+    .event-filter-grid {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+
+    .event-stage-list {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+}
+
+@media (max-width: 620px) {
+    .event-library-page .main-content {
+        padding: 24px 16px 36px;
+    }
+
+    .event-tabs,
+    .event-filter-grid,
+    .event-stage-list {
+        width: 100%;
+        grid-template-columns: 1fr;
+    }
+
+    .event-tabs {
+        display: grid;
+    }
+
+    .event-metric-grid {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+}

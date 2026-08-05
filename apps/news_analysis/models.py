@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from django.core.exceptions import ValidationError
 from django.db import models
+from django.utils import timezone
 
 from .objective_fact_schema import EVENT_STATUS_CHOICES
 
@@ -322,3 +323,236 @@ class ObjectiveFactExtractionResult(models.Model):
     def is_evidence_chain_eligible(self) -> bool:
         """Return whether this complete extraction can enter a downstream evidence chain."""
         return self.facts_count > 0 and self.validation_errors == []
+
+
+class EventMergeRun(models.Model):
+    class Status(models.TextChoices):
+        PENDING = "pending", "等待中"
+        RUNNING = "running", "运行中"
+        SUCCEEDED = "succeeded", "成功"
+        SUCCEEDED_WITH_WARNINGS = "succeeded_with_warnings", "成功（有警告）"
+        FAILED = "failed", "失败"
+        CANCELLED = "cancelled", "已取消"
+
+    class Trigger(models.TextChoices):
+        MANUAL = "manual", "页面手动"
+        SCHEDULED = "scheduled", "定时工作流"
+        RETRY_FAILED = "retry_failed", "重试失败项"
+        FULL_REBUILD = "full_rebuild", "完整重建"
+
+    class Stage(models.TextChoices):
+        PENDING = "pending", "等待开始"
+        SCANNING = "scanning", "扫描输入"
+        CANDIDATES = "candidates", "生成候选"
+        HARD_RULES = "hard_rules", "执行硬规则"
+        AI_DECISIONS = "ai_decisions", "AI 判断"
+        GROUPING = "grouping", "事件归组"
+        VALIDATING = "validating", "一致性校验"
+        ACTIVATING = "activating", "切换有效快照"
+        COMPLETED = "completed", "完成"
+
+    status = models.CharField(max_length=30, choices=Status.choices, default=Status.PENDING)
+    trigger = models.CharField(max_length=20, choices=Trigger.choices)
+    original_run = models.ForeignKey(
+        "self", on_delete=models.PROTECT, null=True, blank=True, related_name="retry_runs"
+    )
+    retry_pair_decision = models.ForeignKey(
+        "EventPairDecision",
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="single_retry_runs",
+    )
+    request_key = models.CharField(max_length=64, unique=True, null=True, blank=True)
+    started_at = models.DateTimeField(null=True, blank=True)
+    finished_at = models.DateTimeField(null=True, blank=True)
+    current_stage = models.CharField(max_length=30, choices=Stage.choices, default=Stage.PENDING)
+    total_progress = models.PositiveIntegerField(default=0)
+    processed_count = models.PositiveIntegerField(default=0)
+    input_count = models.PositiveIntegerField(default=0)
+    eligible_count = models.PositiveIntegerField(default=0)
+    candidate_pair_count = models.PositiveIntegerField(default=0)
+    hard_rejected_count = models.PositiveIntegerField(default=0)
+    ai_decision_count = models.PositiveIntegerField(default=0)
+    ai_failure_count = models.PositiveIntegerField(default=0)
+    auto_grouped_event_count = models.PositiveIntegerField(default=0)
+    singleton_event_count = models.PositiveIntegerField(default=0)
+    uncertain_event_count = models.PositiveIntegerField(default=0)
+    final_event_count = models.PositiveIntegerField(default=0)
+    prompt_tokens = models.PositiveIntegerField(default=0)
+    completion_tokens = models.PositiveIntegerField(default=0)
+    total_tokens = models.PositiveIntegerField(default=0)
+    algorithm_version = models.CharField(max_length=80)
+    prompt_version = models.CharField(max_length=80)
+    model = models.CharField(max_length=160)
+    configuration_snapshot = models.JSONField(default=dict)
+    safe_error_summary = models.CharField(max_length=500, blank=True)
+    is_current_snapshot = models.BooleanField(default=False)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["-created_at", "-id"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["status"],
+                condition=models.Q(status="running"),
+                name="event_merge_one_running_global",
+            ),
+            models.UniqueConstraint(
+                fields=["is_current_snapshot"],
+                condition=models.Q(is_current_snapshot=True),
+                name="event_merge_one_current_snapshot",
+            ),
+        ]
+        indexes = [
+            models.Index(fields=["-started_at"], name="event_merge_started_idx"),
+            models.Index(
+                fields=["algorithm_version", "prompt_version"],
+                name="event_merge_versions_idx",
+            ),
+        ]
+
+    def __str__(self) -> str:
+        return f"event-merge:{self.pk}:{self.status}"
+
+    @property
+    def duration_seconds(self) -> int | None:
+        if self.started_at is None:
+            return None
+        end = self.finished_at or timezone.now()
+        return max(0, int((end - self.started_at).total_seconds()))
+
+
+class CanonicalEvent(models.Model):
+    class Status(models.TextChoices):
+        PROVISIONAL = "provisional", "暂定"
+        UNCERTAIN = "uncertain", "不确定"
+        CONFLICTED = "conflicted", "存在冲突"
+
+    class GroupingMethod(models.TextChoices):
+        SINGLETON = "singleton", "单成员"
+        AUTO_GROUPED = "auto_grouped", "自动归组"
+
+    run = models.ForeignKey(EventMergeRun, on_delete=models.PROTECT, related_name="events")
+    canonical_title = models.TextField()
+    status = models.CharField(max_length=20, choices=Status.choices, default=Status.PROVISIONAL)
+    grouping_method = models.CharField(max_length=20, choices=GroupingMethod.choices)
+    actors_snapshot = models.JSONField(default=list)
+    action_snapshot = models.TextField(blank=True)
+    object_snapshot = models.JSONField(default=list)
+    event_status_snapshot = models.CharField(max_length=40, blank=True)
+    objective_summary = models.TextField(blank=True)
+    event_time_text = models.CharField(max_length=80, blank=True)
+    earliest_publication_at = models.DateTimeField()
+    latest_publication_at = models.DateTimeField()
+    member_count = models.PositiveIntegerField(default=0)
+    source_count = models.PositiveIntegerField(default=0)
+    grouping_confidence = models.FloatField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["-latest_publication_at", "id"]
+        indexes = [
+            models.Index(fields=["run", "status"], name="canon_event_run_status_idx"),
+            models.Index(fields=["run", "grouping_method"], name="canon_event_run_group_idx"),
+        ]
+
+    def __str__(self) -> str:
+        return self.canonical_title
+
+
+class EventMembership(models.Model):
+    class Role(models.TextChoices):
+        PRIMARY = "primary", "主要成员"
+        CORROBORATING = "corroborating", "补充成员"
+
+    class JoinMethod(models.TextChoices):
+        SINGLETON = "singleton", "单成员创建"
+        AUTO_MATCH = "auto_match", "高置信自动匹配"
+
+    event = models.ForeignKey(CanonicalEvent, on_delete=models.CASCADE, related_name="memberships")
+    extraction_result = models.ForeignKey(
+        ObjectiveFactExtractionResult, on_delete=models.PROTECT, related_name="event_memberships"
+    )
+    news_record = models.ForeignKey(
+        "news_data.NewsRawRecord", on_delete=models.PROTECT, related_name="event_memberships"
+    )
+    member_role = models.CharField(max_length=20, choices=Role.choices)
+    join_method = models.CharField(max_length=20, choices=JoinMethod.choices)
+    match_confidence = models.FloatField(null=True, blank=True)
+    match_reason = models.TextField(blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["event_id", "news_record__published_at", "extraction_result_id"]
+        constraints = [
+            models.UniqueConstraint(fields=["event", "extraction_result"], name="event_member_unique_result"),
+            models.UniqueConstraint(fields=["event", "news_record"], name="event_member_unique_news"),
+        ]
+        indexes = [
+            models.Index(fields=["extraction_result"], name="event_member_result_idx"),
+            models.Index(fields=["news_record"], name="event_member_news_idx"),
+        ]
+
+
+class EventPairDecision(models.Model):
+    class Relation(models.TextChoices):
+        SAME_EVENT = "same_event", "同一事件"
+        NOT_SAME_EVENT = "not_same_event", "不同事件"
+        UNCERTAIN = "uncertain", "不确定"
+        HARD_REJECTED = "hard_rejected", "硬规则拒绝"
+        PROCESSING_FAILED = "processing_failed", "处理失败"
+
+    class ProcessingStatus(models.TextChoices):
+        PENDING = "pending", "待处理"
+        SUCCEEDED = "succeeded", "已完成"
+        FAILED = "failed", "失败"
+
+    run = models.ForeignKey(EventMergeRun, on_delete=models.CASCADE, related_name="pair_decisions")
+    left_result = models.ForeignKey(
+        ObjectiveFactExtractionResult, on_delete=models.PROTECT, related_name="event_pair_decisions_left"
+    )
+    right_result = models.ForeignKey(
+        ObjectiveFactExtractionResult, on_delete=models.PROTECT, related_name="event_pair_decisions_right"
+    )
+    relation = models.CharField(max_length=30, choices=Relation.choices)
+    confidence = models.FloatField(null=True, blank=True)
+    same_event_basis = models.JSONField(default=list)
+    differences = models.JSONField(default=list)
+    reason = models.TextField(blank=True)
+    canonical_title = models.TextField(blank=True)
+    has_fact_conflict = models.BooleanField(default=False)
+    algorithm_version = models.CharField(max_length=80)
+    prompt_version = models.CharField(max_length=80)
+    model = models.CharField(max_length=160)
+    structured_response = models.JSONField(null=True, blank=True)
+    processing_status = models.CharField(max_length=20, choices=ProcessingStatus.choices)
+    attempt_count = models.PositiveIntegerField(default=0)
+    prompt_tokens = models.PositiveIntegerField(default=0)
+    completion_tokens = models.PositiveIntegerField(default=0)
+    total_tokens = models.PositiveIntegerField(default=0)
+    last_error_code = models.CharField(max_length=80, blank=True)
+    safe_error_summary = models.CharField(max_length=500, blank=True)
+    is_retryable = models.BooleanField(default=False)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["left_result_id", "right_result_id"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["run", "left_result", "right_result"], name="event_pair_unique_per_run"
+            ),
+            models.CheckConstraint(
+                condition=models.Q(left_result_id__lt=models.F("right_result_id")),
+                name="event_pair_canonical_order",
+            ),
+        ]
+        indexes = [
+            models.Index(fields=["run", "relation"], name="event_pair_run_relation_idx"),
+            models.Index(fields=["run", "processing_status"], name="event_pair_run_process_idx"),
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.run_id}:{self.left_result_id}-{self.right_result_id}:{self.relation}"
