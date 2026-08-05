@@ -53,6 +53,7 @@ class ProductSurfaceTests(TestCase):
         "news_analysis:objective_fact_list",
         "news_analysis:event_overview",
         "scheduling:index",
+        "scheduling:sources",
         "scheduling:runs",
     ]
 
@@ -68,7 +69,7 @@ class ProductSurfaceTests(TestCase):
                 "行情数据观察",
                 "数据查看",
                 "Deribit 期权数据",
-                "链上资金观察",
+                "ETH 资金观察",
                 "资金概览",
                 "稳定币供应",
                 "ETF 流",
@@ -80,6 +81,7 @@ class ProductSurfaceTests(TestCase):
                 "新闻事件库",
                 "采集",
                 "自动调度",
+                "来源与网络",
                 "调度情况",
             ],
         )

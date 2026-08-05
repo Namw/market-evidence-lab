@@ -5,7 +5,7 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>{% block title %}Market Evidence Lab{% endblock %}</title>
-    <link rel="stylesheet" href="{% static 'core/css/styles.css' %}?v=24">
+    <link rel="stylesheet" href="{% static 'core/css/styles.css' %}?v=26">
     {% block extra_css %}{% endblock %}
     <script>
         try {
@@ -40,8 +40,8 @@
                     </div>
                 </details>
                 <details class="nav-group{% if request.resolver_match.namespace == 'market_funds' %} is-active{% endif %}" data-nav-group="market-funds"{% if request.resolver_match.namespace == 'market_funds' %} open{% endif %}>
-                    <summary class="nav-item"><span>链上资金观察</span><span class="nav-chevron" aria-hidden="true"></span></summary>
-                    <div class="nav-submenu" aria-label="链上资金观察">
+                    <summary class="nav-item"><span>ETH 资金观察</span><span class="nav-chevron" aria-hidden="true"></span></summary>
+                    <div class="nav-submenu" aria-label="ETH 资金观察">
                         <a class="nav-subitem{% if request.resolver_match.namespace == 'market_funds' and request.resolver_match.url_name == 'index' %} is-active{% endif %}" href="{% url 'market_funds:index' %}"{% if request.resolver_match.namespace == 'market_funds' and request.resolver_match.url_name == 'index' %} aria-current="page"{% endif %}>资金概览</a>
                         <a class="nav-subitem{% if request.resolver_match.namespace == 'market_funds' and request.resolver_match.url_name == 'stablecoins' %} is-active{% endif %}" href="{% url 'market_funds:stablecoins' %}"{% if request.resolver_match.namespace == 'market_funds' and request.resolver_match.url_name == 'stablecoins' %} aria-current="page"{% endif %}>稳定币供应</a>
                         <a class="nav-subitem{% if request.resolver_match.namespace == 'market_funds' and request.resolver_match.url_name == 'etf_flows' %} is-active{% endif %}" href="{% url 'market_funds:etf_flows' %}"{% if request.resolver_match.namespace == 'market_funds' and request.resolver_match.url_name == 'etf_flows' %} aria-current="page"{% endif %}>ETF 流</a>
@@ -61,6 +61,7 @@
                     <summary class="nav-item"><span>采集</span><span class="nav-chevron" aria-hidden="true"></span></summary>
                     <div class="nav-submenu" aria-label="采集">
                         <a class="nav-subitem{% if request.resolver_match.namespace == 'scheduling' and request.resolver_match.url_name == 'index' %} is-active{% endif %}" href="{% url 'scheduling:index' %}"{% if request.resolver_match.namespace == 'scheduling' and request.resolver_match.url_name == 'index' %} aria-current="page"{% endif %}>自动调度</a>
+                        <a class="nav-subitem{% if request.resolver_match.namespace == 'scheduling' and request.resolver_match.url_name == 'sources' %} is-active{% endif %}" href="{% url 'scheduling:sources' %}"{% if request.resolver_match.namespace == 'scheduling' and request.resolver_match.url_name == 'sources' %} aria-current="page"{% endif %}>来源与网络</a>
                         <a class="nav-subitem{% if request.resolver_match.namespace == 'scheduling' and request.resolver_match.url_name == 'runs' or request.resolver_match.namespace == 'scheduling' and request.resolver_match.url_name == 'run_detail' %} is-active{% endif %}" href="{% url 'scheduling:runs' %}"{% if request.resolver_match.namespace == 'scheduling' and request.resolver_match.url_name == 'runs' or request.resolver_match.namespace == 'scheduling' and request.resolver_match.url_name == 'run_detail' %} aria-current="page"{% endif %}>调度情况</a>
                     </div>
                 </details>

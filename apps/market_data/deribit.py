@@ -10,6 +10,8 @@ import httpx
 from django.conf import settings
 from django.utils import timezone
 
+from apps.collection.source_network import source_proxy_url
+
 
 SUPPORTED_CURRENCY = "ETH"
 SUPPORTED_DVOL_RESOLUTIONS = {"1h": "3600"}
@@ -104,7 +106,11 @@ class DeribitPublicClient:
         self.max_retries = max_retries
         self.sleep_fn = sleep_fn
         self._owns_http_client = http_client is None
-        self.http_client = http_client or httpx.Client(timeout=timeout_seconds)
+        self.http_client = http_client or httpx.Client(
+            timeout=timeout_seconds,
+            proxy=source_proxy_url("deribit") or None,
+            trust_env=False,
+        )
         self.request_count = 0
         self.received_count = 0
         self.skipped_count = 0

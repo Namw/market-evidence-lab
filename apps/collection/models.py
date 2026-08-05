@@ -1,6 +1,20 @@
 from django.db import models
 
 
+class SourceNetworkPolicy(models.Model):
+    source_key = models.CharField(max_length=80, unique=True)
+    use_proxy = models.BooleanField(default=False)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["source_key"]
+
+    def __str__(self) -> str:
+        route = "proxy" if self.use_proxy else "direct"
+        return f"{self.source_key}:{route}"
+
+
 class CollectionRun(models.Model):
     class DataType(models.TextChoices):
         KLINE = "kline", "K线"

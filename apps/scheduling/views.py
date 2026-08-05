@@ -1,24 +1,37 @@
 import secrets
 from datetime import date, datetime, time, timedelta
 from itertools import chain
+from urllib.parse import urlsplit
 from zoneinfo import ZoneInfo
 
 from django.contrib import messages
+from django.conf import settings
+from django.db import transaction
 from django.http import Http404
 from django.shortcuts import get_object_or_404, redirect, render
 from django.utils import timezone
 from django.views.decorators.http import require_http_methods
 
-from apps.collection.models import CollectionRun
+from apps.collection.models import CollectionRun, SourceNetworkPolicy
+from apps.collection.source_network import (
+    BUILTIN_SOURCES,
+    get_source_network_policy,
+    safe_proxy_label,
+)
 from apps.inspection.models import DerivativesInspectionRun, KlineInspectionRun
-from apps.news_data.models import NewsFeed
+from apps.news_data.models import NewsFeed, NewsSource
 
 from .deribit_workflow import (
     DeribitOptionsAlreadyRunning,
     execute_manual_deribit_options_workflow,
     get_builtin_deribit_options_schedule,
 )
-from .funds_workflow import calculate_next_fund_run, get_builtin_fund_schedules
+from .funds_workflow import (
+    FundWorkflowAlreadyRunning,
+    calculate_next_fund_run,
+    execute_manual_fund_workflow,
+    get_builtin_fund_schedules,
+)
 from .forms import (
     DeribitOptionsScheduleForm,
     KlineScheduleForm,
@@ -51,6 +64,7 @@ RUN_TOKEN_SESSION_KEY = "scheduling_manual_run_token"
 NEWS_RUN_TOKEN_SESSION_KEY = "scheduling_news_manual_run_token"
 COINDESK_RUN_TOKEN_SESSION_KEY = "scheduling_coindesk_manual_run_token"
 DERIBIT_RUN_TOKEN_SESSION_KEY = "scheduling_deribit_manual_run_token"
+FUND_RUN_TOKEN_SESSION_KEY = "scheduling_fund_manual_run_token"
 
 
 def _step_runs(workflow_run):
@@ -118,6 +132,68 @@ def _new_run_token(request, session_key: str) -> str:
     token = secrets.token_urlsafe(24)
     request.session[session_key] = token
     return token
+
+
+def _source_network_rows() -> list[dict]:
+    definitions = [
+        {
+            "key": item.key,
+            "name": item.name,
+            "category": item.category,
+            "endpoint": item.endpoint,
+            "note": item.note,
+        }
+        for item in BUILTIN_SOURCES
+    ]
+    definitions.extend(
+        {
+            "key": source.code,
+            "name": source.name,
+            "category": "新闻采集",
+            "endpoint": urlsplit(source.base_url).netloc or source.base_url,
+            "note": f"{source.feeds.filter(enabled=True).count()} 个启用栏目",
+        }
+        for source in NewsSource.objects.filter(enabled=True).order_by("name")
+    )
+    rows = []
+    for definition in definitions:
+        policy = get_source_network_policy(definition["key"])
+        rows.append({**definition, "policy": policy})
+    return rows
+
+
+@require_http_methods(["GET", "POST"])
+def source_network_settings(request):
+    rows = _source_network_rows()
+    if request.method == "POST":
+        valid_keys = {row["key"] for row in rows}
+        requested = {
+            key: request.POST.get(f"route_{key}", "direct")
+            for key in valid_keys
+        }
+        if any(value not in {"direct", "proxy"} for value in requested.values()):
+            messages.error(request, "来源网络策略包含无法识别的连接方式。")
+        elif "proxy" in requested.values() and not settings.SOURCE_PROXY_URL:
+            messages.error(request, "请先在环境变量中配置 SOURCE_PROXY_URL。")
+        else:
+            with transaction.atomic():
+                for source_key, route in requested.items():
+                    SourceNetworkPolicy.objects.update_or_create(
+                        source_key=source_key,
+                        defaults={"use_proxy": route == "proxy"},
+                    )
+            messages.success(request, "来源网络策略已保存，后续调度将自动沿用。")
+            return redirect("scheduling:sources")
+        rows = _source_network_rows()
+    return render(
+        request,
+        "scheduling/source_network.html",
+        {
+            "source_rows": rows,
+            "proxy_configured": bool(settings.SOURCE_PROXY_URL),
+            "proxy_label": safe_proxy_label(),
+        },
+    )
 
 
 def _workflow_summary(run: WorkflowRun) -> str:
@@ -330,7 +406,7 @@ def schedule_index(request):
                 None,
             )
             if fund_schedule is None:
-                messages.error(request, "无法识别的链上资金任务。")
+                messages.error(request, "无法识别的 ETH 资金观察任务。")
             elif task_type == "addresses" and not fund_schedule.enabled:
                 messages.warning(
                     request,
@@ -347,6 +423,44 @@ def schedule_index(request):
                     f"{fund_schedule.name}已{'启用' if fund_schedule.enabled else '停用'}。",
                 )
             return redirect("scheduling:index")
+        elif action == "run_fund":
+            submitted_token = request.POST.get("fund_run_token", "")
+            expected_token = request.session.pop(FUND_RUN_TOKEN_SESSION_KEY, "")
+            if not submitted_token or not secrets.compare_digest(
+                submitted_token,
+                expected_token,
+            ):
+                messages.warning(request, "该资金数据采集请求已处理或已失效，未重复执行。")
+                return redirect("scheduling:index")
+            task_type = request.POST.get("task_type", "")
+            fund_schedule = next(
+                (item for item in fund_schedules if item.task_type == task_type),
+                None,
+            )
+            if fund_schedule is None:
+                messages.error(request, "无法识别的 ETH 资金观察任务。")
+                return redirect("scheduling:index")
+            if task_type == "addresses":
+                messages.warning(
+                    request,
+                    "Etherscan 当前条款阻止自动采集，地址快照任务不能执行。",
+                )
+                return redirect("scheduling:index")
+            try:
+                run = execute_manual_fund_workflow(task_type)
+            except FundWorkflowAlreadyRunning:
+                messages.warning(request, f"{fund_schedule.name}正在运行，未重复启动。")
+                return redirect("scheduling:index")
+            except Exception:
+                messages.error(request, "ETH 资金观察任务发生内部错误，未输出外部响应详情。")
+                return redirect("scheduling:index")
+            if run.status == FundDataWorkflowRun.Status.SUCCESS:
+                messages.success(request, f"{fund_schedule.name}采集成功。")
+            elif run.status == FundDataWorkflowRun.Status.PARTIAL:
+                messages.warning(request, f"{fund_schedule.name}部分完成，请查看运行详情。")
+            else:
+                messages.error(request, f"{fund_schedule.name}采集失败，请查看运行详情。")
+            return redirect("market_funds:run_detail", run_id=run.pk)
         elif action == "run":
             submitted_token = request.POST.get("run_token", "")
             expected_token = request.session.pop(RUN_TOKEN_SESSION_KEY, "")
@@ -384,7 +498,6 @@ def schedule_index(request):
                     trigger=NewsWorkflowRun.Trigger.MANUAL,
                     schedule=None,
                     feed_group=NewsWorkflowSchedule.FeedGroup.CORE,
-                    use_source_proxy=request.POST.get("use_source_proxy") == "1",
                 )
             except NewsWorkflowAlreadyRunning:
                 messages.warning(request, "已有新闻工作流正在运行，未重复启动。")
@@ -512,6 +625,7 @@ def schedule_index(request):
             request,
             DERIBIT_RUN_TOKEN_SESSION_KEY,
         ),
+        "fund_run_token": _new_run_token(request, FUND_RUN_TOKEN_SESSION_KEY),
         "open_dialog": open_dialog,
         "news_feeds": NewsFeed.objects.filter(
             enabled=True,

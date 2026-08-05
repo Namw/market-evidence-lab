@@ -10,6 +10,8 @@ import httpx
 from django.conf import settings
 from django.utils import timezone
 
+from apps.collection.source_network import source_proxy_url
+
 
 SUPPORTED_SYMBOL = "ETHUSDT"
 SUPPORTED_INTERVALS = {"1d", "1h", "5m"}
@@ -75,7 +77,11 @@ class BinanceKlineClient:
         self.sleep_fn = sleep_fn
         self.now_provider = now_provider
         self._owns_http_client = http_client is None
-        self.http_client = http_client or httpx.Client(timeout=timeout_seconds)
+        self.http_client = http_client or httpx.Client(
+            timeout=timeout_seconds,
+            proxy=source_proxy_url("binance_futures") or None,
+            trust_env=False,
+        )
         self.request_count = 0
         self.received_count = 0
         self.skipped_count = 0

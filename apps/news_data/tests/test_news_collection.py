@@ -8,7 +8,7 @@ from unittest.mock import patch
 import httpx
 from django.test import TestCase, override_settings
 
-from apps.collection.models import CollectionRun
+from apps.collection.models import CollectionRun, SourceNetworkPolicy
 from apps.collection.pipeline import collect_and_inspect
 from apps.inspection.models import NewsInspectionRun
 from apps.news_data.collectors import (
@@ -395,23 +395,26 @@ class NewsCollectionTests(TestCase):
         self.assertTrue(self.bls_cpi_feed.bootstrap_visible_items)
         self.assertEqual(self.bls_cpi_feed.parser_version, "generic-rss-v2")
 
-    @override_settings(NEWS_SOURCE_PROXY_URL="http://127.0.0.1:7897")
-    def test_restricted_source_client_uses_proxy_only_when_selected(self):
+    @override_settings(SOURCE_PROXY_URL="http://127.0.0.1:7897")
+    def test_source_client_uses_saved_network_policy(self):
+        SourceNetworkPolicy.objects.update_or_create(
+            source_key=BLS_CODE,
+            defaults={"use_proxy": True},
+        )
+        SourceNetworkPolicy.objects.update_or_create(
+            source_key=BINANCE_ANNOUNCEMENTS_CODE,
+            defaults={"use_proxy": True},
+        )
         with patch("apps.news_data.collectors.httpx.Client") as http_client:
-            proxied = _default_request_client(
-                self.bls_cpi_feed,
-                use_source_proxy=True,
-            )
+            proxied = _default_request_client(self.bls_cpi_feed)
             proxy_call = http_client.call_args
-            direct = _default_request_client(
-                self.bls_cpi_feed,
-                use_source_proxy=False,
+            SourceNetworkPolicy.objects.update_or_create(
+                source_key=BLS_CODE,
+                defaults={"use_proxy": False},
             )
+            direct = _default_request_client(self.bls_cpi_feed)
             direct_call = http_client.call_args
-            binance = _default_request_client(
-                self.binance_feed,
-                use_source_proxy=True,
-            )
+            binance = _default_request_client(self.binance_feed)
             binance_call = http_client.call_args
 
         self.assertEqual(proxy_call.kwargs["proxy"], "http://127.0.0.1:7897")
@@ -424,10 +427,14 @@ class NewsCollectionTests(TestCase):
         direct.close()
         binance.close()
 
-    @override_settings(NEWS_SOURCE_PROXY_URL="")
-    def test_selected_source_proxy_requires_configured_url(self):
-        with self.assertRaisesMessage(ValueError, "NEWS_SOURCE_PROXY_URL"):
-            _default_request_client(self.bls_cpi_feed, use_source_proxy=True)
+    @override_settings(SOURCE_PROXY_URL="")
+    def test_saved_source_proxy_requires_configured_url(self):
+        SourceNetworkPolicy.objects.update_or_create(
+            source_key=BLS_CODE,
+            defaults={"use_proxy": True},
+        )
+        with self.assertRaisesMessage(ValueError, "SOURCE_PROXY_URL"):
+            _default_request_client(self.bls_cpi_feed)
 
     def test_fed_monetary_policy_rss_uses_generic_collection_pipeline(self):
         result = collect_and_inspect(

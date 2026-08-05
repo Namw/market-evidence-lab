@@ -8,7 +8,7 @@ from apps.scheduling.models import FundDataSchedule
 
 
 class Command(BaseCommand):
-    help = "Collect and inspect one free on-chain funds dataset."
+    help = "Collect and inspect one free ETH funds observation dataset."
 
     def add_arguments(self, parser):
         parser.add_argument(

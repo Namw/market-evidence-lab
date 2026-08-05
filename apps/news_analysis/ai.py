@@ -6,6 +6,7 @@ from typing import Iterable, Mapping
 
 import httpx
 
+from apps.collection.source_network import source_proxy_url
 from apps.news_data.models import NewsRawRecord
 
 from .models import NewsAnalysisResult
@@ -240,7 +241,11 @@ class DeepSeekNewsClient:
         self.api_key = api_key
         self.model = model
         self.max_retries = max(0, max_retries)
-        self.http_client = http_client or httpx.Client(timeout=timeout_seconds)
+        self.http_client = http_client or httpx.Client(
+            timeout=timeout_seconds,
+            proxy=source_proxy_url("deepseek") or None,
+            trust_env=False,
+        )
 
     def analyze_batch(
         self,

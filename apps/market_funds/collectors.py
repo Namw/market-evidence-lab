@@ -150,7 +150,7 @@ def collect_stablecoin_supply(
     *, trigger=CollectionRun.Trigger.MANUAL, client=None
 ) -> CollectionRun:
     run = _new_run(CollectionRun.DataType.STABLECOIN_SUPPLY, trigger=trigger)
-    collector = client or ResilientHttpClient()
+    collector = client or ResilientHttpClient(source_key="defillama")
     owns_client = client is None
     try:
         response = collector.get(DEFILLAMA_URL)
@@ -228,7 +228,7 @@ def _save_etf_records(records, retrieved_at):
 
 def collect_etf_flows(*, trigger=CollectionRun.Trigger.MANUAL, client=None) -> CollectionRun:
     run = _new_run(CollectionRun.DataType.ETH_ETF_FLOW, trigger=trigger)
-    collector = client or ResilientHttpClient()
+    collector = client or ResilientHttpClient(source_key="farside")
     owns_client = client is None
     try:
         response = collector.get(FARSIDE_URL)

@@ -1,4 +1,5 @@
 from datetime import UTC, date, datetime, timedelta
+from unittest.mock import patch
 
 from django.test import TestCase
 from django.urls import reverse
@@ -29,16 +30,20 @@ class ViewAndSchedulingTests(TestCase):
     def test_navigation_order_and_active_group(self):
         html = self.client.get(reverse("market_funds:index")).content.decode()
         navigation = html.split('<nav class="navigation">', 1)[1].split("</nav>", 1)[0]
-        self.assertLess(navigation.index("行情数据观察"), navigation.index("链上资金观察"))
-        self.assertLess(navigation.index("链上资金观察"), navigation.index("新闻观察"))
+        self.assertLess(navigation.index("行情数据观察"), navigation.index("ETH 资金观察"))
+        self.assertLess(navigation.index("ETH 资金观察"), navigation.index("新闻观察"))
         self.assertIn('data-nav-group="market-funds" open', navigation)
 
-    def test_schedule_page_has_independent_fund_block_and_three_tasks(self):
+    def test_schedule_page_unifies_fund_tasks_in_main_task_list(self):
         response = self.client.get(reverse("scheduling:index"))
-        self.assertContains(response, "链上资金数据")
+        self.assertNotContains(response, "独立数据域")
+        self.assertContains(response, "任务列表 <span>7</span>", html=True)
         self.assertContains(response, "Ethereum 稳定币供应")
         self.assertContains(response, "ETH ETF 每日资金流")
         self.assertContains(response, "Ethereum 公开地址余额快照")
+        self.assertContains(response, "fund-stablecoin-run-dialog")
+        self.assertContains(response, "fund-etf-run-dialog")
+        self.assertNotContains(response, 'id="fund-addresses-run-dialog"')
 
     def test_schedule_page_can_enable_allowed_source_but_not_etherscan(self):
         get_builtin_fund_schedules()
@@ -60,6 +65,34 @@ class ViewAndSchedulingTests(TestCase):
                 task_type=FundDataSchedule.TaskType.ADDRESSES
             ).enabled
         )
+
+    @patch("apps.scheduling.views.execute_manual_fund_workflow")
+    def test_schedule_page_can_confirm_and_run_allowed_fund_task(self, execute):
+        page = self.client.get(reverse("scheduling:index"))
+        run = FundDataWorkflowRun.objects.create(
+            task_type=FundDataSchedule.TaskType.STABLECOIN,
+            trigger=FundDataWorkflowRun.Trigger.MANUAL,
+            status=FundDataWorkflowRun.Status.SUCCESS,
+            started_at=timezone.now(),
+            finished_at=timezone.now(),
+        )
+        execute.return_value = run
+
+        response = self.client.post(
+            reverse("scheduling:index"),
+            {
+                "action": "run_fund",
+                "task_type": FundDataSchedule.TaskType.STABLECOIN,
+                "fund_run_token": page.context["fund_run_token"],
+            },
+        )
+
+        self.assertRedirects(
+            response,
+            reverse("market_funds:run_detail", kwargs={"run_id": run.pk}),
+            fetch_redirect_response=False,
+        )
+        execute.assert_called_once_with(FundDataSchedule.TaskType.STABLECOIN)
 
     def test_claim_is_atomic_and_advances_due_schedule(self):
         schedules = get_builtin_fund_schedules()

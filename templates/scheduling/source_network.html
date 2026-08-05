@@ -1,0 +1,47 @@
+{% extends "base.html" %}
+{% load static %}
+
+{% block title %}来源与网络 · Market Evidence Lab{% endblock %}
+
+{% block content %}
+<header class="page-header">
+    <div>
+        <p class="eyebrow">采集</p>
+        <h1>来源与网络</h1>
+        <p class="page-intro">按数据源保存连接方式。自动调度和手动执行共用这里的策略；未来新增来源默认直连。</p>
+    </div>
+</header>
+
+{% if messages %}
+<div class="message-stack" aria-live="polite">
+    {% for message in messages %}<div class="message message-{{ message.tags|default:'info' }}">{{ message }}</div>{% endfor %}
+</div>
+{% endif %}
+
+<section class="source-network-panel">
+    <header class="source-network-heading">
+        <div><p class="eyebrow">代理配置</p><h2>{% if proxy_configured %}本地代理已配置{% else %}本地代理未配置{% endif %}</h2><p>代理地址由 <code>SOURCE_PROXY_URL</code> 环境变量管理，页面不保存凭据。</p></div>
+        <code class="source-proxy-address">{{ proxy_label }}</code>
+    </header>
+
+    <form method="post">
+        {% csrf_token %}<input type="hidden" name="action" value="save_source_network">
+        <div class="source-network-columns" aria-hidden="true"><span>数据源</span><span>范围</span><span>连接方式</span></div>
+        <div class="source-network-list">
+            {% for row in source_rows %}
+            <div class="source-network-row">
+                <div class="source-network-name"><strong>{{ row.name }}</strong><small>{{ row.endpoint }}</small>{% if row.note %}<small>{{ row.note }}</small>{% endif %}</div>
+                <span class="source-network-category">{{ row.category }}</span>
+                <select name="route_{{ row.key }}" aria-label="{{ row.name }}连接方式">
+                    <option value="direct"{% if not row.policy.use_proxy %} selected{% endif %}>直连</option>
+                    <option value="proxy"{% if row.policy.use_proxy %} selected{% endif %}>本地代理</option>
+                </select>
+            </div>
+            {% endfor %}
+        </div>
+        <footer class="source-network-actions"><p>未出现在默认建议中的来源保持直连；修改后从下一次采集开始生效。</p><button class="primary-button" type="submit" data-waiting-text="保存中…">保存网络策略</button></footer>
+    </form>
+</section>
+{% endblock %}
+
+{% block extra_js %}<script src="{% static 'scheduling/js/form.js' %}?v=2" defer></script>{% endblock %}

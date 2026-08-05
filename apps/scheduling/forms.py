@@ -59,13 +59,6 @@ class NewsWorkflowScheduleForm(forms.ModelForm):
         interval_hours = self.instance.interval_hours if self.instance.pk else 24
         group_label = self.instance.get_feed_group_display()
         self.fields["enabled"].label = f"启用{group_label}工作流"
-        if self.instance.feed_group == NewsWorkflowSchedule.FeedGroup.CORE:
-            self.fields["use_source_proxy"].label = "Binance / BLS 采集使用本地代理"
-            self.fields["use_source_proxy"].help_text = (
-                "仅影响 Binance 公告与 BLS RSS；代理地址由 NEWS_SOURCE_PROXY_URL 配置。"
-            )
-        else:
-            self.fields.pop("use_source_proxy")
         if interval_hours == 24:
             self.fields["run_time"].label = "每日执行时间"
             self.fields["run_time"].help_text = (
@@ -79,9 +72,8 @@ class NewsWorkflowScheduleForm(forms.ModelForm):
 
     class Meta:
         model = NewsWorkflowSchedule
-        fields = ["enabled", "use_source_proxy", "run_time"]
+        fields = ["enabled", "run_time"]
         widgets = {
             "enabled": forms.CheckboxInput(),
-            "use_source_proxy": forms.CheckboxInput(),
             "run_time": forms.TimeInput(attrs={"type": "time", "step": "60"}),
         }

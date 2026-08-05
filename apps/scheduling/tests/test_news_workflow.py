@@ -8,7 +8,7 @@ from django.db import close_old_connections
 from django.test import TestCase, TransactionTestCase, override_settings
 from django.utils import timezone
 
-from apps.collection.models import CollectionRun
+from apps.collection.models import CollectionRun, SourceNetworkPolicy
 from apps.inspection.models import NewsInspectionRun
 from apps.news_analysis.models import NewsAnalysisResult, NewsAnalysisRun
 from apps.news_analysis.tests.helpers import make_record
@@ -165,7 +165,7 @@ class NewsWorkflowExecutionTests(TestCase):
             [ETHEREUM_FOUNDATION_CODE, BINANCE_ANNOUNCEMENTS_CODE],
         )
         self.assertTrue(
-            all(call.kwargs["use_source_proxy"] is False for call in collect.call_args_list)
+            all("use_source_proxy" not in call.kwargs for call in collect.call_args_list)
         )
         self.assertEqual(
             order,
@@ -449,7 +449,6 @@ class NewsScheduleTests(TestCase):
     def test_due_schedule_claims_scheduled_run_and_advances_next_time(self):
         schedule = get_builtin_news_schedule()
         schedule.enabled = True
-        schedule.use_source_proxy = True
         schedule.next_run_at = FIXED_NOW - timedelta(minutes=1)
         schedule.save()
 
@@ -460,7 +459,6 @@ class NewsScheduleTests(TestCase):
         self.assertEqual(run.trigger, NewsWorkflowRun.Trigger.SCHEDULED)
         self.assertEqual(run.schedule, schedule)
         self.assertEqual(run.feed_group, NewsWorkflowSchedule.FeedGroup.CORE)
-        self.assertTrue(run.use_source_proxy)
         schedule.refresh_from_db()
         self.assertEqual(schedule.last_run_at, FIXED_NOW)
         self.assertGreater(schedule.next_run_at, FIXED_NOW)
@@ -577,7 +575,6 @@ class NewsScheduleTests(TestCase):
     ):
         schedule = get_builtin_news_schedule()
         schedule.enabled = True
-        schedule.use_source_proxy = True
         schedule.next_run_at = FIXED_NOW - timedelta(minutes=1)
         schedule.save()
         ethereum = child_pipeline(ETHEREUM_FOUNDATION_CODE)
@@ -599,7 +596,7 @@ class NewsScheduleTests(TestCase):
             )
         )
         self.assertTrue(
-            all(call.kwargs["use_source_proxy"] for call in collect.call_args_list)
+            all("use_source_proxy" not in call.kwargs for call in collect.call_args_list)
         )
         self.assertEqual(
             analyze.call_args.kwargs["trigger"],
@@ -615,7 +612,7 @@ class NewsWorkflowPageTests(TestCase):
 
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, "任务列表")
-        self.assertContains(response, "任务列表 <span>4</span>", html=True)
+        self.assertContains(response, "任务列表 <span>7</span>", html=True)
         self.assertContains(response, "官方与监管新闻工作流")
         self.assertContains(response, "CoinDesk 新闻工作流")
         self.assertContains(response, "Ethereum Foundation、Binance")
@@ -636,7 +633,6 @@ class NewsWorkflowPageTests(TestCase):
             {
                 "action": "save_news",
                 "enabled": "on",
-                "use_source_proxy": "on",
                 "run_time": "09:40",
             },
         )
@@ -644,7 +640,6 @@ class NewsWorkflowPageTests(TestCase):
         self.assertRedirects(response, self.url)
         news_schedule.refresh_from_db()
         self.assertTrue(news_schedule.enabled)
-        self.assertTrue(news_schedule.use_source_proxy)
         self.assertEqual((news_schedule.run_time.hour, news_schedule.run_time.minute), (9, 40))
         self.assertEqual(news_schedule.interval_hours, 24)
         self.assertEqual(self.client.get(self.url).context["schedule"].enabled, kline_enabled)
@@ -676,7 +671,6 @@ class NewsWorkflowPageTests(TestCase):
         payload = {
             "action": "run_news",
             "news_run_token": token,
-            "use_source_proxy": "1",
         }
 
         response = self.client.post(self.url, payload)
@@ -691,9 +685,62 @@ class NewsWorkflowPageTests(TestCase):
             trigger=NewsWorkflowRun.Trigger.MANUAL,
             schedule=None,
             feed_group=NewsWorkflowSchedule.FeedGroup.CORE,
-            use_source_proxy=True,
         )
         self.assertContains(duplicate, "未重复执行")
+
+    @override_settings(SOURCE_PROXY_URL="http://127.0.0.1:7897")
+    def test_source_network_page_uses_recommended_defaults_and_saves_routes(self):
+        response = self.client.get("/system/schedules/sources/")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "来源与网络")
+        self.assertTrue(
+            SourceNetworkPolicy.objects.get(source_key="coindesk").use_proxy
+        )
+        self.assertTrue(SourceNetworkPolicy.objects.get(source_key="sec").use_proxy)
+        self.assertTrue(
+            SourceNetworkPolicy.objects.get(source_key="deribit").use_proxy
+        )
+        self.assertFalse(
+            SourceNetworkPolicy.objects.get(source_key="defillama").use_proxy
+        )
+
+        payload = {"route_coindesk": "direct"}
+        payload.update(
+            {
+                f"route_{row['key']}": (
+                    "proxy" if row["policy"].use_proxy else "direct"
+                )
+                for row in response.context["source_rows"]
+            }
+        )
+        payload["route_coindesk"] = "direct"
+        saved = self.client.post("/system/schedules/sources/", payload)
+
+        self.assertRedirects(saved, "/system/schedules/sources/")
+        self.assertFalse(
+            SourceNetworkPolicy.objects.get(source_key="coindesk").use_proxy
+        )
+
+    def test_future_news_source_defaults_to_direct(self):
+        NewsSource.objects.create(
+            code="future_source",
+            name="Future Source",
+            enabled=True,
+            activated_at=FIXED_NOW,
+            source_type=NewsSource.SourceType.OFFICIAL,
+            collection_method="rss",
+            observation_scope="test",
+            base_url="https://future.example",
+            feed_url="https://future.example/rss",
+            parser_version="test-v1",
+        )
+
+        self.client.get("/system/schedules/sources/")
+
+        self.assertFalse(
+            SourceNetworkPolicy.objects.get(source_key="future_source").use_proxy
+        )
 
     @patch("apps.scheduling.views.execute_news_workflow")
     def test_coindesk_manual_entry_only_requests_coindesk_group(self, execute):

@@ -5,12 +5,14 @@ import time
 import httpx
 from django.conf import settings
 
+from apps.collection.source_network import source_proxy_url
+
 
 RETRYABLE_STATUS_CODES = {429, 500, 502, 503, 504}
 
 
 class ResilientHttpClient:
-    def __init__(self, *, transport=None, sleep=time.sleep):
+    def __init__(self, *, source_key="market_funds", transport=None, sleep=time.sleep):
         timeout = httpx.Timeout(
             settings.MARKET_FUNDS_READ_TIMEOUT_SECONDS,
             connect=settings.MARKET_FUNDS_CONNECT_TIMEOUT_SECONDS,
@@ -19,6 +21,8 @@ class ResilientHttpClient:
             headers={"User-Agent": settings.MARKET_FUNDS_USER_AGENT},
             timeout=timeout,
             follow_redirects=True,
+            proxy=source_proxy_url(source_key) or None,
+            trust_env=False,
             transport=transport,
         )
         self._sleep = sleep

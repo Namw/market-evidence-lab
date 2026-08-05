@@ -12,6 +12,8 @@ from urllib.parse import urlsplit
 
 import httpx
 from django.conf import settings
+
+from apps.collection.source_network import source_proxy_url
 from django.db import connection, transaction
 
 from apps.news_data.models import NewsRawRecord
@@ -512,7 +514,9 @@ class DeepSeekObjectiveFactClient:
         self.api_key = settings.NEWS_AI_API_KEY
         self._owns_client = http_client is None
         self.http_client = http_client or httpx.Client(
-            timeout=settings.NEWS_AI_TIMEOUT_SECONDS
+            timeout=settings.NEWS_AI_TIMEOUT_SECONDS,
+            proxy=source_proxy_url("deepseek") or None,
+            trust_env=False,
         )
 
     def close(self) -> None:

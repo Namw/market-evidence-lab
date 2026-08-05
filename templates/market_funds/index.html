@@ -1,19 +1,19 @@
 {% extends "base.html" %}
 {% load static funds_format %}
 
-{% block title %}链上资金观察 · Market Evidence Lab{% endblock %}
+{% block title %}ETH 资金观察 · Market Evidence Lab{% endblock %}
 {% block extra_css %}<link rel="stylesheet" href="{% static 'market_funds/css/funds.css' %}?v=1">{% endblock %}
 {% block body_class %}market-funds-page{% endblock %}
 {% block content %}
 <header class="page-header funds-header">
     <div>
         <p class="eyebrow">公开数据 · 可复算指标</p>
-        <h1>链上资金观察</h1>
+        <h1>ETH 资金观察</h1>
         <p>Ethereum 稳定币供应、ETH ETF 日流量与公开标签地址快照；所有数字均来自数据库，缺失时不会用零值代替。</p>
     </div>
 </header>
 
-<nav class="fund-tabs" aria-label="链上资金观察页签">
+<nav class="fund-tabs" aria-label="ETH 资金观察页签">
     <a href="{% url 'market_funds:index' %}" class="{% if active_tab == 'overview' %}is-active{% endif %}">资金概览</a>
     <a href="{% url 'market_funds:stablecoins' %}" class="{% if active_tab == 'stablecoins' %}is-active{% endif %}">稳定币供应</a>
     <a href="{% url 'market_funds:etf_flows' %}" class="{% if active_tab == 'etf-flows' %}is-active{% endif %}">ETF 流</a>
