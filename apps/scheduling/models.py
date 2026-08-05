@@ -464,3 +464,93 @@ class NewsWorkflowFeedRun(models.Model):
 
     def __str__(self) -> str:
         return f"{self.workflow_run_id}:{self.feed.code}:{self.collection_status}"
+
+
+class FundDataSchedule(models.Model):
+    class TaskType(models.TextChoices):
+        STABLECOIN = "stablecoin", "稳定币供应"
+        ETF = "etf", "ETF 每日资金流"
+        ADDRESSES = "addresses", "公开地址余额快照"
+
+    name = models.CharField(max_length=120, unique=True)
+    task_type = models.CharField(max_length=20, choices=TaskType.choices, unique=True)
+    enabled = models.BooleanField(default=False)
+    run_time = models.TimeField()
+    supplement_run_time = models.TimeField(null=True, blank=True)
+    timezone = models.CharField(max_length=64, default="UTC", editable=False)
+    lookback_days = models.PositiveSmallIntegerField(default=7)
+    next_run_at = models.DateTimeField()
+    last_run_at = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["run_time", "task_type"]
+
+
+class FundDataWorkflowRun(models.Model):
+    class Trigger(models.TextChoices):
+        SCHEDULED = "scheduled", "定时"
+        MANUAL = "manual", "手工"
+
+    class Status(models.TextChoices):
+        RUNNING = "running", "运行中"
+        SUCCESS = "success", "成功"
+        PARTIAL = "partial", "部分完成"
+        FAILED = "failed", "失败"
+
+    class QualityStatus(models.TextChoices):
+        PENDING = "pending", "待判定"
+        PASSED = "passed", "通过"
+        ISSUES = "issues", "发现问题"
+        BLOCKED = "blocked", "来源策略阻止"
+
+    schedule = models.ForeignKey(
+        FundDataSchedule,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="workflow_runs",
+    )
+    task_type = models.CharField(max_length=20, choices=FundDataSchedule.TaskType.choices)
+    trigger = models.CharField(max_length=20, choices=Trigger.choices)
+    status = models.CharField(max_length=20, choices=Status.choices, default=Status.RUNNING)
+    quality_status = models.CharField(
+        max_length=20, choices=QualityStatus.choices, default=QualityStatus.PENDING
+    )
+    collection_run = models.ForeignKey(
+        "collection.CollectionRun",
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="fund_workflow_runs",
+    )
+    inspection_run = models.ForeignKey(
+        "market_funds.FundDataInspectionRun",
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="workflow_runs",
+    )
+    received_count = models.PositiveIntegerField(default=0)
+    inserted_count = models.PositiveIntegerField(default=0)
+    updated_count = models.PositiveIntegerField(default=0)
+    skipped_count = models.PositiveIntegerField(default=0)
+    failed_count = models.PositiveIntegerField(default=0)
+    safe_error_summary = models.CharField(max_length=500, blank=True)
+    started_at = models.DateTimeField()
+    finished_at = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["-started_at"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["task_type"],
+                condition=models.Q(status="running"),
+                name="fund_workflow_one_running_per_task",
+            )
+        ]
+        indexes = [
+            models.Index(fields=["task_type", "-started_at"], name="fund_workflow_task_idx")
+        ]

@@ -1,0 +1,5 @@
+[
+  {"date": 1785715200, "totalCirculating": {"peggedUSD": 100}, "totalCirculatingUSD": {"peggedUSD": 101}, "totalMintedUSD": {"peggedUSD": 102}},
+  {"date": 1785801600, "totalCirculating": {"peggedUSD": 110}, "totalCirculatingUSD": {"peggedUSD": 111}, "totalMintedUSD": {"peggedUSD": 112}},
+  {"date": 1785888000, "totalCirculating": {"peggedUSD": 120}, "totalCirculatingUSD": {"peggedUSD": 121}, "totalMintedUSD": {"peggedUSD": 122}}
+]

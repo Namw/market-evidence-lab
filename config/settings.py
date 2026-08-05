@@ -37,6 +37,7 @@ INSTALLED_APPS = [
     "django.contrib.staticfiles",
     "apps.core.apps.CoreConfig",
     "apps.market_data.apps.MarketDataConfig",
+    "apps.market_funds.apps.MarketFundsConfig",
     "apps.collection.apps.CollectionConfig",
     "apps.inspection.apps.InspectionConfig",
     "apps.scheduling.apps.SchedulingConfig",
@@ -121,6 +122,19 @@ DERIBIT_BASE_URL = os.getenv(
 ).rstrip("/")
 
 NEWS_AI_BASE_URL = os.getenv("NEWS_AI_BASE_URL", "https://api.deepseek.com").rstrip("/")
+
+MARKET_FUNDS_USER_AGENT = os.getenv(
+    "MARKET_FUNDS_USER_AGENT",
+    "MarketEvidenceLab/1.0 contact=local-research",
+)
+MARKET_FUNDS_CONNECT_TIMEOUT_SECONDS = float(
+    os.getenv("MARKET_FUNDS_CONNECT_TIMEOUT_SECONDS", "10")
+)
+MARKET_FUNDS_READ_TIMEOUT_SECONDS = float(
+    os.getenv("MARKET_FUNDS_READ_TIMEOUT_SECONDS", "20")
+)
+MARKET_FUNDS_MAX_RETRIES = int(os.getenv("MARKET_FUNDS_MAX_RETRIES", "2"))
+ETHEREUM_RPC_URL = os.getenv("ETHEREUM_RPC_URL", "").strip()
 NEWS_AI_API_KEY = os.getenv("NEWS_AI_API_KEY") or os.getenv("DEEPSEEK_API_KEY", "")
 NEWS_AI_MODEL = os.getenv("NEWS_AI_MODEL", "deepseek-v4-flash")
 NEWS_AI_TIMEOUT_SECONDS = float(os.getenv("NEWS_AI_TIMEOUT_SECONDS", "60"))

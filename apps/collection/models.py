@@ -10,6 +10,9 @@ class CollectionRun(models.Model):
         DERIBIT_OPTION_INSTRUMENT = "deribit_option_instrument", "Deribit期权合约"
         DERIBIT_OPTION_SNAPSHOT = "deribit_option_snapshot", "Deribit期权快照"
         NEWS = "news", "新闻"
+        STABLECOIN_SUPPLY = "stablecoin_supply", "稳定币供应"
+        ETH_ETF_FLOW = "eth_etf_flow", "ETH ETF 资金流"
+        ETH_ADDRESS_BALANCE = "eth_address_balance", "Ethereum 地址余额"
 
     class Exchange(models.TextChoices):
         BINANCE = "binance", "Binance"

@@ -44,6 +44,10 @@ class ProductSurfaceTests(TestCase):
     expected_links = [
         "market_data:index",
         "market_data:deribit_options",
+        "market_funds:index",
+        "market_funds:stablecoins",
+        "market_funds:etf_flows",
+        "market_funds:addresses",
         "news_data:index",
         "news_analysis:index",
         "news_analysis:objective_fact_list",
@@ -57,13 +61,18 @@ class ProductSurfaceTests(TestCase):
         parser = NavigationParser()
         parser.feed(response.content.decode())
 
-        self.assertEqual(parser.groups, ["market-data", "news", "collection"])
+        self.assertEqual(parser.groups, ["market-data", "market-funds", "news", "collection"])
         self.assertEqual(
             parser.labels,
             [
                 "行情数据观察",
                 "数据查看",
                 "Deribit 期权数据",
+                "链上资金观察",
+                "资金概览",
+                "稳定币供应",
+                "ETF 流",
+                "地址变化",
                 "新闻观察",
                 "数据采集",
                 "每日分析结果",
@@ -116,6 +125,10 @@ class ProductSurfaceTests(TestCase):
             "news_analysis:objective_fact_list": "news",
             "news_analysis:event_overview": "news",
             "market_data:index": "market-data",
+            "market_funds:index": "market-funds",
+            "market_funds:stablecoins": "market-funds",
+            "market_funds:etf_flows": "market-funds",
+            "market_funds:addresses": "market-funds",
         }
         for name, expected_group in expected_groups.items():
             with self.subTest(name=name):

@@ -20,6 +20,11 @@ from apps.scheduling.news_workflow import (
     execute_claimed_news_workflow,
     get_builtin_news_schedules,
 )
+from apps.scheduling.funds_workflow import (
+    claim_due_fund_schedules,
+    execute_claimed_fund_workflow,
+    get_builtin_fund_schedules,
+)
 
 
 class Command(BaseCommand):
@@ -47,6 +52,7 @@ class Command(BaseCommand):
         get_builtin_schedule()
         get_builtin_deribit_options_schedule()
         get_builtin_news_schedules()
+        get_builtin_fund_schedules()
         executor_id = str(uuid4())
         stop_event = threading.Event()
 
@@ -99,6 +105,16 @@ class Command(BaseCommand):
                     )
                     claimed_deribit_ids = []
 
+                try:
+                    claimed_fund_ids = claim_due_fund_schedules()
+                except Exception as exc:
+                    self.stderr.write(
+                        self.style.ERROR(
+                            f"Fund-data schedule claim failed ({exc.__class__.__name__}); retrying."
+                        )
+                    )
+                    claimed_fund_ids = []
+
                 for workflow_run_id in claimed_ids:
                     try:
                         execute_claimed_workflow(
@@ -140,6 +156,21 @@ class Command(BaseCommand):
                             self.style.ERROR(
                                 f"DeribitOptionsWorkflowRun #{workflow_run_id} "
                                 f"failed unexpectedly ({exc.__class__.__name__}); continuing."
+                            )
+                        )
+                    heartbeat()
+
+                for workflow_run_id in claimed_fund_ids:
+                    try:
+                        execute_claimed_fund_workflow(
+                            workflow_run_id,
+                            heartbeat_callback=heartbeat,
+                        )
+                    except Exception as exc:
+                        self.stderr.write(
+                            self.style.ERROR(
+                                f"FundDataWorkflowRun #{workflow_run_id} failed unexpectedly "
+                                f"({exc.__class__.__name__}); continuing."
                             )
                         )
                     heartbeat()

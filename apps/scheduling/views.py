@@ -18,6 +18,7 @@ from .deribit_workflow import (
     execute_manual_deribit_options_workflow,
     get_builtin_deribit_options_schedule,
 )
+from .funds_workflow import calculate_next_fund_run, get_builtin_fund_schedules
 from .forms import (
     DeribitOptionsScheduleForm,
     KlineScheduleForm,
@@ -25,6 +26,7 @@ from .forms import (
 )
 from .models import (
     DeribitOptionsWorkflowRun,
+    FundDataWorkflowRun,
     NewsWorkflowRun,
     NewsWorkflowSchedule,
     SCHEDULE_TIMEZONE,
@@ -245,6 +247,7 @@ def schedule_index(request):
         NewsWorkflowSchedule.FeedGroup.COINDESK
     )
     deribit_schedule = get_builtin_deribit_options_schedule()
+    fund_schedules = get_builtin_fund_schedules()
     form = KlineScheduleForm(instance=schedule, auto_id="market_%s")
     news_form = NewsWorkflowScheduleForm(instance=news_schedule, auto_id="news_%s")
     coindesk_form = NewsWorkflowScheduleForm(
@@ -320,6 +323,30 @@ def schedule_index(request):
                 messages.success(request, "Deribit 期权数据自动任务配置已保存。")
                 return redirect("scheduling:index")
             open_dialog = "deribit-config-dialog"
+        elif action == "toggle_fund":
+            task_type = request.POST.get("task_type", "")
+            fund_schedule = next(
+                (item for item in fund_schedules if item.task_type == task_type),
+                None,
+            )
+            if fund_schedule is None:
+                messages.error(request, "无法识别的链上资金任务。")
+            elif task_type == "addresses" and not fund_schedule.enabled:
+                messages.warning(
+                    request,
+                    "Etherscan 当前条款阻止自动采集，地址快照任务不能启用。",
+                )
+            else:
+                fund_schedule.enabled = not fund_schedule.enabled
+                fund_schedule.next_run_at = calculate_next_fund_run(fund_schedule)
+                fund_schedule.save(
+                    update_fields=["enabled", "next_run_at", "updated_at"]
+                )
+                messages.success(
+                    request,
+                    f"{fund_schedule.name}已{'启用' if fund_schedule.enabled else '停用'}。",
+                )
+            return redirect("scheduling:index")
         elif action == "run":
             submitted_token = request.POST.get("run_token", "")
             expected_token = request.session.pop(RUN_TOKEN_SESSION_KEY, "")
@@ -432,6 +459,37 @@ def schedule_index(request):
         else:
             messages.error(request, "无法识别的操作。")
 
+    fund_sources = {
+        "stablecoin": "DeFiLlama",
+        "etf": "Farside",
+        "addresses": "Etherscan（条款阻止）",
+    }
+    fund_frequency = {
+        "stablecoin": "每日 06:00 UTC · 最近 7 天重叠更新",
+        "etf": "每日 06:00 / 12:00 UTC · 最近 14 天回刷",
+        "addresses": "每日 00:10 UTC · Top 1,000（当前策略阻止）",
+    }
+    fund_schedule_rows = []
+    for item in fund_schedules:
+        latest = FundDataWorkflowRun.objects.filter(task_type=item.task_type).first()
+        last_success = (
+            FundDataWorkflowRun.objects.filter(
+                task_type=item.task_type,
+                status=FundDataWorkflowRun.Status.SUCCESS,
+            )
+            .order_by("-finished_at")
+            .first()
+        )
+        fund_schedule_rows.append(
+            {
+                "schedule": item,
+                "source": fund_sources[item.task_type],
+                "frequency": fund_frequency[item.task_type],
+                "latest": latest,
+                "last_success": last_success,
+            }
+        )
+
     context = {
         "schedule": schedule,
         "form": form,
@@ -442,6 +500,7 @@ def schedule_index(request):
         "deribit_schedule": deribit_schedule,
         "deribit_form": deribit_form,
         "deribit_latest_run": DeribitOptionsWorkflowRun.objects.first(),
+        "fund_schedule_rows": fund_schedule_rows,
         "scheduler": scheduler_status(),
         "run_token": _new_run_token(request, RUN_TOKEN_SESSION_KEY),
         "news_run_token": _new_run_token(request, NEWS_RUN_TOKEN_SESSION_KEY),

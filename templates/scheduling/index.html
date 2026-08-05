@@ -26,6 +26,36 @@
     <code>uv run python manage.py run_scheduler</code>
 </section>
 
+<section class="schedule-task-section fund-schedule-section" aria-labelledby="fund-task-list-title">
+    <div class="section-title-row">
+        <div><p class="eyebrow">独立数据域</p><h2 id="fund-task-list-title">链上资金数据 <span>3</span></h2></div>
+        <p>免费公开源采用低频采集、重叠更新与来源策略门禁。</p>
+    </div>
+    <div class="scheduled-task-grid">
+        {% for item in fund_schedule_rows %}
+        <article class="scheduled-task-card fund-task-card">
+            <header class="task-card-header">
+                <span class="task-type-icon market-icon" aria-hidden="true">F</span>
+                <div><span class="task-kicker">ON-CHAIN FUNDS · {{ item.source|upper }}</span><h3>{{ item.schedule.name }}</h3></div>
+                {% if item.schedule.enabled %}<span class="task-state is-enabled"><i></i>已启用</span>{% else %}<span class="task-state"><i></i>已停用</span>{% endif %}
+            </header>
+            <p class="task-description">{% if item.schedule.task_type == 'stablecoin' %}Ethereum 稳定币总供应日频数据。{% elif item.schedule.task_type == 'etf' %}动态识别 ETF ticker，区分零值与未公布值。{% else %}公开页面观察快照；因 Etherscan 条款当前禁止自动采集。{% endif %}</p>
+            <div class="task-next-run"><span>下次计划运行</span>{% if item.schedule.enabled %}<strong>{{ item.schedule.next_run_at|date:"m月d日 H:i" }}</strong><small>UTC</small>{% else %}<strong>启用后计算</strong><small>当前自动计划已停用</small>{% endif %}</div>
+            <dl class="task-facts">
+                <div><dt>数据源</dt><dd>{{ item.source }}</dd></div>
+                <div><dt>执行频率</dt><dd>{{ item.frequency }}</dd></div>
+                <div><dt>最近状态</dt><dd>{% if item.latest %}{{ item.latest.get_status_display }} / {{ item.latest.get_quality_status_display }}{% else %}尚未运行{% endif %}</dd></div>
+                <div><dt>最近成功</dt><dd>{% if item.last_success %}{{ item.last_success.finished_at|date:"Y-m-d H:i" }} UTC{% else %}暂无{% endif %}</dd></div>
+                <div><dt>采集数量</dt><dd>{% if item.latest %}接收 {{ item.latest.received_count }}{% else %}—{% endif %}</dd></div>
+                <div><dt>写入结果</dt><dd>{% if item.latest %}新增 {{ item.latest.inserted_count }} / 更新 {{ item.latest.updated_count }} / 跳过 {{ item.latest.skipped_count }} / 失败 {{ item.latest.failed_count }}{% else %}—{% endif %}</dd></div>
+                <div><dt>数据质量</dt><dd>{% if item.latest %}{{ item.latest.get_quality_status_display }}{% else %}待首次运行{% endif %}</dd></div>
+            </dl>
+            <footer class="task-card-actions"><form method="post">{% csrf_token %}<input type="hidden" name="action" value="toggle_fund"><input type="hidden" name="task_type" value="{{ item.schedule.task_type }}"><button class="task-config-button" type="submit"{% if item.schedule.task_type == 'addresses' and not item.schedule.enabled %} disabled title="来源条款阻止自动采集"{% endif %}>{% if item.schedule.enabled %}停用任务{% else %}启用任务{% endif %}</button></form>{% if item.latest %}<a class="task-config-button" href="{% url 'market_funds:run_detail' item.latest.id %}">运行详情</a>{% else %}<span class="task-description">无运行记录</span>{% endif %}</footer>
+        </article>
+        {% endfor %}
+    </div>
+</section>
+
 <section class="schedule-task-section" aria-labelledby="task-list-title">
     <div class="section-title-row">
         <div>
