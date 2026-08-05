@@ -115,6 +115,11 @@ BINANCE_FUTURES_BASE_URL = os.getenv(
     "https://fapi.binance.com",
 ).rstrip("/")
 
+DERIBIT_BASE_URL = os.getenv(
+    "DERIBIT_BASE_URL",
+    "https://www.deribit.com/api/v2",
+).rstrip("/")
+
 NEWS_AI_BASE_URL = os.getenv("NEWS_AI_BASE_URL", "https://api.deepseek.com").rstrip("/")
 NEWS_AI_API_KEY = os.getenv("NEWS_AI_API_KEY") or os.getenv("DEEPSEEK_API_KEY", "")
 NEWS_AI_MODEL = os.getenv("NEWS_AI_MODEL", "deepseek-v4-flash")

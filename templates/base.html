@@ -34,7 +34,8 @@
                 <details class="nav-group{% if request.resolver_match.namespace == 'market_data' %} is-active{% endif %}" data-nav-group="market-data"{% if request.resolver_match.namespace == 'market_data' %} open{% endif %}>
                     <summary class="nav-item"><span>行情数据观察</span><span class="nav-chevron" aria-hidden="true"></span></summary>
                     <div class="nav-submenu" aria-label="行情数据观察">
-                        <a class="nav-subitem{% if request.resolver_match.namespace == 'market_data' %} is-active{% endif %}" href="{% url 'market_data:index' %}"{% if request.resolver_match.namespace == 'market_data' %} aria-current="page"{% endif %}>数据查看</a>
+                        <a class="nav-subitem{% if request.resolver_match.namespace == 'market_data' and request.resolver_match.url_name == 'index' %} is-active{% endif %}" href="{% url 'market_data:index' %}"{% if request.resolver_match.namespace == 'market_data' and request.resolver_match.url_name == 'index' %} aria-current="page"{% endif %}>数据查看</a>
+                        <a class="nav-subitem{% if request.resolver_match.namespace == 'market_data' and request.resolver_match.url_name == 'deribit_options' %} is-active{% endif %}" href="{% url 'market_data:deribit_options' %}"{% if request.resolver_match.namespace == 'market_data' and request.resolver_match.url_name == 'deribit_options' %} aria-current="page"{% endif %}>Deribit 期权数据</a>
                     </div>
                 </details>
                 <details class="nav-group{% if request.resolver_match.namespace == 'news_analysis' or request.resolver_match.namespace == 'news_data' %} is-active{% endif %}" data-nav-group="news"{% if request.resolver_match.namespace == 'news_analysis' or request.resolver_match.namespace == 'news_data' %} open{% endif %}>

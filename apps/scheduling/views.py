@@ -13,8 +13,18 @@ from apps.collection.models import CollectionRun
 from apps.inspection.models import DerivativesInspectionRun, KlineInspectionRun
 from apps.news_data.models import NewsFeed
 
-from .forms import KlineScheduleForm, NewsWorkflowScheduleForm
+from .deribit_workflow import (
+    DeribitOptionsAlreadyRunning,
+    execute_manual_deribit_options_workflow,
+    get_builtin_deribit_options_schedule,
+)
+from .forms import (
+    DeribitOptionsScheduleForm,
+    KlineScheduleForm,
+    NewsWorkflowScheduleForm,
+)
 from .models import (
+    DeribitOptionsWorkflowRun,
     NewsWorkflowRun,
     NewsWorkflowSchedule,
     SCHEDULE_TIMEZONE,
@@ -38,6 +48,7 @@ from .services import (
 RUN_TOKEN_SESSION_KEY = "scheduling_manual_run_token"
 NEWS_RUN_TOKEN_SESSION_KEY = "scheduling_news_manual_run_token"
 COINDESK_RUN_TOKEN_SESSION_KEY = "scheduling_coindesk_manual_run_token"
+DERIBIT_RUN_TOKEN_SESSION_KEY = "scheduling_deribit_manual_run_token"
 
 
 def _step_runs(workflow_run):
@@ -233,11 +244,16 @@ def schedule_index(request):
     coindesk_schedule = get_builtin_news_schedule(
         NewsWorkflowSchedule.FeedGroup.COINDESK
     )
+    deribit_schedule = get_builtin_deribit_options_schedule()
     form = KlineScheduleForm(instance=schedule, auto_id="market_%s")
     news_form = NewsWorkflowScheduleForm(instance=news_schedule, auto_id="news_%s")
     coindesk_form = NewsWorkflowScheduleForm(
         instance=coindesk_schedule,
         auto_id="coindesk_%s",
+    )
+    deribit_form = DeribitOptionsScheduleForm(
+        instance=deribit_schedule,
+        auto_id="deribit_%s",
     )
     open_dialog = ""
     if request.method == "POST":
@@ -290,6 +306,20 @@ def schedule_index(request):
                 messages.success(request, "CoinDesk 新闻工作流配置已保存。")
                 return redirect("scheduling:index")
             open_dialog = "coindesk-config-dialog"
+        elif action == "save_deribit":
+            deribit_form = DeribitOptionsScheduleForm(
+                request.POST,
+                instance=deribit_schedule,
+                auto_id="deribit_%s",
+            )
+            if deribit_form.is_valid():
+                updated = deribit_form.save(commit=False)
+                updated.timezone = SCHEDULE_TIMEZONE
+                updated.next_run_at = calculate_next_run_at(updated.run_time)
+                updated.save()
+                messages.success(request, "Deribit 期权数据自动任务配置已保存。")
+                return redirect("scheduling:index")
+            open_dialog = "deribit-config-dialog"
         elif action == "run":
             submitted_token = request.POST.get("run_token", "")
             expected_token = request.session.pop(RUN_TOKEN_SESSION_KEY, "")
@@ -372,6 +402,32 @@ def schedule_index(request):
             else:
                 messages.error(request, "CoinDesk 工作流失败，请查看运行详情。")
             return redirect("scheduling:run_detail", run_kind="news", run_id=run.pk)
+        elif action == "run_deribit":
+            submitted_token = request.POST.get("deribit_run_token", "")
+            expected_token = request.session.pop(DERIBIT_RUN_TOKEN_SESSION_KEY, "")
+            if not submitted_token or not secrets.compare_digest(
+                submitted_token,
+                expected_token,
+            ):
+                messages.warning(request, "该 Deribit 采集请求已处理或已失效，未重复执行。")
+                return redirect("scheduling:index")
+            try:
+                run = execute_manual_deribit_options_workflow(
+                    dvol_lookback_days=deribit_schedule.dvol_lookback_days,
+                )
+            except DeribitOptionsAlreadyRunning:
+                messages.warning(request, "已有 Deribit 期权数据采集正在运行，未重复启动。")
+                return redirect("scheduling:index")
+            except Exception:
+                messages.error(request, "Deribit 期权数据采集发生内部错误，未输出外部响应详情。")
+                return redirect("scheduling:index")
+            if run.status == DeribitOptionsWorkflowRun.Status.SUCCESS:
+                messages.success(request, "Deribit 期权数据采集成功。")
+            elif run.status == DeribitOptionsWorkflowRun.Status.PARTIAL:
+                messages.warning(request, "Deribit 期权数据采集部分完成，请检查采集记录。")
+            else:
+                messages.error(request, "Deribit 期权数据采集失败，请检查采集记录。")
+            return redirect("scheduling:index")
         else:
             messages.error(request, "无法识别的操作。")
 
@@ -382,12 +438,19 @@ def schedule_index(request):
         "news_form": news_form,
         "coindesk_schedule": coindesk_schedule,
         "coindesk_form": coindesk_form,
+        "deribit_schedule": deribit_schedule,
+        "deribit_form": deribit_form,
+        "deribit_latest_run": DeribitOptionsWorkflowRun.objects.first(),
         "scheduler": scheduler_status(),
         "run_token": _new_run_token(request, RUN_TOKEN_SESSION_KEY),
         "news_run_token": _new_run_token(request, NEWS_RUN_TOKEN_SESSION_KEY),
         "coindesk_run_token": _new_run_token(
             request,
             COINDESK_RUN_TOKEN_SESSION_KEY,
+        ),
+        "deribit_run_token": _new_run_token(
+            request,
+            DERIBIT_RUN_TOKEN_SESSION_KEY,
         ),
         "open_dialog": open_dialog,
         "news_feeds": NewsFeed.objects.filter(

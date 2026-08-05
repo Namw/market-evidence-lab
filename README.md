@@ -9,6 +9,7 @@ Market Evidence Lab 是一个聚焦 ETHUSDT 市场数据与新闻事件观察的
 1. 采集与调度
    - Binance USD-M Futures ETHUSDT 1d / 1h / 5m K线采集。
    - 1h / 5m OI 与实际 Funding 结算数据采集。
+   - Deribit ETH DVOL、活跃期权合约元数据与期权行情快照采集。
    - 多新闻源采集。
    - 采集质量检查、调度配置和运行记录。
 2. 新闻观察
@@ -55,6 +56,25 @@ uv run --env-file .env python manage.py runserver 8001
 ```bash
 uv run --env-file .env python manage.py run_scheduler
 ```
+
+Deribit 期权采集会同步合约元数据，并在同一轮保存 IV、期权 OI、价格与成交量快照：
+
+```bash
+# 默认回看最近3天的小时 DVOL，并保存当前市场快照（时间按5分钟对齐）
+uv run --env-file .env python manage.py collect_deribit_options
+
+# 首次回补 ETH DVOL；期权链历史仍从执行时刻开始积累
+uv run --env-file .env python manage.py collect_deribit_options --dvol-start 2021-03-24
+
+# 只补采当前合约和行情快照时，可跳过 DVOL 回补
+uv run --env-file .env python manage.py collect_deribit_options --skip-dvol
+
+# 接入现有常驻调度器，每天 08:20（Asia/Shanghai）自动执行一次
+uv run --env-file .env python manage.py configure_deribit_options_schedule --enable --run-time 08:20
+```
+
+自动调度默认关闭，启用后由 `run_scheduler` 领取任务；可使用同一命令的
+`--disable` 参数停用。
 
 ## 检查
 

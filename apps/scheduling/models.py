@@ -38,6 +38,19 @@ def empty_workflow_details():
     }
 
 
+def empty_deribit_options_details():
+    return {
+        "dvol_run_id": None,
+        "instrument_run_id": None,
+        "snapshot_run_id": None,
+        "steps": {
+            "dvol": {"status": "pending", "error_summary": ""},
+            "instrument": {"status": "pending", "error_summary": ""},
+            "snapshot": {"status": "pending", "error_summary": ""},
+        },
+    }
+
+
 class KlineSchedule(models.Model):
     name = models.CharField(max_length=120, unique=True)
     enabled = models.BooleanField(default=False)
@@ -135,6 +148,76 @@ class SchedulerHeartbeat(models.Model):
 
     def __str__(self) -> str:
         return f"{self.executor_id}:{self.last_heartbeat_at.isoformat()}"
+
+
+class DeribitOptionsSchedule(models.Model):
+    name = models.CharField(max_length=120, unique=True)
+    enabled = models.BooleanField(default=False)
+    run_time = models.TimeField(default=time(8, 20))
+    timezone = models.CharField(max_length=64, default=SCHEDULE_TIMEZONE, editable=False)
+    dvol_lookback_days = models.PositiveSmallIntegerField(
+        default=3,
+        validators=[MinValueValidator(1), MaxValueValidator(30)],
+    )
+    next_run_at = models.DateTimeField()
+    last_run_at = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["name"]
+
+    def __str__(self) -> str:
+        return self.name
+
+
+class DeribitOptionsWorkflowRun(models.Model):
+    class Trigger(models.TextChoices):
+        SCHEDULED = "scheduled", "定时"
+        MANUAL = "manual", "手工"
+
+    class Status(models.TextChoices):
+        RUNNING = "running", "运行中"
+        SUCCESS = "success", "成功"
+        PARTIAL = "partial", "部分完成"
+        FAILED = "failed", "失败"
+
+    schedule = models.ForeignKey(
+        DeribitOptionsSchedule,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="workflow_runs",
+    )
+    trigger = models.CharField(max_length=20, choices=Trigger.choices)
+    observed_at = models.DateTimeField()
+    dvol_lookback_days = models.PositiveSmallIntegerField(default=3)
+    status = models.CharField(
+        max_length=20,
+        choices=Status.choices,
+        default=Status.RUNNING,
+    )
+    details = models.JSONField(default=empty_deribit_options_details)
+    safe_error_summary = models.CharField(max_length=500, blank=True)
+    started_at = models.DateTimeField()
+    finished_at = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["-started_at"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["status"],
+                condition=models.Q(status="running"),
+                name="deribit_options_one_running",
+            )
+        ]
+        indexes = [
+            models.Index(fields=["-started_at"], name="deribit_workflow_start_idx")
+        ]
+
+    def __str__(self) -> str:
+        return f"deribit-options:{self.status}:{self.observed_at.isoformat()}"
 
 
 class NewsWorkflowSchedule(models.Model):

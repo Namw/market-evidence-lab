@@ -1,0 +1,127 @@
+{% extends "base.html" %}
+{% load static tz %}
+
+{% block title %}Deribit 期权数据 · Market Evidence Lab{% endblock %}
+{% block body_class %}deribit-options-body{% endblock %}
+
+{% block content %}
+<div class="deribit-options-page" data-deribit-options>
+    <header class="page-header deribit-options-header">
+        <div>
+            <p class="eyebrow">行情数据观察 · DERIBIT</p>
+            <h1>ETH 期权市场预期</h1>
+            <p class="page-intro">用 ATM IV、偏度、期限结构与 OI 观察市场对未来波动和尾部风险的定价。</p>
+        </div>
+        {% if has_data %}
+        <div class="deribit-sync-state"><span aria-hidden="true"></span><div><strong>数据已同步</strong><small>{% timezone "Asia/Shanghai" %}{{ latest_at|date:"Y-m-d H:i" }}{% endtimezone %} Asia/Shanghai</small></div></div>
+        {% endif %}
+    </header>
+
+    {% if has_data %}
+    <section class="deribit-stat-grid" aria-label="Deribit 市场概览">
+        <article class="deribit-stat-card">
+            <div><span>ETH DVOL</span><small>1h</small></div>
+            <strong>{{ dvol.value }}</strong>
+            <p class="deribit-change{% if dvol.direction %} is-{{ dvol.direction }}{% endif %}"><span>{{ dvol.change }}</span><small>{{ dvol.detail }}</small></p>
+        </article>
+        <article class="deribit-stat-card">
+            <div><span>全市场 OI</span><small>合约</small></div>
+            <strong>{{ total_oi.value }}</strong>
+            <p class="deribit-change{% if total_oi.direction %} is-{{ total_oi.direction }}{% endif %}"><span>{{ total_oi.change }}</span><small>{{ total_oi.detail }}</small></p>
+        </article>
+        <article class="deribit-stat-card">
+            <div><span>Put / Call OI</span><small>比率</small></div>
+            <strong>{{ put_call.value }}</strong>
+            <p class="deribit-change{% if put_call.direction %} is-{{ put_call.direction }}{% endif %}"><span>{{ put_call.change }}</span><small>{{ put_call.detail }}</small></p>
+        </article>
+        <article class="deribit-stat-card">
+            <div><span>约 30D ATM IV</span><small>年化</small></div>
+            <strong>{{ atm_30.value }}</strong>
+            <p class="deribit-change"><span>{% if atm_30.expiry %}到期 {{ atm_30.expiry|date:"Y-m-d" }}{% else %}暂无可用期限{% endif %}</span><small>Call / Put 平值插值</small></p>
+        </article>
+    </section>
+
+    <div class="deribit-dashboard-grid">
+        <section class="deribit-panel" aria-labelledby="atm-term-title">
+            <header class="deribit-panel-header"><div><h2 id="atm-term-title">ATM IV 期限结构</h2><p>按到期日对 Call / Put 平值 IV 分别插值后取均值，不使用全合约平均 IV。</p></div><span class="deribit-legend"><i class="is-call"></i>ATM IV</span></header>
+            {% if term_structure.items %}
+            <div class="deribit-svg-wrap">
+                <svg viewBox="0 0 760 280" role="img" aria-labelledby="atm-term-title">
+                    <line class="deribit-chart-axis" x1="54" y1="238" x2="738" y2="238"></line>
+                    <line class="deribit-chart-axis" x1="54" y1="24" x2="54" y2="238"></line>
+                    {% for tick in term_structure.ticks %}<line class="deribit-chart-grid" x1="54" y1="{{ tick.y }}" x2="738" y2="{{ tick.y }}"></line><text class="deribit-axis-text" x="8" y="{{ tick.y|add:'4' }}">{{ tick.value }}</text>{% endfor %}
+                    <polyline class="deribit-atm-line" points="{{ term_structure.points }}"></polyline>
+                    {% for item in term_structure.items %}<circle class="deribit-atm-point" cx="{{ item.x }}" cy="{{ item.y }}" r="4"><title>{{ item.label }} · {{ item.value }}</title></circle><text class="deribit-axis-text" x="{{ item.x }}" y="260" text-anchor="middle">{{ item.label }}</text>{% endfor %}
+                </svg>
+            </div>
+            {% else %}<p class="deribit-panel-empty">当前快照没有足够的 Mark IV 和标的价格来计算 ATM IV。</p>{% endif %}
+        </section>
+
+        <section class="deribit-panel" aria-labelledby="expiry-oi-title">
+            <header class="deribit-panel-header">
+                <div><h2 id="expiry-oi-title">到期日 OI 分布</h2><p>Call / Put 拆分，支持单独查看。</p></div>
+                <div class="deribit-toggle" role="group" aria-label="选择持仓类型"><button type="button" class="is-selected" data-oi-view="both">全部</button><button type="button" data-oi-view="call">Call</button><button type="button" data-oi-view="put">Put</button></div>
+            </header>
+            <div class="deribit-inline-legend"><span><i class="is-call"></i>Call OI</span><span><i class="is-put"></i>Put OI</span></div>
+            <div class="deribit-expiry-rows" data-expiry-rows>
+                {% for item in expiry_groups %}
+                <div class="deribit-expiry-row" data-call-value="{{ item.call_display }}" data-put-value="{{ item.put_display }}" data-total-value="{{ item.total_display }}">
+                    <span>{{ item.expiration_time|date:"m-d" }}</span>
+                    <div class="deribit-expiry-track"><i class="deribit-call-fill" data-both-width="{{ item.both_call_width }}" data-single-width="{{ item.call_width }}" style="width:{{ item.both_call_width }}%"></i><i class="deribit-put-fill" data-both-width="{{ item.both_put_width }}" data-single-width="{{ item.put_width }}" style="width:{{ item.both_put_width }}%"></i></div>
+                    <strong>{{ item.total_display }}</strong>
+                </div>
+                {% endfor %}
+            </div>
+        </section>
+
+        <section class="deribit-panel is-wide" aria-labelledby="strike-oi-title">
+            <header class="deribit-panel-header">
+                <div><h2 id="strike-oi-title">按行权价的 Call / Put OI</h2><p>所有柱形均来自所选到期日的最新原始行情快照。</p></div>
+                <form method="get" class="deribit-expiry-form"><label for="deribit-expiry">到期日</label><select id="deribit-expiry" name="expiry">{% for item in expiry_groups %}<option value="{{ item.key }}"{% if selected_expiry.key == item.key %} selected{% endif %}>{{ item.expiration_time|date:"Y-m-d" }} · OI {{ item.total_display }}</option>{% endfor %}</select><button type="submit">查看</button></form>
+            </header>
+            <div class="deribit-inline-legend"><span><i class="is-call"></i>Call OI</span><span><i class="is-put"></i>Put OI</span><span>ETH 指数价 {{ underlying }} USD</span></div>
+            {% if strike_rows %}
+            <div class="deribit-strike-layout">
+                <div class="deribit-strike-scroll" role="img" aria-label="{{ selected_expiry.expiration_time|date:'Y-m-d' }} 到期的 Call 和 Put 持仓量行权价分布">
+                    <div class="deribit-strike-chart" style="--strike-count:{{ strike_rows|length }}">
+                        {% for row in strike_rows %}
+                        <div class="deribit-strike-column">
+                            <div class="deribit-strike-half is-call-half"><i style="height:{{ row.call_height }}%"><span>{{ row.call }}</span></i></div>
+                            <strong>{{ row.strike }}</strong>
+                            <div class="deribit-strike-half is-put-half"><i style="height:{{ row.put_height }}%"><span>{{ row.put }}</span></i></div>
+                        </div>
+                        {% endfor %}
+                    </div>
+                </div>
+                <dl class="deribit-strike-facts">
+                    <div><dt>最大 Call OI</dt><dd>{% if max_call_strike %}{{ max_call_strike.strike }} · {{ max_call_strike.call }}{% else %}—{% endif %}</dd></div>
+                    <div><dt>最大 Put OI</dt><dd>{% if max_put_strike %}{{ max_put_strike.strike }} · {{ max_put_strike.put }}{% else %}—{% endif %}</dd></div>
+                    <div><dt>所选到期 OI</dt><dd>{{ selected_expiry.total_display }}</dd></div>
+                    <div><dt>Put / Call</dt><dd>{% if selected_ratio is not None %}{{ selected_ratio|floatformat:2 }}{% else %}—{% endif %}</dd></div>
+                </dl>
+            </div>
+            {% else %}<p class="deribit-panel-empty">所选到期日没有非零 OI 数据。</p>{% endif %}
+        </section>
+
+        <section class="deribit-panel is-wide" aria-labelledby="skew-title">
+            <header class="deribit-panel-header"><div><h2 id="skew-title">波动率偏度</h2><p>选取最接近 30 天与 90 天的实际到期日，按行权价 / 标的价格展示 Mark IV。</p></div><div class="deribit-inline-legend">{% for item in skew.series %}<span><i class="is-skew-{{ forloop.counter }}"></i>{{ item.label }}</span>{% endfor %}</div></header>
+            {% if skew.series %}
+            <div class="deribit-svg-wrap">
+                <svg viewBox="0 0 900 250" role="img" aria-labelledby="skew-title">
+                    <line class="deribit-chart-axis" x1="58" y1="205" x2="870" y2="205"></line><line class="deribit-chart-axis" x1="58" y1="24" x2="58" y2="205"></line>
+                    {% for tick in skew.ticks %}<line class="deribit-chart-grid" x1="58" y1="{{ tick.y }}" x2="870" y2="{{ tick.y }}"></line><text class="deribit-axis-text" x="8" y="{{ tick.y|add:'4' }}">{{ tick.value }}</text>{% endfor %}
+                    {% for item in skew.series %}<polyline class="deribit-skew-line is-series-{{ forloop.counter }}" points="{{ item.path }}"></polyline>{% for point in item.coordinates %}<circle class="deribit-skew-point is-series-{{ forloop.parentloop.counter }}" cx="{{ point.x }}" cy="{{ point.y }}" r="3"></circle>{% endfor %}{% endfor %}
+                    <text class="deribit-axis-text" x="58" y="230">70%</text><text class="deribit-axis-text" x="261" y="230" text-anchor="middle">85%</text><text class="deribit-axis-text" x="464" y="230" text-anchor="middle">100%</text><text class="deribit-axis-text" x="667" y="230" text-anchor="middle">115%</text><text class="deribit-axis-text" x="870" y="230" text-anchor="end">130%</text>
+                </svg>
+            </div>
+            {% else %}<p class="deribit-panel-empty">当前快照没有足够的 IV 数据来生成偏度曲线。</p>{% endif %}
+            <p class="deribit-method-note">ATM 期限结构回答“不同期限预期波动有多高”；偏度曲线回答“尾部风险偏向哪一侧”。</p>
+        </section>
+    </div>
+    {% else %}
+    <section class="deribit-panel deribit-empty-state"><h2>暂无 Deribit 期权快照</h2><p>请先在“采集 → 自动调度”中手动执行或启用 Deribit 期权数据采集，完成后本页会直接读取真实数据。</p><a href="{% url 'scheduling:index' %}">前往自动调度</a></section>
+    {% endif %}
+</div>
+{% endblock %}
+
+{% block extra_js %}<link rel="stylesheet" href="{% static 'market_data/css/deribit_options.css' %}?v=1"><script src="{% static 'market_data/js/deribit_options.js' %}?v=1" defer></script>{% endblock %}

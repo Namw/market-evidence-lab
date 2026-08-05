@@ -36,6 +36,30 @@ class SchedulerCommandTests(TestCase):
             call_command("run_scheduler", "--once", "--poll-interval", "0")
 
     @patch(
+        "apps.scheduling.management.commands.run_scheduler.execute_claimed_deribit_options_workflow"
+    )
+    @patch(
+        "apps.scheduling.management.commands.run_scheduler.claim_due_deribit_options_schedules"
+    )
+    @patch("apps.scheduling.management.commands.run_scheduler.claim_due_news_schedules")
+    @patch("apps.scheduling.management.commands.run_scheduler.claim_due_schedules")
+    def test_once_executes_claimed_deribit_workflow(
+        self,
+        claim_market,
+        claim_news,
+        claim_deribit,
+        execute_deribit,
+    ):
+        claim_market.return_value = []
+        claim_news.return_value = []
+        claim_deribit.return_value = [40]
+
+        call_command("run_scheduler", "--once")
+
+        execute_deribit.assert_called_once()
+        self.assertEqual(execute_deribit.call_args.args, (40,))
+
+    @patch(
         "apps.scheduling.management.commands.run_scheduler.execute_claimed_news_workflow"
     )
     @patch("apps.scheduling.management.commands.run_scheduler.claim_due_news_schedules")

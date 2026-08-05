@@ -7,11 +7,13 @@ from django.test import Client, TestCase
 from django.utils import timezone
 
 from apps.scheduling.models import (
+    DeribitOptionsWorkflowRun,
     SCHEDULE_TIMEZONE,
     NewsWorkflowRun,
     WorkflowRun,
     empty_workflow_details,
 )
+from apps.scheduling.deribit_workflow import get_builtin_deribit_options_schedule
 from apps.scheduling.services import get_builtin_schedule
 
 
@@ -81,6 +83,39 @@ class SchedulingPageTests(TestCase):
                 )
                 self.assertEqual(response.status_code, 200)
                 self.assertIn("lookback_days", response.context["form"].errors)
+
+    def test_deribit_configuration_is_daily_and_uses_prg(self):
+        response = self.client.post(
+            self.url,
+            {
+                "action": "save_deribit",
+                "enabled": "on",
+                "run_time": "08:20",
+                "dvol_lookback_days": "5",
+            },
+        )
+
+        self.assertRedirects(response, self.url)
+        schedule = get_builtin_deribit_options_schedule()
+        self.assertTrue(schedule.enabled)
+        self.assertEqual(schedule.run_time, time(8, 20))
+        self.assertEqual(schedule.dvol_lookback_days, 5)
+        self.assertEqual(schedule.timezone, SCHEDULE_TIMEZONE)
+
+    @patch("apps.scheduling.views.execute_manual_deribit_options_workflow")
+    def test_deribit_manual_execution_uses_token(self, execute):
+        execute.return_value = SimpleNamespace(
+            status=DeribitOptionsWorkflowRun.Status.SUCCESS,
+        )
+        token = self.client.get(self.url).context["deribit_run_token"]
+
+        response = self.client.post(
+            self.url,
+            {"action": "run_deribit", "deribit_run_token": token},
+        )
+
+        self.assertRedirects(response, self.url)
+        execute.assert_called_once_with(dvol_lookback_days=3)
 
     @patch("apps.scheduling.views.execute_workflow")
     def test_immediate_post_calls_unified_workflow_and_redirects_to_detail(self, execute):

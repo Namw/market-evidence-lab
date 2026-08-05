@@ -43,6 +43,7 @@ class NavigationParser(HTMLParser):
 class ProductSurfaceTests(TestCase):
     expected_links = [
         "market_data:index",
+        "market_data:deribit_options",
         "news_data:index",
         "news_analysis:index",
         "news_analysis:objective_fact_list",
@@ -62,6 +63,7 @@ class ProductSurfaceTests(TestCase):
             [
                 "行情数据观察",
                 "数据查看",
+                "Deribit 期权数据",
                 "新闻观察",
                 "数据采集",
                 "每日分析结果",

@@ -6,13 +6,18 @@ class CollectionRun(models.Model):
         KLINE = "kline", "K线"
         OPEN_INTEREST = "open_interest", "OI"
         FUNDING = "funding", "Funding"
+        DERIBIT_DVOL = "deribit_dvol", "Deribit DVOL"
+        DERIBIT_OPTION_INSTRUMENT = "deribit_option_instrument", "Deribit期权合约"
+        DERIBIT_OPTION_SNAPSHOT = "deribit_option_snapshot", "Deribit期权快照"
         NEWS = "news", "新闻"
 
     class Exchange(models.TextChoices):
         BINANCE = "binance", "Binance"
+        DERIBIT = "deribit", "Deribit"
 
     class MarketType(models.TextChoices):
         USD_M_FUTURES = "usd_m_futures", "USD-M Futures"
+        OPTIONS = "options", "Options"
 
     class Interval(models.TextChoices):
         ONE_DAY = "1d", "1d"
@@ -31,7 +36,7 @@ class CollectionRun(models.Model):
         FAILED = "failed", "失败"
 
     data_type = models.CharField(
-        max_length=20,
+        max_length=30,
         choices=DataType.choices,
         default=DataType.KLINE,
     )

@@ -1,6 +1,6 @@
 from django import forms
 
-from .models import KlineSchedule, NewsWorkflowSchedule
+from .models import DeribitOptionsSchedule, KlineSchedule, NewsWorkflowSchedule
 
 
 class KlineScheduleForm(forms.ModelForm):
@@ -21,6 +21,31 @@ class KlineScheduleForm(forms.ModelForm):
         }
         help_texts = {
             "run_time": "Asia/Shanghai，本地每日执行，不需要填写 Cron。",
+        }
+        widgets = {
+            "enabled": forms.CheckboxInput(),
+            "run_time": forms.TimeInput(attrs={"type": "time", "step": "60"}),
+        }
+
+
+class DeribitOptionsScheduleForm(forms.ModelForm):
+    dvol_lookback_days = forms.IntegerField(
+        label="DVOL 回补天数",
+        min_value=1,
+        max_value=30,
+        help_text="每次同步最近 1 至 30 天的小时 DVOL；期权合约和行情快照采集当前状态。",
+        widget=forms.NumberInput(attrs={"min": "1", "max": "30"}),
+    )
+
+    class Meta:
+        model = DeribitOptionsSchedule
+        fields = ["enabled", "run_time", "dvol_lookback_days"]
+        labels = {
+            "enabled": "启用每日自动任务",
+            "run_time": "每日执行时间",
+        }
+        help_texts = {
+            "run_time": "Asia/Shanghai，每天执行一次，不需要填写 Cron。",
         }
         widgets = {
             "enabled": forms.CheckboxInput(),

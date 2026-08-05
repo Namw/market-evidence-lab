@@ -10,6 +10,11 @@ from apps.scheduling.services import (
     get_builtin_schedule,
     record_heartbeat,
 )
+from apps.scheduling.deribit_workflow import (
+    claim_due_deribit_options_schedules,
+    execute_claimed_deribit_options_workflow,
+    get_builtin_deribit_options_schedule,
+)
 from apps.scheduling.news_workflow import (
     claim_due_news_schedules,
     execute_claimed_news_workflow,
@@ -40,6 +45,7 @@ class Command(BaseCommand):
             raise CommandError("--poll-interval must be between 1 and 3600 seconds")
 
         get_builtin_schedule()
+        get_builtin_deribit_options_schedule()
         get_builtin_news_schedules()
         executor_id = str(uuid4())
         stop_event = threading.Event()
@@ -83,6 +89,16 @@ class Command(BaseCommand):
                     )
                     claimed_news_ids = []
 
+                try:
+                    claimed_deribit_ids = claim_due_deribit_options_schedules()
+                except Exception as exc:
+                    self.stderr.write(
+                        self.style.ERROR(
+                            f"Deribit schedule claim failed ({exc.__class__.__name__}); retrying."
+                        )
+                    )
+                    claimed_deribit_ids = []
+
                 for workflow_run_id in claimed_ids:
                     try:
                         execute_claimed_workflow(
@@ -109,6 +125,21 @@ class Command(BaseCommand):
                             self.style.ERROR(
                                 f"NewsWorkflowRun #{workflow_run_id} failed unexpectedly "
                                 f"({exc.__class__.__name__}); continuing."
+                            )
+                        )
+                    heartbeat()
+
+                for workflow_run_id in claimed_deribit_ids:
+                    try:
+                        execute_claimed_deribit_options_workflow(
+                            workflow_run_id,
+                            heartbeat_callback=heartbeat,
+                        )
+                    except Exception as exc:
+                        self.stderr.write(
+                            self.style.ERROR(
+                                f"DeribitOptionsWorkflowRun #{workflow_run_id} "
+                                f"failed unexpectedly ({exc.__class__.__name__}); continuing."
                             )
                         )
                     heartbeat()

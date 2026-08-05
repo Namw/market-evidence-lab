@@ -30,7 +30,7 @@
     <div class="section-title-row">
         <div>
             <p class="eyebrow">可调度任务</p>
-            <h2 id="task-list-title">任务列表 <span>3</span></h2>
+            <h2 id="task-list-title">任务列表 <span>4</span></h2>
         </div>
         <p>手动执行会先显示本次运行内容，不会直接启动。</p>
     </div>
@@ -92,6 +92,25 @@
             </dl>
             <footer class="task-card-actions"><button class="task-config-button" type="button" data-dialog-target="coindesk-config-dialog">配置自动任务</button><button class="task-run-button" type="button" data-dialog-target="coindesk-run-dialog"><span aria-hidden="true">▶</span> 手动执行</button></footer>
         </article>
+
+        <article class="scheduled-task-card">
+            <header class="task-card-header">
+                <span class="task-type-icon market-icon" aria-hidden="true">D</span>
+                <div><span class="task-kicker">OPTIONS · DERIBIT ETH</span><h3>Deribit 期权数据采集</h3></div>
+                {% if deribit_schedule.enabled %}<span class="task-state is-enabled"><i></i>已启用</span>{% else %}<span class="task-state"><i></i>已停用</span>{% endif %}
+            </header>
+            <p class="task-description">采集 ETH DVOL、当前有效期权合约，以及全市场期权行情快照，为 IV、偏度、期限结构和 OI 分析提供原始数据。</p>
+            <div class="task-next-run">
+                <span>下次计划运行</span>
+                {% if deribit_schedule.enabled %}<strong>{% timezone deribit_schedule.timezone %}{{ deribit_schedule.next_run_at|date:"m月d日 H:i" }}{% endtimezone %}</strong><small>{{ deribit_schedule.timezone }}</small>{% else %}<strong>启用后计算</strong><small>当前自动计划已停用</small>{% endif %}
+            </div>
+            <dl class="task-facts">
+                <div><dt>调度频率</dt><dd>每天 {{ deribit_schedule.run_time|time:"H:i" }}</dd></div>
+                <div><dt>执行内容</dt><dd>DVOL → 合约 → 快照</dd></div>
+                <div><dt>上次计划运行</dt><dd>{% if deribit_schedule.last_run_at %}{{ deribit_schedule.last_run_at|date:"m-d H:i" }} UTC{% else %}尚未运行{% endif %}</dd></div>
+            </dl>
+            <footer class="task-card-actions"><button class="task-config-button" type="button" data-dialog-target="deribit-config-dialog">配置自动任务</button><button class="task-run-button" type="button" data-dialog-target="deribit-run-dialog"><span aria-hidden="true">▶</span> 手动执行</button></footer>
+        </article>
     </div>
 </section>
 
@@ -114,6 +133,18 @@
             {% csrf_token %}<input type="hidden" name="action" value="save_news">
             {% if news_form.non_field_errors %}<div class="form-errors" role="alert">{{ news_form.non_field_errors }}</div>{% endif %}
             {% for field in news_form %}<div class="form-field{% if field.name == 'enabled' %} checkbox-field{% endif %}"><label for="{{ field.id_for_label }}">{% if field.name == 'enabled' %}{{ field }} {% endif %}{{ field.label }}</label>{% if field.name != 'enabled' %}{{ field }}{% endif %}{% if field.errors %}<div class="field-errors">{{ field.errors }}</div>{% endif %}{% if field.help_text %}<small>{{ field.help_text }}</small>{% endif %}</div>{% endfor %}
+            <div class="dialog-actions"><button type="button" class="secondary-button" data-dialog-close>取消</button><button class="primary-button" type="submit" data-waiting-text="保存中…">保存配置</button></div>
+        </form>
+    </div>
+</dialog>
+
+<dialog class="schedule-dialog" id="deribit-config-dialog"{% if open_dialog == 'deribit-config-dialog' %} data-open-dialog{% endif %}>
+    <div class="dialog-card">
+        <div class="dialog-heading"><div><p class="eyebrow">自动配置</p><h2>Deribit 期权数据采集</h2></div><button type="button" class="dialog-close" data-dialog-close aria-label="关闭">×</button></div>
+        <form method="post" class="dialog-form" id="deribit-schedule-config-form">
+            {% csrf_token %}<input type="hidden" name="action" value="save_deribit">
+            {% if deribit_form.non_field_errors %}<div class="form-errors" role="alert">{{ deribit_form.non_field_errors }}</div>{% endif %}
+            {% for field in deribit_form %}<div class="form-field{% if field.name == 'enabled' %} checkbox-field{% endif %}"><label for="{{ field.id_for_label }}">{% if field.name == 'enabled' %}{{ field }} {% endif %}{{ field.label }}</label>{% if field.name != 'enabled' %}{{ field }}{% endif %}{% if field.errors %}<div class="field-errors">{{ field.errors }}</div>{% endif %}{% if field.help_text %}<small>{{ field.help_text }}</small>{% endif %}</div>{% endfor %}
             <div class="dialog-actions"><button type="button" class="secondary-button" data-dialog-close>取消</button><button class="primary-button" type="submit" data-waiting-text="保存中…">保存配置</button></div>
         </form>
     </div>
@@ -163,6 +194,18 @@
         <form method="post" id="coindesk-schedule-run-form" class="dialog-actions">
             {% csrf_token %}<input type="hidden" name="action" value="run_coindesk"><input type="hidden" name="coindesk_run_token" value="{{ coindesk_run_token }}">
             <button type="button" class="secondary-button" data-dialog-close>取消</button><button class="primary-button" type="submit" data-waiting-text="CoinDesk 工作流执行中，请稍候…">确认执行</button>
+        </form>
+    </div>
+</dialog>
+
+<dialog class="schedule-dialog" id="deribit-run-dialog">
+    <div class="dialog-card">
+        <div class="dialog-heading"><div><p class="eyebrow">手动调度</p><h2>Deribit 期权数据采集</h2></div><button type="button" class="dialog-close" data-dialog-close aria-label="关闭">×</button></div>
+        <p class="dialog-intro">本次执行不会修改每日自动配置。期权合约和行情快照只采集当前市场状态；DVOL 会按配置回补最近历史。</p>
+        <dl class="manual-run-summary"><div><dt>数据来源</dt><dd>Deribit 公共 API · ETH</dd></div><div><dt>DVOL 范围</dt><dd>最近 {{ deribit_schedule.dvol_lookback_days }} 天小时数据</dd></div><div><dt>执行内容</dt><dd>DVOL → 有效期权合约 → 全市场行情快照</dd></div><div><dt>数据说明</dt><dd>IV、偏度、期限结构与 OI 将由展示页基于原始快照计算</dd></div></dl>
+        <form method="post" id="deribit-schedule-run-form" class="dialog-actions">
+            {% csrf_token %}<input type="hidden" name="action" value="run_deribit"><input type="hidden" name="deribit_run_token" value="{{ deribit_run_token }}">
+            <button type="button" class="secondary-button" data-dialog-close>取消</button><button class="primary-button" type="submit" data-waiting-text="Deribit 数据采集中，请稍候…">确认执行</button>
         </form>
     </div>
 </dialog>

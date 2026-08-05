@@ -4,6 +4,7 @@ from decimal import Decimal
 from django.shortcuts import render
 from django.views.decorators.http import require_GET
 
+from .deribit_analytics import build_deribit_options_context
 from .models import FundingRate, Kline, OpenInterest
 
 
@@ -215,3 +216,11 @@ def data_view(request):
         "range_end_iso": _utc_iso(range_end) if range_end else "",
     }
     return render(request, "market_data/data_view.html", context)
+
+
+@require_GET
+def deribit_options_view(request):
+    context = build_deribit_options_context(
+        requested_expiry=request.GET.get("expiry", "").strip(),
+    )
+    return render(request, "market_data/deribit_options.html", context)
