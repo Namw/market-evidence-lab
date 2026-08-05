@@ -9,7 +9,7 @@
         <div class="home-hero-copy">
             <div class="home-hero-meta">
                 <p class="eyebrow">MARKET EVIDENCE LAB</p>
-                <span class="home-phase">ETHUSDT · UTC</span>
+                <span class="home-phase">ETHUSDT · 北京时间</span>
             </div>
             <h1 id="home-title"><span>观察市场事实，</span><strong>保留证据路径。</strong></h1>
             <p class="home-thesis-note">把日 K、小时 K、OI、Funding 与多来源新闻放进同一套可追溯工作流，先确认发生了什么，再等待市场形成共识。</p>
@@ -35,7 +35,7 @@
         </div>
 
         <ul class="home-principles" aria-label="当前数据覆盖">
-            <li><span>01</span><div><strong>{{ market_record_count }} 条行情记录</strong><small>{% if latest_kline_at %}最近 K 线 {{ latest_kline_at|date:"Y-m-d H:i" }} UTC{% else %}等待首次行情采集{% endif %}</small></div></li>
+            <li><span>01</span><div><strong>{{ market_record_count }} 条行情记录</strong><small>{% if latest_kline_at %}最近 K 线 {{ latest_kline_at|date:"Y-m-d H:i" }} 北京时间{% else %}等待首次行情采集{% endif %}</small></div></li>
             <li><span>02</span><div><strong>{{ news_record_count }} 条新闻 · {{ enabled_feed_count }} 个栏目</strong><small>{{ eligible_fact_count }} 份客观事实结果可进入下游</small></div></li>
             <li><span>03</span><div><strong>{{ event_count }} 个当前新闻事件</strong><small>来自当前有效事件库快照</small></div></li>
         </ul>
@@ -52,7 +52,7 @@
                 <div class="home-card-index">01</div>
                 <p class="home-card-kicker">MARKET DATA</p>
                 <h3>行情数据观察</h3>
-                <p>联动查看 ETHUSDT 日 K、小时 K、OI 与 Funding，沿 UTC 时间轴还原当日市场变化。</p>
+                <p>联动查看 ETHUSDT 日 K、小时 K、OI 与 Funding，沿北京时间轴还原市场变化；交易所日 K 仍保留 UTC 边界。</p>
                 <a href="{% url 'market_data:index' %}">打开数据查看 <span aria-hidden="true">→</span></a>
             </article>
 

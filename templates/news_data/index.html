@@ -24,8 +24,8 @@
         <dl>
             <div><dt>启用状态</dt><dd>{% if source.enabled and feed.enabled %}已启用{% else %}已停用{% endif %}</dd></div>
             <div><dt>首次采集</dt><dd>{% if feed.bootstrap_visible_items %}有限初始化当前可见条目{% else %}从 activated_at 开始{% endif %}</dd></div>
-            <div><dt>最近运行</dt><dd>{% if feed.last_run_at %}{{ feed.last_run_at|date:"Y-m-d H:i:s" }} UTC{% else %}—{% endif %}</dd></div>
-            <div><dt>最近可信覆盖</dt><dd>{% if feed.trusted_coverage_end %}{{ feed.trusted_coverage_end|date:"Y-m-d H:i:s" }} UTC{% else %}—{% endif %}</dd></div>
+            <div><dt>最近运行</dt><dd>{% if feed.last_run_at %}{{ feed.last_run_at|date:"Y-m-d H:i:s" }} 北京时间{% else %}—{% endif %}</dd></div>
+            <div><dt>最近可信覆盖</dt><dd>{% if feed.trusted_coverage_end %}{{ feed.trusted_coverage_end|date:"Y-m-d H:i:s" }} 北京时间{% else %}—{% endif %}</dd></div>
             <div><dt>最近检查</dt><dd><span class="run-status status-{{ feed.last_inspection_status }}">{{ feed.get_last_inspection_status_display }}</span></dd></div>
             <div><dt>解析器</dt><dd>{{ feed.parser_version }}</dd></div>
         </dl>
@@ -43,7 +43,7 @@
     <div class="table-scroll"><table class="runs-table news-runs-table"><thead><tr><th>来源 / 范围</th><th>状态</th><th>candidate / parsed / eligible</th><th>新增 / 更新 / 重复 / 无效</th><th>停止原因</th><th>CollectionRun → InspectionRun</th><th>原因与诊断</th></tr></thead><tbody>
     {% for run in recent_runs %}
     <tr>
-        <td><strong>{{ run.news_source.name }}{% if run.news_feed %} · {{ run.news_feed.name }}{% endif %}</strong><br><span class="nowrap">{{ run.range_start|date:"Y-m-d H:i:s" }} → {{ run.range_end|date:"Y-m-d H:i:s" }} UTC</span></td>
+        <td><strong>{{ run.news_source.name }}{% if run.news_feed %} · {{ run.news_feed.name }}{% endif %}</strong><br><span class="nowrap">{{ run.range_start|date:"Y-m-d H:i:s" }} → {{ run.range_end|date:"Y-m-d H:i:s" }} 北京时间</span></td>
         <td><span class="run-status status-{{ run.status }}">{{ run.get_status_display }}</span>{% if run.display_inspection %}<br><span class="run-status status-{{ run.display_inspection.quality_status }}">{{ run.display_inspection.get_quality_status_display }}</span>{% endif %}</td>
         <td>{% if run.display_inspection %}{{ run.display_inspection.candidate_count }} / {{ run.display_inspection.parsed_count }} / {{ run.display_inspection.eligible_count }}{% else %}—{% endif %}{% if run.display_inspection and run.display_inspection.parsed_count == 0 %}<br><strong class="danger-text">零可解析内容</strong>{% elif run.display_inspection and run.display_inspection.inserted_count == 0 and run.display_inspection.updated_count == 0 %}<br><span class="success-text">可解析，零新增</span>{% endif %}</td>
         <td>{% if run.display_inspection %}{{ run.display_inspection.inserted_count }} / {{ run.display_inspection.updated_count }} / {{ run.display_inspection.duplicate_count }} / {{ run.display_inspection.invalid_count }}{% else %}—{% endif %}</td>
@@ -61,7 +61,7 @@
 <section class="panel runs-panel">
     <div class="panel-heading"><div><p class="eyebrow">原始发布记录</p><h2>最近 30 条</h2></div><span class="status-label">不含正文</span></div>
     <div class="table-scroll"><table class="runs-table"><thead><tr><th>来源</th><th>发布时间</th><th>标题 / 分类</th><th>首次 / 最近看到</th><th>原始条目 payload</th></tr></thead><tbody>
-    {% for record in recent_records %}<tr><td>{{ record.source.name }}</td><td class="nowrap">{{ record.published_at|date:"Y-m-d H:i:s" }} UTC</td><td>{% if record.original_url %}<a class="text-link" href="{{ record.original_url }}" rel="noreferrer">{{ record.title }}</a>{% else %}{{ record.title }}{% endif %}<br><small>{{ record.source_category|default:"未分类" }}</small></td><td class="nowrap">{{ record.first_seen_at|date:"Y-m-d H:i:s" }}<br>{{ record.last_seen_at|date:"Y-m-d H:i:s" }} UTC</td><td><details><summary>查看 raw payload</summary><pre class="raw-payload">{{ record.raw_payload }}</pre></details></td></tr>
+    {% for record in recent_records %}<tr><td>{{ record.source.name }}</td><td class="nowrap">{{ record.published_at|date:"Y-m-d H:i:s" }} 北京时间</td><td>{% if record.original_url %}<a class="text-link" href="{{ record.original_url }}" rel="noreferrer">{{ record.title }}</a>{% else %}{{ record.title }}{% endif %}<br><small>{{ record.source_category|default:"未分类" }}</small></td><td class="nowrap">{{ record.first_seen_at|date:"Y-m-d H:i:s" }}<br>{{ record.last_seen_at|date:"Y-m-d H:i:s" }} 北京时间</td><td><details><summary>查看 raw payload</summary><pre class="raw-payload">{{ record.raw_payload }}</pre></details></td></tr>
     {% empty %}<tr><td colspan="5" class="empty-state">尚未保存新闻原始记录。</td></tr>{% endfor %}
     </tbody></table></div>
 </section>

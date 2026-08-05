@@ -218,7 +218,7 @@ class SchedulingPageTests(TestCase):
             [today_run.pk],
         )
         self.assertContains(response, "今日采集情况")
-        self.assertContains(response, "Asia/Shanghai")
+        self.assertContains(response, "北京时间")
         local_today = timezone.localdate(timezone=ZoneInfo(SCHEDULE_TIMEZONE))
         recent_start = (local_today - timedelta(days=2)).isoformat()
         self.assertContains(

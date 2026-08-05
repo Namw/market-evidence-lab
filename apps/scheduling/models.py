@@ -475,7 +475,11 @@ class FundDataSchedule(models.Model):
     enabled = models.BooleanField(default=False)
     run_time = models.TimeField()
     supplement_run_time = models.TimeField(null=True, blank=True)
-    timezone = models.CharField(max_length=64, default="UTC", editable=False)
+    timezone = models.CharField(
+        max_length=64,
+        default=SCHEDULE_TIMEZONE,
+        editable=False,
+    )
     lookback_days = models.PositiveSmallIntegerField(default=7)
     next_run_at = models.DateTimeField()
     last_run_at = models.DateTimeField(null=True, blank=True)

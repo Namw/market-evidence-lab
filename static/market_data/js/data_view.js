@@ -100,7 +100,11 @@
         return value.toFixed(0);
     }
 
-    function dayLabel(value) {
+    const BEIJING_OFFSET_MS = 8 * 60 * 60 * 1000;
+    const SIX_HOURS_MS = 6 * 60 * 60 * 1000;
+    const DAY_MS = 24 * 60 * 60 * 1000;
+
+    function exchangeDayLabel(value) {
         return new Intl.DateTimeFormat("zh-CN", {
             timeZone: "UTC",
             month: "2-digit",
@@ -108,8 +112,23 @@
         }).format(value);
     }
 
-    function hourLabel(value) {
-        return `${String(value.getUTCHours()).padStart(2, "0")}:00`;
+    function beijingValue(value) {
+        return new Date(value.getTime() + BEIJING_OFFSET_MS);
+    }
+
+    function beijingDayLabel(value) {
+        const local = beijingValue(value);
+        return `${String(local.getUTCMonth() + 1).padStart(2, "0")}/${String(local.getUTCDate()).padStart(2, "0")}`;
+    }
+
+    function beijingTimeLabel(value) {
+        const local = beijingValue(value);
+        return `${String(local.getUTCHours()).padStart(2, "0")}:${String(local.getUTCMinutes()).padStart(2, "0")}`;
+    }
+
+    function beijingDateHourLabel(value) {
+        const local = beijingValue(value);
+        return `${local.getUTCFullYear()}-${String(local.getUTCMonth() + 1).padStart(2, "0")}-${String(local.getUTCDate()).padStart(2, "0")} ${String(local.getUTCHours()).padStart(2, "0")}`;
     }
 
     function drawEmpty(context, width, height, message) {
@@ -201,7 +220,7 @@
             if (index % tickEvery !== 0 && index !== rows.length - 1) return;
             const x = bounds.left + slot * (index + 0.5);
             context.fillStyle = colors.axis;
-            context.fillText(dayLabel(row.time), x, bounds.top + bounds.height + 12);
+            context.fillText(exchangeDayLabel(row.time), x, bounds.top + bounds.height + 12);
         });
 
         if (selectedIndex >= 0) {
@@ -212,7 +231,7 @@
             context.moveTo(x, bounds.top);
             context.lineTo(x, bounds.top + bounds.height + 3);
             context.stroke();
-            const label = dayLabel(rows[selectedIndex].time);
+            const label = exchangeDayLabel(rows[selectedIndex].time);
             context.font = selectedFont;
             const labelWidth = context.measureText(label).width + 12;
             context.fillStyle = colors.blue;
@@ -246,18 +265,21 @@
         context.font = selectedFont;
         context.textAlign = "center";
         context.textBaseline = "bottom";
-        context.fillText(`关注日 ${dayLabel(selectedStart)}`, (startX + endX) / 2, bounds.top - 5);
+        context.fillText(`UTC 日 K ${exchangeDayLabel(selectedStart)}`, (startX + endX) / 2, bounds.top - 5);
     }
 
     function drawTimeAxis(context, bounds) {
-        const tick = new Date(rangeStart);
-        tick.setUTCHours(Math.ceil(tick.getUTCHours() / 6) * 6, 0, 0, 0);
+        const tick = new Date(
+            Math.ceil((rangeStart.getTime() + BEIJING_OFFSET_MS) / SIX_HOURS_MS)
+                * SIX_HOURS_MS
+                - BEIJING_OFFSET_MS
+        );
         context.font = font;
         context.textAlign = "center";
         context.textBaseline = "top";
         while (tick < rangeEnd) {
             const x = timeX(tick, bounds.left, bounds.width);
-            const isDayBoundary = tick.getUTCHours() === 0;
+            const isDayBoundary = beijingValue(tick).getUTCHours() === 0;
             context.strokeStyle = isDayBoundary ? "#cfd6e1" : colors.grid;
             context.lineWidth = isDayBoundary ? 1.15 : 1;
             context.beginPath();
@@ -265,20 +287,23 @@
             context.lineTo(x, bounds.top + bounds.height);
             context.stroke();
             context.fillStyle = colors.axis;
-            context.fillText(hourLabel(tick), x, bounds.top + bounds.height + 10);
-            tick.setUTCHours(tick.getUTCHours() + 6);
+            context.fillText(beijingTimeLabel(tick), x, bounds.top + bounds.height + 10);
+            tick.setTime(tick.getTime() + SIX_HOURS_MS);
         }
 
-        const day = new Date(rangeStart);
-        day.setUTCHours(0, 0, 0, 0);
+        const day = new Date(
+            Math.floor((rangeStart.getTime() + BEIJING_OFFSET_MS) / DAY_MS)
+                * DAY_MS
+                - BEIJING_OFFSET_MS
+        );
         context.font = selectedFont;
         context.textAlign = "left";
         context.textBaseline = "top";
         while (day < rangeEnd) {
-            const x = timeX(day, bounds.left, bounds.width);
+            const x = Math.max(bounds.left, timeX(day, bounds.left, bounds.width));
             context.fillStyle = colors.ink;
-            context.fillText(dayLabel(day), x + 7, bounds.top + 7);
-            day.setUTCDate(day.getUTCDate() + 1);
+            context.fillText(beijingDayLabel(new Date(Math.max(day.getTime(), rangeStart.getTime()))), x + 7, bounds.top + 7);
+            day.setTime(day.getTime() + DAY_MS);
         }
     }
 
@@ -344,7 +369,7 @@
             context.stroke();
             context.fillStyle = colors.axis;
             context.fillText(
-                `${String(tick.getUTCHours()).padStart(2, "0")}:${String(tick.getUTCMinutes()).padStart(2, "0")}`,
+                beijingTimeLabel(tick),
                 x,
                 bounds.top + bounds.height + 9
             );
@@ -584,8 +609,9 @@
             if (label) {
                 const klineCount = selectedFiveMinuteRows(fiveMinuteRows).length;
                 const oiCount = selectedFiveMinuteRows(fiveMinuteOiRows).length;
-                const dateHour = selectedHourStart.toISOString().slice(0, 13).replace("T", " ");
-                label.textContent = `${dateHour}:00–${String(selectedHourStart.getUTCHours()).padStart(2, "0")}:59 UTC · ${klineCount}根K线 · ${oiCount}条OI`;
+                const dateHour = beijingDateHourLabel(selectedHourStart);
+                const finalMinute = new Date(selectedHourStart.getTime() + 59 * 60 * 1000);
+                label.textContent = `${dateHour}:00–${beijingTimeLabel(finalMinute)} 北京时间 · ${klineCount}根K线 · ${oiCount}条OI`;
             }
             drawAll();
         });

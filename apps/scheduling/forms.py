@@ -20,7 +20,7 @@ class KlineScheduleForm(forms.ModelForm):
             "run_time": "每日执行时间",
         }
         help_texts = {
-            "run_time": "Asia/Shanghai，本地每日执行，不需要填写 Cron。",
+            "run_time": "北京时间，每天执行一次，不需要填写 Cron。",
         }
         widgets = {
             "enabled": forms.CheckboxInput(),
@@ -45,7 +45,7 @@ class DeribitOptionsScheduleForm(forms.ModelForm):
             "run_time": "每日执行时间",
         }
         help_texts = {
-            "run_time": "Asia/Shanghai，每天执行一次，不需要填写 Cron。",
+            "run_time": "北京时间，每天执行一次，不需要填写 Cron。",
         }
         widgets = {
             "enabled": forms.CheckboxInput(),
@@ -62,12 +62,12 @@ class NewsWorkflowScheduleForm(forms.ModelForm):
         if interval_hours == 24:
             self.fields["run_time"].label = "每日执行时间"
             self.fields["run_time"].help_text = (
-                "Asia/Shanghai，每天执行一次，不需要填写 Cron。"
+                "北京时间，每天执行一次，不需要填写 Cron。"
             )
         else:
             self.fields["run_time"].label = "每日首轮执行时间"
             self.fields["run_time"].help_text = (
-                f"Asia/Shanghai，以该时间为每日首轮，此后每 {interval_hours} 小时执行一次。"
+                f"北京时间，以该时间为每日首轮，此后每 {interval_hours} 小时执行一次。"
             )
 
     class Meta:

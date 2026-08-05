@@ -733,7 +733,7 @@ def run_fact_validation(*, batch_size: int = 6) -> dict:
 
     return {
         "report_kind": "temporary_all_news_two_stage_eth_research_validation",
-        "generated_at": datetime.now().astimezone().isoformat(),
+        "generated_at": timezone.localtime().isoformat(),
         "read_only_guarantee": (
             "Business tables are queried in read-only transactions. AI outputs are written only "
             "to this JSON report; no news, analysis result, model, page, or research case is created."

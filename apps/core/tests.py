@@ -1,6 +1,7 @@
 import re
 from html.parser import HTMLParser
 
+from django.conf import settings
 from django.test import TestCase
 from django.urls import reverse
 
@@ -56,6 +57,10 @@ class ProductSurfaceTests(TestCase):
         "scheduling:sources",
         "scheduling:runs",
     ]
+
+    def test_human_facing_timezone_is_beijing_while_aware_datetimes_remain_enabled(self):
+        self.assertEqual(settings.TIME_ZONE, "Asia/Shanghai")
+        self.assertTrue(settings.USE_TZ)
 
     def test_sidebar_contains_only_requested_product_entries(self):
         response = self.client.get(reverse("market_data:index"))

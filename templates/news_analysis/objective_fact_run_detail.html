@@ -26,8 +26,8 @@
         <div><dt>校验通过 / warning / error</dt><dd>{{ run.validation_passed_count }} / {{ run.validation_warning_count }} / {{ run.validation_error_count }}</dd></div>
         <div><dt>事实数</dt><dd>{{ run.facts_count }}</dd></div>
         <div><dt>Token</dt><dd>prompt {{ run.prompt_tokens }} / completion {{ run.completion_tokens }} / total {{ run.total_tokens }}</dd></div>
-        <div><dt>开始时间</dt><dd>{{ run.started_at|date:"Y-m-d H:i:s T" }}</dd></div>
-        <div><dt>结束时间</dt><dd>{{ run.finished_at|date:"Y-m-d H:i:s T"|default:"尚未结束" }}</dd></div>
+        <div><dt>开始时间</dt><dd>{{ run.started_at|date:"Y-m-d H:i:s" }} 北京时间</dd></div>
+        <div><dt>结束时间</dt><dd>{% if run.finished_at %}{{ run.finished_at|date:"Y-m-d H:i:s" }} 北京时间{% else %}尚未结束{% endif %}</dd></div>
         <div><dt>安全错误摘要</dt><dd>{{ run.safe_error_summary|default:"—" }}</dd></div>
     </dl>
 </section>

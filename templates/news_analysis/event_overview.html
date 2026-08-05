@@ -13,7 +13,7 @@
         <p class="eyebrow">当前正在使用</p>
         {% if current_run %}
         <h2>有效快照 #{{ current_run.id }}</h2>
-        <p class="event-snapshot-time">生成于 {{ current_run.finished_at|date:"Y-m-d H:i:s" }} UTC</p>
+        <p class="event-snapshot-time">生成于 {{ current_run.finished_at|date:"Y-m-d H:i:s" }} 北京时间</p>
         <dl class="event-metric-grid"><div><dt>事件总数</dt><dd>{{ current_run.final_event_count }}</dd></div><div><dt>自动归组</dt><dd>{{ current_run.auto_grouped_event_count }}</dd></div><div><dt>单成员</dt><dd>{{ current_run.singleton_event_count }}</dd></div><div><dt>不确定</dt><dd>{{ current_run.uncertain_event_count }}</dd></div></dl>
         <p><span class="run-status status-{{ current_run.status }}">{{ current_run.get_status_display }}</span> {% if current_run.status == 'succeeded_with_warnings' %}包含保守降级警告{% else %}一致性校验已通过{% endif %}</p>
         {% else %}<h2>尚无有效快照</h2><p class="muted">完成第一次构建后，这里会显示当前对外查询的事件库。</p>{% endif %}
@@ -22,7 +22,7 @@
         <p class="eyebrow">最近一次处理</p>
         {% if latest_run %}
         <div class="panel-heading"><h2>运行 #{{ latest_run.id }}</h2><span class="run-status status-{{ latest_run.status }}">{{ latest_run.get_status_display }}</span></div>
-        <dl class="run-meta-grid"><div><dt>触发方式</dt><dd>{{ latest_run.get_trigger_display }}</dd></div><div><dt>当前阶段</dt><dd>{{ latest_run.get_current_stage_display }}</dd></div><div><dt>进度</dt><dd>{{ latest_run.processed_count }} / {{ latest_run.total_progress }}</dd></div><div><dt>输入 / 失败</dt><dd>{{ latest_run.eligible_count }} / {{ latest_run.ai_failure_count }}</dd></div><div><dt>开始时间</dt><dd>{{ latest_run.started_at|date:"Y-m-d H:i:s" }} UTC</dd></div><div><dt>耗时</dt><dd>{{ latest_run.duration_seconds|default:0 }} 秒</dd></div></dl>
+        <dl class="run-meta-grid"><div><dt>触发方式</dt><dd>{{ latest_run.get_trigger_display }}</dd></div><div><dt>当前阶段</dt><dd>{{ latest_run.get_current_stage_display }}</dd></div><div><dt>进度</dt><dd>{{ latest_run.processed_count }} / {{ latest_run.total_progress }}</dd></div><div><dt>输入 / 失败</dt><dd>{{ latest_run.eligible_count }} / {{ latest_run.ai_failure_count }}</dd></div><div><dt>开始时间</dt><dd>{{ latest_run.started_at|date:"Y-m-d H:i:s" }} 北京时间</dd></div><div><dt>耗时</dt><dd>{{ latest_run.duration_seconds|default:0 }} 秒</dd></div></dl>
         {% if latest_run.status == 'failed' %}<div class="run-explanation is-error"><strong>旧事件库仍然有效</strong><p>本次失败没有覆盖旧结果。{{ latest_run.safe_error_summary }}</p></div>{% elif latest_run.safe_error_summary %}<div class="run-explanation"><strong>最近提示</strong><p>{{ latest_run.safe_error_summary }}</p></div>{% endif %}
         {% else %}<h2>尚无处理运行</h2><p class="muted">可从下方发起完整重建。</p>{% endif %}
     </article>

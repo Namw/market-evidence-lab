@@ -5,7 +5,7 @@
 
 {% block content %}
 <header class="page-header schedule-page-header">
-    <div><p class="eyebrow">采集</p><h1>调度情况</h1><p class="page-intro">默认展示今日采集情况，可按日期范围和任务类型筛选。所有日期均按 Asia/Shanghai 计算。</p></div>
+    <div><p class="eyebrow">采集</p><h1>调度情况</h1><p class="page-intro">默认展示今日采集情况，可按日期范围和任务类型筛选。所有日期均按北京时间计算。</p></div>
     <a class="quiet-link" href="{% url 'scheduling:index' %}"><span aria-hidden="true">←</span> 自动调度</a>
 </header>
 
@@ -37,7 +37,7 @@
             <article class="run-timeline-card">
                 <div class="run-card-main">
                     <div class="run-card-title"><strong>{{ item.kind_label }}</strong><span>#{{ item.id }}</span><span class="run-status status-{{ item.status }}">{{ item.status_label }}</span></div>
-                    <div class="run-card-meta"><time datetime="{{ item.started_at|date:'c' }}">{% timezone display_timezone %}{{ item.started_at|date:"Y-m-d H:i:s" }}{% endtimezone %} {{ display_timezone }}</time><i></i><span>{{ item.trigger }}触发</span><i></i><span>{% if item.finished_at %}已完成{% else %}运行中{% endif %}</span></div>
+                    <div class="run-card-meta"><time datetime="{{ item.started_at|date:'c' }}">{% timezone display_timezone %}{{ item.started_at|date:"Y-m-d H:i:s" }}{% endtimezone %} 北京时间</time><i></i><span>{{ item.trigger }}触发</span><i></i><span>{% if item.finished_at %}已完成{% else %}运行中{% endif %}</span></div>
                 </div>
                 <a class="run-card-link" href="{% url 'scheduling:run_detail' run_kind=item.kind run_id=item.id %}" aria-label="查看 {{ item.kind_label }} #{{ item.id }} 详情">查看详情 <span aria-hidden="true">→</span></a>
                 <div class="run-card-summary{% if item.needs_attention %} is-error{% endif %}"><span>{% if item.needs_attention %}异常原因{% else %}运行摘要{% endif %}</span><p>{{ item.summary|truncatechars:220 }}</p></div>

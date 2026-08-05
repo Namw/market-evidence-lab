@@ -27,7 +27,7 @@
         <div class="panel-heading"><div><p class="eyebrow">原始输入</p><h2>数据库新闻</h2></div></div>
         <dl class="objective-meta-list">
             <div><dt>新闻来源</dt><dd>{{ record.source.name }}</dd></div>
-            <div><dt>发布时间</dt><dd>{{ record.published_at|date:"Y-m-d H:i:s T" }}</dd></div>
+            <div><dt>发布时间</dt><dd>{{ record.published_at|date:"Y-m-d H:i:s" }} 北京时间</dd></div>
             <div><dt>原始标题</dt><dd>{{ record.title }}</dd></div>
             <div><dt>原始摘要</dt><dd class="preserve-copy">{{ record.summary|default:"未保存摘要" }}</dd></div>
         </dl>
@@ -99,7 +99,7 @@
                 </div>
             {% endif %}
             <dl class="objective-meta-list technical-meta">
-                <div><dt>provider</dt><dd>{{ result.provider }}</dd></div><div><dt>model</dt><dd>{{ result.model }}</dd></div><div><dt>prompt_version</dt><dd>{{ result.prompt_version }}</dd></div><div><dt>提取时间</dt><dd>{{ result.extracted_at|date:"Y-m-d H:i:s T" }}</dd></div><div><dt>运行记录</dt><dd><a class="text-link" href="{% url 'news_analysis:objective_fact_run_detail' result.extraction_run_id %}">#{{ result.extraction_run_id }}</a></dd></div><div><dt>Token</dt><dd>prompt {{ result.prompt_tokens }} / completion {{ result.completion_tokens }} / total {{ result.total_tokens }}</dd></div>
+                <div><dt>provider</dt><dd>{{ result.provider }}</dd></div><div><dt>model</dt><dd>{{ result.model }}</dd></div><div><dt>prompt_version</dt><dd>{{ result.prompt_version }}</dd></div><div><dt>提取时间</dt><dd>{{ result.extracted_at|date:"Y-m-d H:i:s" }} 北京时间</dd></div><div><dt>运行记录</dt><dd><a class="text-link" href="{% url 'news_analysis:objective_fact_run_detail' result.extraction_run_id %}">#{{ result.extraction_run_id }}</a></dd></div><div><dt>Token</dt><dd>prompt {{ result.prompt_tokens }} / completion {{ result.completion_tokens }} / total {{ result.total_tokens }}</dd></div>
             </dl>
             <details class="objective-technical-details"><summary>技术信息：提示词、原始返回与 JSON</summary><h3>System prompt</h3><pre>{{ result.system_prompt }}</pre><h3>User prompt</h3><pre>{{ result.user_prompt }}</pre><h3>AI 原始返回</h3><pre>{{ result.raw_model_output|default:"无" }}</pre><h3>解析结果</h3><pre>{{ result.parsed_result|default:"无" }}</pre></details>
         {% endif %}

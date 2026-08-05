@@ -22,7 +22,7 @@
 <section class="executor-bar{% if not scheduler.online %} is-offline{% endif %}" aria-labelledby="executor-title">
     <span class="executor-dot" aria-hidden="true"></span>
     <div class="executor-state"><strong id="executor-title">{% if scheduler.online %}执行器在线{% else %}执行器离线{% endif %}</strong><span>{% if scheduler.online %}正在领取到期任务{% else %}自动任务暂停领取，手动执行不受影响{% endif %}</span></div>
-    <div class="executor-meta"><span>最近心跳</span><strong>{% if scheduler.last_heartbeat_at %}{{ scheduler.last_heartbeat_at|date:"Y-m-d H:i:s" }} UTC{% else %}从未收到{% endif %}</strong></div>
+    <div class="executor-meta"><span>最近心跳</span><strong>{% if scheduler.last_heartbeat_at %}{{ scheduler.last_heartbeat_at|date:"Y-m-d H:i:s" }} 北京时间{% else %}从未收到{% endif %}</strong></div>
     <code>uv run python manage.py run_scheduler</code>
 </section>
 
@@ -45,12 +45,12 @@
             <p class="task-description">从 Binance USD-M Futures 采集 K线、OI 与 Funding，并完成八步原始数据质量检查。</p>
             <div class="task-next-run">
                 <span>下次计划运行</span>
-                {% if schedule.enabled %}<strong>{% timezone schedule.timezone %}{{ schedule.next_run_at|date:"m月d日 H:i" }}{% endtimezone %}</strong><small>{{ schedule.timezone }}</small>{% else %}<strong>启用后计算</strong><small>当前自动计划已停用</small>{% endif %}
+                {% if schedule.enabled %}<strong>{% timezone schedule.timezone %}{{ schedule.next_run_at|date:"m月d日 H:i" }}{% endtimezone %}</strong><small>北京时间</small>{% else %}<strong>启用后计算</strong><small>当前自动计划已停用</small>{% endif %}
             </div>
             <dl class="task-facts">
                 <div><dt>调度频率</dt><dd>每天 {{ schedule.run_time|time:"H:i" }}</dd></div>
                 <div><dt>执行范围</dt><dd>回看 {{ schedule.lookback_days }} 天</dd></div>
-                <div><dt>上次计划运行</dt><dd>{% if schedule.last_run_at %}{{ schedule.last_run_at|date:"m-d H:i" }} UTC{% else %}尚未运行{% endif %}</dd></div>
+                <div><dt>上次计划运行</dt><dd>{% if schedule.last_run_at %}{{ schedule.last_run_at|date:"m-d H:i" }} 北京时间{% else %}尚未运行{% endif %}</dd></div>
             </dl>
             <footer class="task-card-actions"><button class="task-config-button" type="button" data-dialog-target="market-config-dialog">配置自动任务</button><button class="task-run-button" type="button" data-dialog-target="market-run-dialog"><span aria-hidden="true">▶</span> 手动执行</button></footer>
         </article>
@@ -64,12 +64,12 @@
             <p class="task-description">采集 Ethereum Foundation、Binance、SEC、CFTC、Fed、BLS、Tether、SlowMist Hacked 与 Circle Pressroom，经质量检查后执行分析、客观事实提取与事件库归并。</p>
             <div class="task-next-run">
                 <span>下次计划运行</span>
-                {% if news_schedule.enabled %}<strong>{% timezone news_schedule.timezone %}{{ news_schedule.next_run_at|date:"m月d日 H:i" }}{% endtimezone %}</strong><small>{{ news_schedule.timezone }}</small>{% else %}<strong>启用后计算</strong><small>当前自动计划已停用</small>{% endif %}
+                {% if news_schedule.enabled %}<strong>{% timezone news_schedule.timezone %}{{ news_schedule.next_run_at|date:"m月d日 H:i" }}{% endtimezone %}</strong><small>北京时间</small>{% else %}<strong>启用后计算</strong><small>当前自动计划已停用</small>{% endif %}
             </div>
             <dl class="task-facts">
                 <div><dt>调度频率</dt><dd>每天 {{ news_schedule.run_time|time:"H:i" }}</dd></div>
                 <div><dt>执行流程</dt><dd>采集 → 质检 → 分析</dd></div>
-                <div><dt>上次计划运行</dt><dd>{% if news_schedule.last_run_at %}{{ news_schedule.last_run_at|date:"m-d H:i" }} UTC{% else %}尚未运行{% endif %}</dd></div>
+                <div><dt>上次计划运行</dt><dd>{% if news_schedule.last_run_at %}{{ news_schedule.last_run_at|date:"m-d H:i" }} 北京时间{% else %}尚未运行{% endif %}</dd></div>
             </dl>
             <footer class="task-card-actions"><button class="task-config-button" type="button" data-dialog-target="news-config-dialog">配置自动任务</button><button class="task-run-button" type="button" data-dialog-target="news-run-dialog"><span aria-hidden="true">▶</span> 手动执行</button></footer>
         </article>
@@ -83,12 +83,12 @@
             <p class="task-description">单独采集 CoinDesk 全部新闻 RSS，经质量检查后使用标题与 RSS 摘要执行当前 ETH 方向增量分类。</p>
             <div class="task-next-run">
                 <span>下次计划运行</span>
-                {% if coindesk_schedule.enabled %}<strong>{% timezone coindesk_schedule.timezone %}{{ coindesk_schedule.next_run_at|date:"m月d日 H:i" }}{% endtimezone %}</strong><small>{{ coindesk_schedule.timezone }}</small>{% else %}<strong>启用后计算</strong><small>当前自动计划已停用</small>{% endif %}
+                {% if coindesk_schedule.enabled %}<strong>{% timezone coindesk_schedule.timezone %}{{ coindesk_schedule.next_run_at|date:"m月d日 H:i" }}{% endtimezone %}</strong><small>北京时间</small>{% else %}<strong>启用后计算</strong><small>当前自动计划已停用</small>{% endif %}
             </div>
             <dl class="task-facts">
                 <div><dt>调度频率</dt><dd>每 6 小时（首轮 {{ coindesk_schedule.run_time|time:"H:i" }}）</dd></div>
                 <div><dt>执行流程</dt><dd>采集 → 质检 → 分析 → 事实提取 → 事件归并</dd></div>
-                <div><dt>上次计划运行</dt><dd>{% if coindesk_schedule.last_run_at %}{{ coindesk_schedule.last_run_at|date:"m-d H:i" }} UTC{% else %}尚未运行{% endif %}</dd></div>
+                <div><dt>上次计划运行</dt><dd>{% if coindesk_schedule.last_run_at %}{{ coindesk_schedule.last_run_at|date:"m-d H:i" }} 北京时间{% else %}尚未运行{% endif %}</dd></div>
             </dl>
             <footer class="task-card-actions"><button class="task-config-button" type="button" data-dialog-target="coindesk-config-dialog">配置自动任务</button><button class="task-run-button" type="button" data-dialog-target="coindesk-run-dialog"><span aria-hidden="true">▶</span> 手动执行</button></footer>
         </article>
@@ -102,12 +102,12 @@
             <p class="task-description">采集 ETH DVOL、当前有效期权合约，以及全市场期权行情快照，为 IV、偏度、期限结构和 OI 分析提供原始数据。</p>
             <div class="task-next-run">
                 <span>下次计划运行</span>
-                {% if deribit_schedule.enabled %}<strong>{% timezone deribit_schedule.timezone %}{{ deribit_schedule.next_run_at|date:"m月d日 H:i" }}{% endtimezone %}</strong><small>{{ deribit_schedule.timezone }}</small>{% else %}<strong>启用后计算</strong><small>当前自动计划已停用</small>{% endif %}
+                {% if deribit_schedule.enabled %}<strong>{% timezone deribit_schedule.timezone %}{{ deribit_schedule.next_run_at|date:"m月d日 H:i" }}{% endtimezone %}</strong><small>北京时间</small>{% else %}<strong>启用后计算</strong><small>当前自动计划已停用</small>{% endif %}
             </div>
             <dl class="task-facts">
                 <div><dt>调度频率</dt><dd>每天 {{ deribit_schedule.run_time|time:"H:i" }}</dd></div>
                 <div><dt>执行内容</dt><dd>DVOL → 合约 → 快照</dd></div>
-                <div><dt>上次计划运行</dt><dd>{% if deribit_schedule.last_run_at %}{{ deribit_schedule.last_run_at|date:"m-d H:i" }} UTC{% else %}尚未运行{% endif %}</dd></div>
+                <div><dt>上次计划运行</dt><dd>{% if deribit_schedule.last_run_at %}{{ deribit_schedule.last_run_at|date:"m-d H:i" }} 北京时间{% else %}尚未运行{% endif %}</dd></div>
             </dl>
             <footer class="task-card-actions"><button class="task-config-button" type="button" data-dialog-target="deribit-config-dialog">配置自动任务</button><button class="task-run-button" type="button" data-dialog-target="deribit-run-dialog"><span aria-hidden="true">▶</span> 手动执行</button></footer>
         </article>
@@ -122,7 +122,7 @@
             <p class="task-description">{% if item.schedule.task_type == 'stablecoin' %}采集 Ethereum 稳定币总供应日频数据，并重叠更新近期修订。{% elif item.schedule.task_type == 'etf' %}采集 ETH ETF 每日资金流，动态识别 ticker，区分零值与未公布值。{% else %}保留公开地址余额观察能力；Etherscan 来源条款当前禁止自动采集。{% endif %}</p>
             <div class="task-next-run">
                 <span>下次计划运行</span>
-                {% if item.schedule.task_type == 'addresses' %}<strong>来源策略阻止</strong><small>当前不可执行</small>{% elif item.schedule.enabled %}<strong>{{ item.schedule.next_run_at|date:"m月d日 H:i" }}</strong><small>UTC</small>{% else %}<strong>启用后计算</strong><small>当前自动计划已停用</small>{% endif %}
+                {% if item.schedule.task_type == 'addresses' %}<strong>来源策略阻止</strong><small>当前不可执行</small>{% elif item.schedule.enabled %}<strong>{{ item.schedule.next_run_at|date:"m月d日 H:i" }}</strong><small>北京时间</small>{% else %}<strong>启用后计算</strong><small>当前自动计划已停用</small>{% endif %}
             </div>
             <dl class="task-facts">
                 <div><dt>数据源</dt><dd>{{ item.source }}</dd></div>

@@ -11,10 +11,10 @@
 <section class="panel run-detail-summary" aria-labelledby="summary-title">
     <div class="panel-heading"><div><p class="eyebrow">运行概况</p><h2 id="summary-title">#{{ run.id }} · {{ run.get_trigger_display }}</h2></div><span class="run-status status-{{ run.status }}">{{ run.get_status_display }}</span></div>
     <dl class="run-meta-grid">
-        <div><dt>开始时间</dt><dd>{{ run.started_at|date:"Y-m-d H:i:s" }} UTC</dd></div>
-        <div><dt>完成时间</dt><dd>{% if run.finished_at %}{{ run.finished_at|date:"Y-m-d H:i:s" }} UTC{% else %}尚未完成{% endif %}</dd></div>
+        <div><dt>开始时间</dt><dd>{{ run.started_at|date:"Y-m-d H:i:s" }} 北京时间</dd></div>
+        <div><dt>完成时间</dt><dd>{% if run.finished_at %}{{ run.finished_at|date:"Y-m-d H:i:s" }} 北京时间{% else %}尚未完成{% endif %}</dd></div>
         <div><dt>关联自动任务</dt><dd>{% if run.schedule %}{{ run.schedule.name }}{% else %}手动执行，不关联自动计划{% endif %}</dd></div>
-        {% if run_kind == 'market' %}<div><dt>数据范围</dt><dd>{{ run.range_start|date:"Y-m-d H:i" }} → {{ run.range_end|date:"Y-m-d H:i" }} UTC</dd></div>{% else %}<div><dt>网络策略</dt><dd><a href="{% url 'scheduling:sources' %}">按来源配置</a></dd></div><div><dt>质量问题</dt><dd>{{ run.quality_issue_count }} 个</dd></div>{% endif %}
+        {% if run_kind == 'market' %}<div><dt>数据范围</dt><dd>{{ run.range_start|date:"Y-m-d H:i" }} → {{ run.range_end|date:"Y-m-d H:i" }} 北京时间（交易所 UTC 边界）</dd></div>{% else %}<div><dt>网络策略</dt><dd><a href="{% url 'scheduling:sources' %}">按来源配置</a></dd></div><div><dt>质量问题</dt><dd>{{ run.quality_issue_count }} 个</dd></div>{% endif %}
     </dl>
     <div class="run-explanation{% if run.status == 'failed' or run.status == 'partial' %} is-error{% endif %}"><strong>{% if run.status == 'failed' or run.status == 'partial' %}异常说明{% else %}结果说明{% endif %}</strong><p>{{ summary }}</p></div>
 </section>

@@ -670,7 +670,7 @@ def run_objective_fact_validation(news_ids: list[int]) -> dict:
     after = business_state_snapshot()
     return {
         "report_kind": "temporary_single_article_deepseek_objective_fact_validation",
-        "generated_at": datetime.now().astimezone().isoformat(),
+        "generated_at": timezone.localtime().isoformat(),
         "prompt_version": PROMPT_VERSION,
         "previous_run_model_audit": audit,
         "provider": "DeepSeek",

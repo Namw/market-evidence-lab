@@ -108,6 +108,10 @@ class MarketDataViewTests(TestCase):
         self.assertEqual(len(response.context["funding_chart_data"]), 6)
         self.assertEqual(response.context["range_start"], latest - timedelta(days=1))
         self.assertEqual(response.context["range_end"], latest + timedelta(days=1))
+        self.assertEqual(
+            response.context["range_last_hour"],
+            latest + timedelta(days=1, hours=-1),
+        )
 
     def test_historical_selection_uses_previous_selected_and_following_days(self):
         selected = START + timedelta(days=30)
@@ -144,6 +148,8 @@ class MarketDataViewTests(TestCase):
         self.assertContains(response, 'data-chart="five-minute-oi"')
         self.assertContains(response, 'id="market-data-five-minute"')
         self.assertContains(response, 'id="market-data-five-minute-oi"')
+        self.assertContains(response, "北京时间")
+        self.assertContains(response, "交易所 UTC 日 K")
 
     def test_five_minute_data_is_loaded_for_hourly_click_detail(self):
         selected = START + timedelta(days=30)

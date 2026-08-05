@@ -13,7 +13,7 @@
             <p class="page-intro">用 ATM IV、偏度、期限结构与 OI 观察市场对未来波动和尾部风险的定价。</p>
         </div>
         {% if has_data %}
-        <div class="deribit-sync-state"><span aria-hidden="true"></span><div><strong>数据已同步</strong><small>{% timezone "Asia/Shanghai" %}{{ latest_at|date:"Y-m-d H:i" }}{% endtimezone %} Asia/Shanghai</small></div></div>
+        <div class="deribit-sync-state"><span aria-hidden="true"></span><div><strong>数据已同步</strong><small>{% timezone "Asia/Shanghai" %}{{ latest_at|date:"Y-m-d H:i" }}{% endtimezone %} 北京时间</small></div></div>
         {% endif %}
     </header>
 

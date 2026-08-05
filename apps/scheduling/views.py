@@ -578,9 +578,9 @@ def schedule_index(request):
         "addresses": "Etherscan（条款阻止）",
     }
     fund_frequency = {
-        "stablecoin": "每日 06:00 UTC · 最近 7 天重叠更新",
-        "etf": "每日 06:00 / 12:00 UTC · 最近 14 天回刷",
-        "addresses": "每日 00:10 UTC · Top 1,000（当前策略阻止）",
+        "stablecoin": "每日 14:00 北京时间 · 最近 7 天重叠更新",
+        "etf": "每日 14:00 / 20:00 北京时间 · 最近 14 天回刷",
+        "addresses": "每日 08:10 北京时间 · Top 1,000（当前策略阻止）",
     }
     fund_schedule_rows = []
     for item in fund_schedules:

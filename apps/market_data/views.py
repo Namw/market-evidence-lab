@@ -173,6 +173,7 @@ def data_view(request):
     selected_day_start = datetime.combine(selected_date, time.min, tzinfo=UTC) if selected_date else None
     selected_day_end = selected_day_start + timedelta(days=1) if selected_day_start else None
     range_last_date = range_end.date() - timedelta(days=1) if range_end else None
+    range_last_hour = range_end - timedelta(hours=1) if range_end else None
 
     context = {
         "symbol": SYMBOL,
@@ -210,6 +211,7 @@ def data_view(request):
         "range_start": range_start,
         "range_end": range_end,
         "range_last_date": range_last_date,
+        "range_last_hour": range_last_hour,
         "selected_day_start_iso": _utc_iso(selected_day_start) if selected_day_start else "",
         "selected_day_end_iso": _utc_iso(selected_day_end) if selected_day_end else "",
         "range_start_iso": _utc_iso(range_start) if range_start else "",

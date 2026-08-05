@@ -8,6 +8,7 @@ from django.utils import timezone
 from apps.market_funds.models import StablecoinSupplyDaily
 from apps.scheduling.funds_workflow import (
     FundWorkflowAlreadyRunning,
+    calculate_next_fund_run,
     claim_due_fund_schedules,
     execute_manual_fund_workflow,
     get_builtin_fund_schedules,
@@ -16,6 +17,38 @@ from apps.scheduling.models import FundDataSchedule, FundDataWorkflowRun
 
 
 class ViewAndSchedulingTests(TestCase):
+    def test_fund_schedules_use_equivalent_beijing_wall_times(self):
+        schedules = {item.task_type: item for item in get_builtin_fund_schedules()}
+
+        self.assertEqual(schedules[FundDataSchedule.TaskType.STABLECOIN].run_time.hour, 14)
+        self.assertEqual(schedules[FundDataSchedule.TaskType.ETF].run_time.hour, 14)
+        self.assertEqual(
+            schedules[FundDataSchedule.TaskType.ETF].supplement_run_time.hour,
+            20,
+        )
+        self.assertEqual(schedules[FundDataSchedule.TaskType.ADDRESSES].run_time.hour, 8)
+        self.assertTrue(
+            all(item.timezone == "Asia/Shanghai" for item in schedules.values())
+        )
+
+    def test_fund_schedule_conversion_preserves_original_execution_instants(self):
+        schedules = {item.task_type: item for item in get_builtin_fund_schedules()}
+
+        self.assertEqual(
+            calculate_next_fund_run(
+                schedules[FundDataSchedule.TaskType.STABLECOIN],
+                after=datetime(2026, 8, 5, 5, 59, tzinfo=UTC),
+            ),
+            datetime(2026, 8, 5, 6, 0, tzinfo=UTC),
+        )
+        self.assertEqual(
+            calculate_next_fund_run(
+                schedules[FundDataSchedule.TaskType.ETF],
+                after=datetime(2026, 8, 5, 10, 0, tzinfo=UTC),
+            ),
+            datetime(2026, 8, 5, 12, 0, tzinfo=UTC),
+        )
+
     def test_pages_show_explicit_empty_state_and_real_database_data(self):
         empty = self.client.get(reverse("market_funds:index"))
         self.assertContains(empty, "尚未采集 DeFiLlama 日频数据")

@@ -14,7 +14,8 @@
         </div>
         <div class="data-view-toolbar">
             <span class="market-chip is-primary">{{ symbol }}</span>
-            <span class="market-chip">UTC</span>
+            <span class="market-chip">北京时间</span>
+            <span class="market-chip">日 K 边界 UTC</span>
             {% if selected_date %}
             <form class="date-jump-form" method="get">
                 <label class="sr-only" for="data-view-date">选择日 K 日期</label>
@@ -33,19 +34,19 @@
     <div class="linked-range-summary">
         <span class="summary-dot" aria-hidden="true"></span>
         <strong>选中 {{ selected_date|date:'m/d' }}</strong>
-        <span class="linked-range-text">小时范围 {{ range_start|date:'m/d H:i' }} — {{ range_last_date|date:'m/d' }} 23:00 UTC</span>
+        <span class="linked-range-text">小时范围 {{ range_start|date:'m/d H:i' }} — {{ range_last_hour|date:'m/d H:i' }} 北京时间</span>
     </div>
 
     <section class="data-chart-card daily-chart-card" aria-labelledby="daily-chart-title">
         <div class="data-chart-heading">
             <div>
-                <h2 id="daily-chart-title">日 K</h2>
+                <h2 id="daily-chart-title">交易所 UTC 日 K</h2>
                 <span>最近 {{ daily_chart_data|length }} 根</span>
             </div>
             <p>点击任意日 K 联动下方图表</p>
         </div>
         <dl class="selected-kline-strip">
-            <div class="selected-kline-date"><dt>当前选择</dt><dd>{{ selected_detail.date }} 日 K</dd></div>
+            <div class="selected-kline-date"><dt>当前选择</dt><dd>{{ selected_detail.date }} UTC 日 K</dd></div>
             <div><dt>开</dt><dd>{{ selected_detail.open }}</dd></div>
             <div><dt>高</dt><dd>{{ selected_detail.high }}</dd></div>
             <div><dt>低</dt><dd>{{ selected_detail.low }}</dd></div>
@@ -62,11 +63,11 @@
         <div class="data-chart-heading">
             <div>
                 <h2 id="hourly-chart-title">小时 K</h2>
-                <span>{{ range_start|date:'Y-m-d' }} — {{ range_last_date|date:'Y-m-d' }} · {{ hourly_chart_data|length }} 根</span>
+                <span>{{ range_start|date:'Y-m-d H:i' }} — {{ range_last_hour|date:'Y-m-d H:i' }} 北京时间 · {{ hourly_chart_data|length }} 根</span>
             </div>
             <div class="hourly-heading-actions">
                 <span class="hourly-click-hint">点击任意1h K线查看该小时的5m K线与5m OI</span>
-                <div class="focus-day-key"><span></span>关注日 {{ selected_date|date:'m/d' }}</div>
+                <div class="focus-day-key"><span></span>关注 UTC 日 K {{ selected_date|date:'m/d' }}</div>
             </div>
         </div>
         <div class="data-canvas-wrap hourly-canvas-wrap">
@@ -82,7 +83,7 @@
             </div>
             <div class="chart-legend" aria-label="图例">
                 <span><i class="legend-oi"></i>5m OI</span>
-                <span>UTC</span>
+                <span>北京时间</span>
             </div>
         </div>
         <div class="five-minute-grid">
@@ -105,12 +106,12 @@
         <div class="data-chart-heading">
             <div>
                 <h2 id="derivatives-chart-title">OI / Funding</h2>
-                <span>{{ range_start|date:'Y-m-d' }} — {{ range_last_date|date:'Y-m-d' }}</span>
+                <span>{{ range_start|date:'Y-m-d H:i' }} — {{ range_last_hour|date:'Y-m-d H:i' }} 北京时间</span>
             </div>
             <div class="chart-legend" aria-label="图例">
                 <span><i class="legend-oi"></i>OI</span>
                 <span><i class="legend-funding"></i>Funding</span>
-                <span class="focus-day-key"><i></i>关注日 {{ selected_date|date:'m/d' }}</span>
+                <span class="focus-day-key"><i></i>关注 UTC 日 K {{ selected_date|date:'m/d' }}</span>
             </div>
         </div>
         <div class="data-canvas-wrap derivatives-canvas-wrap">
@@ -134,5 +135,5 @@
 {% endblock %}
 
 {% block extra_js %}
-<script src="{% static 'market_data/js/data_view.js' %}?v=6" defer></script>
+<script src="{% static 'market_data/js/data_view.js' %}?v=7" defer></script>
 {% endblock %}

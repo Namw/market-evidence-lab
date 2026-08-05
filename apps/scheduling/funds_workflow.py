@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime, time, timedelta
+from zoneinfo import ZoneInfo
 
 from django.db import IntegrityError, transaction
 from django.utils import timezone
@@ -14,25 +15,25 @@ from apps.market_funds.collectors import (
 from apps.market_funds.inspection import inspect_fund_data
 from apps.market_funds.models import FundDataInspectionRun
 
-from .models import FundDataSchedule, FundDataWorkflowRun
+from .models import FundDataSchedule, FundDataWorkflowRun, SCHEDULE_TIMEZONE
 
 
 DEFAULT_SCHEDULES = {
     FundDataSchedule.TaskType.STABLECOIN: {
         "name": "Ethereum 稳定币供应",
-        "run_time": time(6, 0),
+        "run_time": time(14, 0),
         "supplement_run_time": None,
         "lookback_days": 7,
     },
     FundDataSchedule.TaskType.ETF: {
         "name": "ETH ETF 每日资金流",
-        "run_time": time(6, 0),
-        "supplement_run_time": time(12, 0),
+        "run_time": time(14, 0),
+        "supplement_run_time": time(20, 0),
         "lookback_days": 14,
     },
     FundDataSchedule.TaskType.ADDRESSES: {
         "name": "Ethereum 公开地址余额快照",
-        "run_time": time(0, 10),
+        "run_time": time(8, 10),
         "supplement_run_time": None,
         "lookback_days": 1,
     },
@@ -44,20 +45,28 @@ class FundWorkflowAlreadyRunning(RuntimeError):
 
 
 def calculate_next_fund_run(schedule, *, after=None):
-    current = (after or timezone.now()).astimezone(UTC)
+    schedule_zone = ZoneInfo(SCHEDULE_TIMEZONE)
+    current = (after or timezone.now()).astimezone(schedule_zone)
     candidates = [
-        datetime.combine(current.date(), schedule.run_time, tzinfo=UTC),
+        datetime.combine(current.date(), schedule.run_time, tzinfo=schedule_zone),
     ]
     if schedule.supplement_run_time:
         candidates.append(
-            datetime.combine(current.date(), schedule.supplement_run_time, tzinfo=UTC)
+            datetime.combine(
+                current.date(),
+                schedule.supplement_run_time,
+                tzinfo=schedule_zone,
+            )
         )
     future = sorted(item for item in candidates if item > current)
     if future:
-        return future[0]
-    return datetime.combine(
-        current.date() + timedelta(days=1), schedule.run_time, tzinfo=UTC
+        return future[0].astimezone(UTC)
+    candidate = datetime.combine(
+        current.date() + timedelta(days=1),
+        schedule.run_time,
+        tzinfo=schedule_zone,
     )
+    return candidate.astimezone(UTC)
 
 
 def get_builtin_fund_schedules():
@@ -73,7 +82,7 @@ def get_builtin_fund_schedules():
             defaults={
                 **defaults,
                 "enabled": False,
-                "timezone": "UTC",
+                "timezone": SCHEDULE_TIMEZONE,
                 "next_run_at": calculate_next_fund_run(provisional),
             },
         )
