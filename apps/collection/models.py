@@ -17,6 +17,7 @@ class CollectionRun(models.Model):
     class Interval(models.TextChoices):
         ONE_DAY = "1d", "1d"
         ONE_HOUR = "1h", "1h"
+        FIVE_MINUTES = "5m", "5m"
         ACTUAL = "actual", "实际结算"
 
     class Trigger(models.TextChoices):

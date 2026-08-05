@@ -48,8 +48,12 @@ def _step_runs(workflow_run):
         ("inspection_1d", "1d 巡检", KlineInspectionRun),
         ("collection_1h", "1h 采集", CollectionRun),
         ("inspection_1h", "1h 巡检", KlineInspectionRun),
+        ("collection_5m", "5m K线采集", CollectionRun),
+        ("inspection_5m", "5m K线巡检", KlineInspectionRun),
         ("collection_oi", "OI 1h 采集", CollectionRun),
         ("inspection_oi", "OI 1h 原始质量检查", DerivativesInspectionRun),
+        ("collection_oi_5m", "OI 5m采集", CollectionRun),
+        ("inspection_oi_5m", "OI 5m原始质量检查", DerivativesInspectionRun),
         ("collection_funding", "Funding 实际结算采集", CollectionRun),
         (
             "inspection_funding",

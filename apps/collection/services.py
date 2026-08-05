@@ -15,7 +15,11 @@ from .models import CollectionRun
 EXCHANGE = Kline.Exchange.BINANCE
 MARKET_TYPE = Kline.MarketType.USD_M_FUTURES
 SUPPORTED_SYMBOL = "ETHUSDT"
-SUPPORTED_INTERVALS = {Kline.Interval.ONE_DAY, Kline.Interval.ONE_HOUR}
+SUPPORTED_INTERVALS = {
+    Kline.Interval.ONE_DAY,
+    Kline.Interval.ONE_HOUR,
+    Kline.Interval.FIVE_MINUTES,
+}
 KLINE_UPDATE_FIELDS = [
     "close_time",
     "open",

@@ -10,7 +10,7 @@
         <div>
             <p class="eyebrow">行情数据观察</p>
             <h1>数据查看</h1>
-            <p class="page-intro">联动查看 {{ symbol }} 日 K、小时 K、OI 与 Funding 数据</p>
+            <p class="page-intro">联动查看 {{ symbol }} 日 K、小时 K、5分钟 K、OI 与 Funding 数据</p>
         </div>
         <div class="data-view-toolbar">
             <span class="market-chip is-primary">{{ symbol }}</span>
@@ -64,10 +64,40 @@
                 <h2 id="hourly-chart-title">小时 K</h2>
                 <span>{{ range_start|date:'Y-m-d' }} — {{ range_last_date|date:'Y-m-d' }} · {{ hourly_chart_data|length }} 根</span>
             </div>
-            <div class="focus-day-key"><span></span>关注日 {{ selected_date|date:'m/d' }}</div>
+            <div class="hourly-heading-actions">
+                <span class="hourly-click-hint">点击任意1h K线查看该小时的5m K线与5m OI</span>
+                <div class="focus-day-key"><span></span>关注日 {{ selected_date|date:'m/d' }}</div>
+            </div>
         </div>
         <div class="data-canvas-wrap hourly-canvas-wrap">
             <canvas data-chart="hourly" aria-label="{{ symbol }} 小时 K 蜡烛图，浅蓝背景为关注日"></canvas>
+        </div>
+    </section>
+
+    <section class="data-chart-card five-minute-detail" data-five-minute-detail hidden aria-labelledby="five-minute-detail-title">
+        <div class="data-chart-heading">
+            <div>
+                <h2 id="five-minute-detail-title">5分钟详情</h2>
+                <span data-five-minute-label>请选择一根1h K线</span>
+            </div>
+            <div class="chart-legend" aria-label="图例">
+                <span><i class="legend-oi"></i>5m OI</span>
+                <span>UTC</span>
+            </div>
+        </div>
+        <div class="five-minute-grid">
+            <div class="five-minute-panel">
+                <strong>5m K线</strong>
+                <div class="data-canvas-wrap five-minute-canvas-wrap">
+                    <canvas data-chart="five-minute" aria-label="选中小时内的5分钟K线"></canvas>
+                </div>
+            </div>
+            <div class="five-minute-panel">
+                <strong>5m OI</strong>
+                <div class="data-canvas-wrap five-minute-oi-canvas-wrap">
+                    <canvas data-chart="five-minute-oi" aria-label="选中小时内的5分钟OI"></canvas>
+                </div>
+            </div>
         </div>
     </section>
 
@@ -96,11 +126,13 @@
 
     {{ daily_chart_data|json_script:"market-data-daily" }}
     {{ hourly_chart_data|json_script:"market-data-hourly" }}
+    {{ five_minute_chart_data|json_script:"market-data-five-minute" }}
     {{ oi_chart_data|json_script:"market-data-oi" }}
+    {{ five_minute_oi_chart_data|json_script:"market-data-five-minute-oi" }}
     {{ funding_chart_data|json_script:"market-data-funding" }}
 </div>
 {% endblock %}
 
 {% block extra_js %}
-<script src="{% static 'market_data/js/data_view.js' %}?v=5" defer></script>
+<script src="{% static 'market_data/js/data_view.js' %}?v=6" defer></script>
 {% endblock %}

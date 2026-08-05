@@ -24,9 +24,13 @@ SUPPORTED_SYMBOL = "ETHUSDT"
 INTERVAL_STEPS = {
     Kline.Interval.ONE_DAY: timedelta(days=1),
     Kline.Interval.ONE_HOUR: timedelta(hours=1),
+    Kline.Interval.FIVE_MINUTES: timedelta(minutes=5),
 }
 DETAIL_LIMIT = 200
-OI_STEP = timedelta(hours=1)
+OI_STEPS = {
+    OpenInterest.Period.ONE_HOUR: timedelta(hours=1),
+    OpenInterest.Period.FIVE_MINUTES: timedelta(minutes=5),
+}
 FUNDING_STEP = timedelta(hours=8)
 FUNDING_TIME_TOLERANCE = timedelta(minutes=1)
 
@@ -38,13 +42,23 @@ def _safe_error_message(exc: Exception) -> str:
 
 def _is_aligned(value: datetime, interval: str) -> bool:
     value = value.astimezone(UTC)
-    if value.minute or value.second or value.microsecond:
+    if value.second or value.microsecond:
+        return False
+    if interval == Kline.Interval.FIVE_MINUTES:
+        return value.minute % 5 == 0
+    if value.minute:
         return False
     return interval == Kline.Interval.ONE_HOUR or value.hour == 0
 
 
 def _closed_boundary(now: datetime, interval: str) -> datetime:
     now = now.astimezone(UTC)
+    if interval == Kline.Interval.FIVE_MINUTES:
+        return now.replace(
+            minute=now.minute - now.minute % 5,
+            second=0,
+            microsecond=0,
+        )
     if interval == Kline.Interval.ONE_HOUR:
         return now.replace(minute=0, second=0, microsecond=0)
     return now.replace(hour=0, minute=0, second=0, microsecond=0)
@@ -323,6 +337,7 @@ def _validate_derivatives_inputs(
     symbol: str,
     range_start: datetime,
     range_end: datetime,
+    period: str,
 ) -> None:
     if symbol != SUPPORTED_SYMBOL:
         raise ValueError(f"Unsupported symbol: {symbol}")
@@ -334,7 +349,13 @@ def _validate_derivatives_inputs(
         raise ValueError("range_start must be earlier than range_end")
     start = range_start.astimezone(UTC)
     end = range_end.astimezone(UTC)
-    if any((start.minute, start.second, start.microsecond, end.minute, end.second, end.microsecond)):
+    if data_type == DerivativesInspectionRun.DataType.OPEN_INTEREST:
+        if period not in OI_STEPS:
+            raise ValueError(f"Unsupported OI period: {period}")
+        step_minutes = int(OI_STEPS[period].total_seconds() // 60)
+        if any((start.minute % step_minutes, start.second, start.microsecond, end.minute % step_minutes, end.second, end.microsecond)):
+            raise ValueError(f"OI inspection ranges must align to {period} UTC boundaries.")
+    elif any((start.minute, start.second, start.microsecond, end.minute, end.second, end.microsecond)):
         raise ValueError("Derivatives inspection ranges must align to UTC hours.")
     if data_type == DerivativesInspectionRun.DataType.FUNDING and (
         start.hour % 8 or end.hour % 8
@@ -372,8 +393,10 @@ def _inspect_open_interest_rows(
     rows: list[OpenInterest],
     range_start: datetime,
     range_end: datetime,
+    period: str = OpenInterest.Period.ONE_HOUR,
 ) -> dict[str, object]:
-    expected = _expected_open_times(range_start, range_end, OI_STEP)
+    step = OI_STEPS[period]
+    expected = _expected_open_times(range_start, range_end, step)
     expected_set = set(expected)
     timestamps = [row.timestamp for row in rows]
     timestamp_counts = Counter(timestamps)
@@ -403,7 +426,7 @@ def _inspect_open_interest_rows(
 
     collector = _DetailCollector(empty_derivatives_inspection_details)
     collector.details["no_data"] = not rows
-    collector.add_many("missing_ranges", _compress_missing_ranges(missing, OI_STEP))
+    collector.add_many("missing_ranges", _compress_missing_ranges(missing, step))
     collector.add_many("duplicate_timestamps", duplicate_items)
     collector.add_many("sequence_issues", sequence_issues)
     collector.add_many("misaligned_timestamps", [_iso(value) for value in misaligned])
@@ -511,6 +534,7 @@ def _perform_derivatives_inspection(
     symbol: str,
     range_start: datetime,
     range_end: datetime,
+    period: str,
 ) -> dict[str, object]:
     common_filters = {
         "exchange": EXCHANGE,
@@ -521,12 +545,12 @@ def _perform_derivatives_inspection(
         rows = list(
             OpenInterest.objects.filter(
                 **common_filters,
-                period="1h",
+                period=period,
                 timestamp__gte=range_start,
                 timestamp__lt=range_end,
             ).order_by("timestamp", "id")
         )
-        return _inspect_open_interest_rows(rows, range_start, range_end)
+        return _inspect_open_interest_rows(rows, range_start, range_end, period)
     rows = list(
         FundingRate.objects.filter(
             **common_filters,
@@ -543,10 +567,11 @@ def _inspect_derivatives(
     range_start: datetime,
     range_end: datetime,
     trigger: str,
+    period: str,
     *,
     source_collection_run=None,
 ) -> DerivativesInspectionRun:
-    _validate_derivatives_inputs(data_type, symbol, range_start, range_end)
+    _validate_derivatives_inputs(data_type, symbol, range_start, range_end, period)
     run = DerivativesInspectionRun.objects.create(
         data_type=data_type,
         exchange=DerivativesInspectionRun.Exchange.BINANCE,
@@ -566,6 +591,7 @@ def _inspect_derivatives(
             symbol=symbol,
             range_start=range_start,
             range_end=range_end,
+            period=period,
         )
         for field, value in results.items():
             setattr(run, field, value)
@@ -591,6 +617,7 @@ def inspect_open_interest(
     range_end: datetime,
     trigger: str = DerivativesInspectionRun.Trigger.MANUAL,
     *,
+    period: str = OpenInterest.Period.ONE_HOUR,
     source_collection_run=None,
 ) -> DerivativesInspectionRun:
     return _inspect_derivatives(
@@ -599,6 +626,7 @@ def inspect_open_interest(
         range_start,
         range_end,
         trigger,
+        period,
         source_collection_run=source_collection_run,
     )
 
@@ -617,5 +645,6 @@ def inspect_funding_rates(
         range_start,
         range_end,
         trigger,
+        "actual",
         source_collection_run=source_collection_run,
     )

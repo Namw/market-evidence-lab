@@ -20,12 +20,15 @@ from .services import SUPPORTED_SYMBOL, _safe_error_message
 
 EXCHANGE = Kline.Exchange.BINANCE
 MARKET_TYPE = Kline.MarketType.USD_M_FUTURES
-OI_PERIOD = "1h"
+SUPPORTED_OI_PERIODS = {
+    OpenInterest.Period.ONE_HOUR,
+    OpenInterest.Period.FIVE_MINUTES,
+}
 
 
 @transaction.atomic
 def _save_oi_batch(
-    *, symbol: str, payloads: Iterable[OpenInterestPayload]
+    *, symbol: str, period: str, payloads: Iterable[OpenInterestPayload]
 ) -> tuple[int, int, int]:
     items = list(payloads)
     existing = {
@@ -34,7 +37,7 @@ def _save_oi_batch(
             exchange=EXCHANGE,
             market_type=MARKET_TYPE,
             symbol=symbol,
-            period=OI_PERIOD,
+            period=period,
             timestamp__in=[item.timestamp for item in items],
         )
     }
@@ -52,7 +55,7 @@ def _save_oi_batch(
                     exchange=EXCHANGE,
                     market_type=MARKET_TYPE,
                     symbol=symbol,
-                    period=OI_PERIOD,
+                    period=period,
                     timestamp=item.timestamp,
                     **values,
                 )
@@ -138,6 +141,7 @@ def _run_collection(
     iterator,
     save_batch,
     owns_client: bool,
+    save_batch_kwargs: dict | None = None,
 ) -> CollectionRun:
     run = CollectionRun.objects.create(
         data_type=data_type,
@@ -157,6 +161,7 @@ def _run_collection(
             created_count, updated_count, skipped_count = save_batch(
                 symbol=symbol,
                 payloads=batch,
+                **(save_batch_kwargs or {}),
             )
             inserted += created_count
             updated += updated_count
@@ -193,14 +198,17 @@ def collect_open_interest(
     range_end: datetime,
     trigger: str = CollectionRun.Trigger.MANUAL,
     *,
+    period: str = OpenInterest.Period.ONE_HOUR,
     client: BinanceOpenInterestClient | None = None,
 ) -> CollectionRun:
     if symbol != SUPPORTED_SYMBOL:
         raise ValueError(f"Unsupported symbol: {symbol}")
+    if period not in SUPPORTED_OI_PERIODS:
+        raise ValueError(f"Unsupported OI period: {period}")
     collector = client or BinanceOpenInterestClient()
     return _run_collection(
         data_type=CollectionRun.DataType.OPEN_INTEREST,
-        interval=CollectionRun.Interval.ONE_HOUR,
+        interval=period,
         symbol=symbol,
         range_start=range_start,
         range_end=range_end,
@@ -208,11 +216,12 @@ def collect_open_interest(
         collector=collector,
         iterator=collector.iter_batches(
             symbol=symbol,
-            period=OI_PERIOD,
+            period=period,
             range_start=range_start,
             range_end=range_end,
         ),
         save_batch=_save_oi_batch,
+        save_batch_kwargs={"period": period},
         owns_client=client is None,
     )
 

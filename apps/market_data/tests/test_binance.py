@@ -13,8 +13,13 @@ def milliseconds(value: datetime) -> int:
     return delta.days * 86_400_000 + delta.seconds * 1_000 + delta.microseconds // 1_000
 
 
-def kline_row(open_time: datetime, *, close: str = "1238.123456789012345678"):
-    close_time = open_time + timedelta(hours=1, milliseconds=-1)
+def kline_row(
+    open_time: datetime,
+    *,
+    close: str = "1238.123456789012345678",
+    duration: timedelta = timedelta(hours=1),
+):
+    close_time = open_time + duration - timedelta(milliseconds=1)
     return [
         milliseconds(open_time),
         "1234.123456789012345678",
@@ -67,6 +72,29 @@ class BinanceKlineClientTests(SimpleTestCase):
         self.assertEqual(client.request_count, 1)
         self.assertEqual(client.received_count, 1)
         self.assertEqual(batches[0][0].open, Decimal("1234.123456789012345678"))
+
+    def test_five_minute_interval_is_supported(self):
+        client = self.make_client(
+            lambda _: httpx.Response(
+                200,
+                json=[kline_row(self.range_start, duration=timedelta(minutes=5))],
+            )
+        )
+
+        batches = list(
+            client.iter_batches(
+                symbol="ETHUSDT",
+                interval="5m",
+                range_start=self.range_start,
+                range_end=self.range_start + timedelta(minutes=5),
+            )
+        )
+
+        self.assertEqual(len(batches[0]), 1)
+        self.assertEqual(
+            batches[0][0].close_time,
+            self.range_start + timedelta(minutes=5, milliseconds=-1),
+        )
 
     def test_multiple_pages_are_requested_until_short_page(self):
         rows = [kline_row(self.range_start + timedelta(hours=index)) for index in range(3)]

@@ -11,6 +11,7 @@ class Kline(models.Model):
     class Interval(models.TextChoices):
         ONE_DAY = "1d", "1d"
         ONE_HOUR = "1h", "1h"
+        FIVE_MINUTES = "5m", "5m"
 
     exchange = models.CharField(max_length=20, choices=Exchange.choices)
     market_type = models.CharField(max_length=30, choices=MarketType.choices)
@@ -56,10 +57,14 @@ class Kline(models.Model):
 
 
 class OpenInterest(models.Model):
+    class Period(models.TextChoices):
+        ONE_HOUR = "1h", "1h"
+        FIVE_MINUTES = "5m", "5m"
+
     exchange = models.CharField(max_length=20, choices=Kline.Exchange.choices)
     market_type = models.CharField(max_length=30, choices=Kline.MarketType.choices)
     symbol = models.CharField(max_length=20)
-    period = models.CharField(max_length=5, choices=(("1h", "1h"),))
+    period = models.CharField(max_length=5, choices=Period.choices)
     timestamp = models.DateTimeField()
     sum_open_interest = models.DecimalField(max_digits=40, decimal_places=18)
     sum_open_interest_value = models.DecimalField(max_digits=40, decimal_places=18)

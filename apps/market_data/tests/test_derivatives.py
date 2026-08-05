@@ -58,6 +58,31 @@ class DerivativesClientTests(SimpleTestCase):
         self.assertEqual(requested_ends[1], milliseconds(self.start + timedelta(hours=1)) - 1)
         self.assertEqual(batches[1][0].sum_open_interest, Decimal("1000.123456789012345670"))
 
+    def test_oi_supports_five_minute_period(self):
+        def handler(request):
+            self.assertEqual(request.url.params["period"], "5m")
+            return httpx.Response(
+                200,
+                json=[{
+                    "symbol": "ETHUSDT",
+                    "timestamp": milliseconds(self.start),
+                    "sumOpenInterest": "1000.5",
+                    "sumOpenInterestValue": "3000000.5",
+                }],
+            )
+
+        client = self.make_client(BinanceOpenInterestClient, handler)
+        batches = list(
+            client.iter_batches(
+                symbol="ETHUSDT",
+                period="5m",
+                range_start=self.start,
+                range_end=self.start + timedelta(minutes=5),
+            )
+        )
+
+        self.assertEqual(len(batches[0]), 1)
+
     def test_funding_inclusive_api_boundary_is_exposed_as_exclusive_range(self):
         boundary = self.start + timedelta(hours=8)
         rows = [

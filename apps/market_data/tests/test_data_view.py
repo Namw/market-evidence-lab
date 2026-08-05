@@ -11,7 +11,12 @@ START = datetime(2026, 5, 1, tzinfo=UTC)
 
 
 def create_kline(interval, open_time, price="3000"):
-    duration = timedelta(days=1) if interval == Kline.Interval.ONE_DAY else timedelta(hours=1)
+    durations = {
+        Kline.Interval.ONE_DAY: timedelta(days=1),
+        Kline.Interval.ONE_HOUR: timedelta(hours=1),
+        Kline.Interval.FIVE_MINUTES: timedelta(minutes=5),
+    }
+    duration = durations[interval]
     price = Decimal(price)
     return Kline.objects.create(
         exchange=Kline.Exchange.BINANCE,
@@ -55,6 +60,21 @@ def create_hourly_range(start, day_count):
                 mark_price=Decimal("3000") + hour,
                 rate_type="settled",
             )
+
+
+def create_five_minute_hour(start):
+    for index in range(12):
+        timestamp = start + timedelta(minutes=5 * index)
+        create_kline(Kline.Interval.FIVE_MINUTES, timestamp, str(3000 + index))
+        OpenInterest.objects.create(
+            exchange=Kline.Exchange.BINANCE,
+            market_type=Kline.MarketType.USD_M_FUTURES,
+            symbol="ETHUSDT",
+            period=OpenInterest.Period.FIVE_MINUTES,
+            timestamp=timestamp,
+            sum_open_interest=Decimal("1200000") + index,
+            sum_open_interest_value=Decimal("3600000000") + index,
+        )
 
 
 class MarketDataViewTests(TestCase):
@@ -120,6 +140,19 @@ class MarketDataViewTests(TestCase):
         self.assertContains(response, 'id="market-data-daily"')
         self.assertContains(response, 'data-chart="hourly"')
         self.assertContains(response, 'data-chart="derivatives"')
+        self.assertContains(response, 'data-chart="five-minute"')
+        self.assertContains(response, 'data-chart="five-minute-oi"')
+        self.assertContains(response, 'id="market-data-five-minute"')
+        self.assertContains(response, 'id="market-data-five-minute-oi"')
+
+    def test_five_minute_data_is_loaded_for_hourly_click_detail(self):
+        selected = START + timedelta(days=30)
+        create_five_minute_hour(selected)
+
+        response = self.client.get(self.url, {"date": selected.date().isoformat()})
+
+        self.assertEqual(len(response.context["five_minute_chart_data"]), 12)
+        self.assertEqual(len(response.context["five_minute_oi_chart_data"]), 12)
 
     def test_page_only_presents_market_data_without_research_features(self):
         response = self.client.get(self.url)

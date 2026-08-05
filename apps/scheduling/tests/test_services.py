@@ -183,22 +183,27 @@ class ConcurrentScheduleClaimTests(TransactionTestCase):
 
 @patch("apps.scheduling.services.collect_and_inspect")
 class WorkflowExecutionTests(TestCase):
-    def test_four_collection_and_inspection_pipelines_run_in_required_order(self, pipeline):
+    def test_six_collection_and_inspection_pipelines_run_in_required_order(self, pipeline):
         pipeline.side_effect = [
             pipeline_result(11, 12),
             pipeline_result(13, 14),
             pipeline_result(15, 16),
             pipeline_result(17, 18),
+            pipeline_result(19, 20),
+            pipeline_result(21, 22),
         ]
 
         run = execute_workflow(lookback_days=3, now=FIXED_NOW)
 
         self.assertEqual(
             [item.kwargs["data_type"] for item in pipeline.call_args_list],
-            ["kline", "kline", "open_interest", "funding"],
+            ["kline", "kline", "kline", "open_interest", "open_interest", "funding"],
         )
         self.assertEqual(pipeline.call_args_list[0].kwargs["interval"], "1d")
         self.assertEqual(pipeline.call_args_list[1].kwargs["interval"], "1h")
+        self.assertEqual(pipeline.call_args_list[2].kwargs["interval"], "5m")
+        self.assertEqual(pipeline.call_args_list[3].kwargs["interval"], "1h")
+        self.assertEqual(pipeline.call_args_list[4].kwargs["interval"], "5m")
         self.assertEqual(run.status, WorkflowRun.Status.SUCCESS)
         self.assertEqual(run.quality_status, WorkflowRun.QualityStatus.PASSED)
 
@@ -208,11 +213,13 @@ class WorkflowExecutionTests(TestCase):
             pipeline_result(23, 24),
             pipeline_result(25, 26),
             pipeline_result(27, 28),
+            pipeline_result(29, 30),
+            pipeline_result(31, 32),
         ]
 
         run = execute_workflow(lookback_days=3, now=FIXED_NOW)
 
-        self.assertEqual(pipeline.call_count, 4)
+        self.assertEqual(pipeline.call_count, 6)
         self.assertEqual(run.status, WorkflowRun.Status.PARTIAL)
         self.assertEqual(run.details["collection_1h_run_id"], 23)
         self.assertEqual(run.quality_status, WorkflowRun.QualityStatus.UNKNOWN)
@@ -223,6 +230,8 @@ class WorkflowExecutionTests(TestCase):
             pipeline_result(33, 34),
             pipeline_result(35, 36),
             pipeline_result(37, 38),
+            pipeline_result(39, 40),
+            pipeline_result(41, 42),
         ]
 
         run = execute_workflow(lookback_days=3, now=FIXED_NOW)
@@ -236,6 +245,8 @@ class WorkflowExecutionTests(TestCase):
             pipeline_result(43, 44),
             pipeline_result(45, 46),
             pipeline_result(47, 48),
+            pipeline_result(49, 50),
+            pipeline_result(51, 52),
         ]
 
         run = execute_workflow(lookback_days=3, now=FIXED_NOW)
@@ -251,7 +262,7 @@ class WorkflowExecutionTests(TestCase):
                 collection_status=CollectionRun.Status.FAILED,
                 inspection_status=KlineInspectionRun.Status.FAILED,
             )
-            for index in (51, 53, 55, 57)
+            for index in (53, 55, 57, 59, 61, 63)
         ]
 
         run = execute_workflow(lookback_days=3, now=FIXED_NOW)
@@ -259,10 +270,10 @@ class WorkflowExecutionTests(TestCase):
         self.assertEqual(run.status, WorkflowRun.Status.FAILED)
         self.assertEqual(run.quality_status, WorkflowRun.QualityStatus.UNKNOWN)
 
-    def test_four_checks_must_all_complete_and_pass_for_overall_passed(self, pipeline):
+    def test_six_checks_must_all_complete_and_pass_for_overall_passed(self, pipeline):
         cases = (
             (
-                [pipeline_result(index, index + 1) for index in (81, 83, 85, 87)],
+                [pipeline_result(index, index + 1) for index in (81, 83, 85, 87, 89, 91)],
                 WorkflowRun.QualityStatus.PASSED,
             ),
             (
@@ -271,6 +282,8 @@ class WorkflowExecutionTests(TestCase):
                     pipeline_result(93, 94),
                     pipeline_result(95, 96),
                     pipeline_result(97, 98),
+                    pipeline_result(99, 100),
+                    pipeline_result(101, 102),
                 ],
                 WorkflowRun.QualityStatus.ISSUES,
             ),
@@ -280,6 +293,8 @@ class WorkflowExecutionTests(TestCase):
                     pipeline_result(103, 104),
                     pipeline_result(105, 106),
                     pipeline_result(107, 108),
+                    pipeline_result(109, 110),
+                    pipeline_result(111, 112),
                 ],
                 WorkflowRun.QualityStatus.UNKNOWN,
             ),
@@ -296,6 +311,8 @@ class WorkflowExecutionTests(TestCase):
             pipeline_result(113, 114),
             pipeline_result(115, 116),
             pipeline_result(117, 118),
+            pipeline_result(119, 120),
+            pipeline_result(121, 122),
         ]
 
         run = execute_workflow(lookback_days=3, now=FIXED_NOW)
@@ -304,13 +321,19 @@ class WorkflowExecutionTests(TestCase):
         self.assertEqual(run.details["inspection_1d_run_id"], 112)
         self.assertEqual(run.details["collection_1h_run_id"], 113)
         self.assertEqual(run.details["inspection_1h_run_id"], 114)
-        self.assertEqual(run.details["collection_oi_run_id"], 115)
-        self.assertEqual(run.details["inspection_oi_run_id"], 116)
-        self.assertEqual(run.details["collection_funding_run_id"], 117)
-        self.assertEqual(run.details["inspection_funding_run_id"], 118)
+        self.assertEqual(run.details["collection_5m_run_id"], 115)
+        self.assertEqual(run.details["inspection_5m_run_id"], 116)
+        self.assertEqual(run.details["collection_oi_run_id"], 117)
+        self.assertEqual(run.details["inspection_oi_run_id"], 118)
+        self.assertEqual(run.details["collection_oi_5m_run_id"], 119)
+        self.assertEqual(run.details["inspection_oi_5m_run_id"], 120)
+        self.assertEqual(run.details["collection_funding_run_id"], 121)
+        self.assertEqual(run.details["inspection_funding_run_id"], 122)
         self.assertEqual(set(run.details["steps"]), {
             "collection_1d", "inspection_1d", "collection_1h", "inspection_1h",
-            "collection_oi", "inspection_oi", "collection_funding", "inspection_funding",
+            "collection_5m", "inspection_5m", "collection_oi", "inspection_oi",
+            "collection_oi_5m", "inspection_oi_5m",
+            "collection_funding", "inspection_funding",
         })
 
     def test_manual_workflow_has_no_schedule_and_uses_manual_child_trigger(self, pipeline):
@@ -319,6 +342,8 @@ class WorkflowExecutionTests(TestCase):
             pipeline_result(123, 124),
             pipeline_result(125, 126),
             pipeline_result(127, 128),
+            pipeline_result(129, 130),
+            pipeline_result(131, 132),
         ]
 
         run = execute_workflow(lookback_days=3, now=FIXED_NOW)

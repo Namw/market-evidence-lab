@@ -7,8 +7,8 @@ Market Evidence Lab 是一个聚焦 ETHUSDT 市场数据与新闻事件观察的
 项目只保留三组产品能力：
 
 1. 采集与调度
-   - Binance USD-M Futures ETHUSDT 1d / 1h K线采集。
-   - 1h OI 与实际 Funding 结算数据采集。
+   - Binance USD-M Futures ETHUSDT 1d / 1h / 5m K线采集。
+   - 1h / 5m OI 与实际 Funding 结算数据采集。
    - 多新闻源采集。
    - 采集质量检查、调度配置和运行记录。
 2. 新闻观察
@@ -17,7 +17,7 @@ Market Evidence Lab 是一个聚焦 ETHUSDT 市场数据与新闻事件观察的
    - 客观事实提取与校验。
    - 多来源新闻归并为暂定事件库。
 3. 行情数据观察
-   - 联动展示日 K、小时 K、OI 与 Funding。
+   - 联动展示日 K、小时 K、OI 与 Funding；点击1h K线查看对应的5m K线与5m OI。
 
 市场异常巡检、研究案例、价格证据、衍生品证据、独立手工行情采集页和独立质检页已移除。
 

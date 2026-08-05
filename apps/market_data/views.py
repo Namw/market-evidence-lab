@@ -99,7 +99,9 @@ def data_view(request):
     selected_daily = daily_by_date.get(selected_date)
 
     hourly_rows: list[Kline] = []
+    five_minute_rows: list[Kline] = []
     oi_rows: list[OpenInterest] = []
+    five_minute_oi_rows: list[OpenInterest] = []
     funding_rows: list[FundingRate] = []
     range_start = None
     range_end = None
@@ -126,10 +128,26 @@ def data_view(request):
                 open_time__lt=range_end,
             ).order_by("open_time")
         )
+        five_minute_rows = list(
+            Kline.objects.filter(
+                **common_filters,
+                interval=Kline.Interval.FIVE_MINUTES,
+                open_time__gte=range_start,
+                open_time__lt=range_end,
+            ).order_by("open_time")
+        )
         oi_rows = list(
             OpenInterest.objects.filter(
                 **common_filters,
-                period="1h",
+                period=OpenInterest.Period.ONE_HOUR,
+                timestamp__gte=range_start,
+                timestamp__lt=range_end,
+            ).order_by("timestamp")
+        )
+        five_minute_oi_rows = list(
+            OpenInterest.objects.filter(
+                **common_filters,
+                period=OpenInterest.Period.FIVE_MINUTES,
                 timestamp__gte=range_start,
                 timestamp__lt=range_end,
             ).order_by("timestamp")
@@ -159,6 +177,7 @@ def data_view(request):
         "symbol": SYMBOL,
         "daily_chart_data": [_kline_row(row) for row in daily_rows],
         "hourly_chart_data": [_kline_row(row) for row in hourly_rows],
+        "five_minute_chart_data": [_kline_row(row) for row in five_minute_rows],
         "oi_chart_data": [
             {
                 "timestamp": _utc_iso(row.timestamp),
@@ -172,6 +191,14 @@ def data_view(request):
                 "value": str(row.funding_rate),
             }
             for row in funding_rows
+        ],
+        "five_minute_oi_chart_data": [
+            {
+                "timestamp": _utc_iso(row.timestamp),
+                "value": str(row.sum_open_interest),
+                "value_usdt": str(row.sum_open_interest_value),
+            }
+            for row in five_minute_oi_rows
         ],
         "selected_detail": _daily_detail(selected_daily),
         "selected_date": selected_date,

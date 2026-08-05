@@ -24,7 +24,7 @@ BUILT_IN_SCHEDULE_NAME = "ETHUSDT每日K线采集与数据质量检查"
 DEFAULT_RUN_TIME = time(8, 5)
 DEFAULT_LOOKBACK_DAYS = 3
 SYMBOL = "ETHUSDT"
-INTERVALS = ("1d", "1h")
+INTERVALS = ("1d", "1h", "5m")
 
 
 def calculate_utc_range(
@@ -244,8 +244,16 @@ def execute_workflow(
     run_collection_pipeline(
         data_type=CollectionRun.DataType.OPEN_INTEREST,
         key_suffix="oi",
+        interval="1h",
         collection_label="OI CollectionRun",
         inspection_label="OI DerivativesInspectionRun",
+    )
+    run_collection_pipeline(
+        data_type=CollectionRun.DataType.OPEN_INTEREST,
+        key_suffix="oi_5m",
+        interval="5m",
+        collection_label="OI 5m CollectionRun",
+        inspection_label="OI 5m DerivativesInspectionRun",
     )
     run_collection_pipeline(
         data_type=CollectionRun.DataType.FUNDING,
@@ -254,7 +262,7 @@ def execute_workflow(
         inspection_label="Funding DerivativesInspectionRun",
     )
 
-    all_successful = len(step_statuses) == 8 and all(
+    all_successful = len(step_statuses) == 12 and all(
         status == "success" for status in step_statuses
     )
     made_progress = any(status in {"success", "partial"} for status in step_statuses)
@@ -271,7 +279,7 @@ def execute_workflow(
         for status, quality_status in inspection_results
     ):
         workflow_run.quality_status = WorkflowRun.QualityStatus.ISSUES
-    elif len(inspection_results) == 4 and all(
+    elif len(inspection_results) == 6 and all(
         status == KlineInspectionRun.Status.SUCCESS
         and quality_status == KlineInspectionRun.QualityStatus.PASSED
         for status, quality_status in inspection_results

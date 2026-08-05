@@ -12,10 +12,11 @@ from django.utils import timezone
 
 
 SUPPORTED_SYMBOL = "ETHUSDT"
-SUPPORTED_INTERVALS = {"1d", "1h"}
+SUPPORTED_INTERVALS = {"1d", "1h", "5m"}
 INTERVAL_MILLISECONDS = {
     "1d": 86_400_000,
     "1h": 3_600_000,
+    "5m": 300_000,
 }
 EPOCH = datetime(1970, 1, 1, tzinfo=UTC)
 

@@ -177,6 +177,7 @@ class _BinanceDerivativesClient:
 
 class BinanceOpenInterestClient(_BinanceDerivativesClient):
     endpoint = "/futures/data/openInterestHist"
+    supported_periods = {"1h", "5m"}
 
     def iter_batches(
         self,
@@ -186,7 +187,7 @@ class BinanceOpenInterestClient(_BinanceDerivativesClient):
         range_start: datetime,
         range_end: datetime,
     ) -> Iterator[list[OpenInterestPayload]]:
-        if period != "1h":
+        if period not in self.supported_periods:
             raise ValueError(f"Unsupported OI period: {period}")
         for rows in self._iter_rows(
             symbol=symbol,

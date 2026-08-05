@@ -85,6 +85,33 @@ class CollectionPipelineTests(TestCase):
         )
         self.assertEqual(result.inspection_run.expected_count, 25)
 
+    def test_five_minute_oi_pipeline_uses_five_minute_boundary_and_quality_step(self):
+        payloads = [
+            OpenInterestPayload(
+                START + timedelta(minutes=5 * index),
+                Decimal("1000"),
+                Decimal("3000000"),
+            )
+            for index in range(13)
+        ]
+
+        result = collect_and_inspect(
+            data_type=CollectionRun.DataType.OPEN_INTEREST,
+            symbol="ETHUSDT",
+            interval="5m",
+            range_start=START,
+            range_end=START + timedelta(hours=1),
+            client=FakeClient([payloads]),
+        )
+
+        self.assertEqual(result.collection_run.interval, "5m")
+        self.assertEqual(result.collection_run.range_end, START + timedelta(minutes=65))
+        self.assertEqual(result.inspection_run.expected_count, 13)
+        self.assertEqual(
+            result.inspection_run.quality_status,
+            DerivativesInspectionRun.QualityStatus.PASSED,
+        )
+
     def test_funding_pipeline_uses_actual_eight_hour_settlements(self):
         payloads = [
             FundingRatePayload(

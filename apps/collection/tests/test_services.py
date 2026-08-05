@@ -143,8 +143,9 @@ class CollectionServiceTests(TestCase):
     def test_one_run_record_represents_one_interval(self):
         self.collect(FakeClient([[]], received_count=0), interval="1d")
         self.collect(FakeClient([[]], received_count=0), interval="1h")
+        self.collect(FakeClient([[]], received_count=0), interval="5m")
 
         self.assertCountEqual(
             CollectionRun.objects.values_list("interval", flat=True),
-            ["1d", "1h"],
+            ["1d", "1h", "5m"],
         )

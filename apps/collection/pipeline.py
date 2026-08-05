@@ -11,6 +11,7 @@ from apps.inspection.models import (
 )
 from apps.inspection.news import inspect_news_collection
 from apps.news_data.services import collect_news_feed, collect_news_source
+from apps.market_data.models import OpenInterest
 from apps.inspection.services import (
     inspect_funding_rates,
     inspect_klines,
@@ -67,6 +68,7 @@ def collect_and_inspect(
         if interval not in {
             CollectionRun.Interval.ONE_DAY,
             CollectionRun.Interval.ONE_HOUR,
+            CollectionRun.Interval.FIVE_MINUTES,
         }:
             raise ValueError("A supported Kline interval is required.")
         collection_run = collect_klines(
@@ -88,14 +90,22 @@ def collect_and_inspect(
             source_collection_run=collection_run,
         )
     elif data_type == CollectionRun.DataType.OPEN_INTEREST:
-        # Binance OI 1h timestamps represent period ends. Include the end-date
+        period = interval or OpenInterest.Period.ONE_HOUR
+        period_steps = {
+            OpenInterest.Period.ONE_HOUR: timedelta(hours=1),
+            OpenInterest.Period.FIVE_MINUTES: timedelta(minutes=5),
+        }
+        if period not in period_steps:
+            raise ValueError("A supported OI period is required.")
+        # Binance OI timestamps represent period ends. Include the following
         # boundary so a requested set of UTC days can be checked end-to-end.
-        effective_end = range_end + timedelta(hours=1)
+        effective_end = range_end + period_steps[period]
         collection_run = collect_open_interest(
             symbol,
             range_start,
             effective_end,
             trigger=trigger,
+            period=period,
             client=client,
         )
         if between_steps_callback is not None:
@@ -105,6 +115,7 @@ def collect_and_inspect(
             collection_run.range_start,
             collection_run.range_end,
             trigger=trigger,
+            period=period,
             source_collection_run=collection_run,
         )
     elif data_type == CollectionRun.DataType.FUNDING:

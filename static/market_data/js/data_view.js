@@ -18,6 +18,7 @@
     });
     const dailyRows = readJson("market-data-daily").map(toKline);
     const hourlyRows = readJson("market-data-hourly").map(toKline);
+    const fiveMinuteRows = readJson("market-data-five-minute").map(toKline);
     const oiRows = readJson("market-data-oi").map((row) => ({
         time: new Date(row.timestamp),
         value: Number(row.value),
@@ -25,6 +26,11 @@
     const fundingRows = readJson("market-data-funding").map((row) => ({
         time: new Date(row.timestamp),
         value: Number(row.value) * 100,
+    }));
+    const fiveMinuteOiRows = readJson("market-data-five-minute-oi").map((row) => ({
+        time: new Date(row.timestamp),
+        value: Number(row.value),
+        valueUsdt: Number(row.value_usdt),
     }));
 
     const rangeStart = new Date(root.dataset.rangeStart);
@@ -50,6 +56,8 @@
     const font = '11px Inter, ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif';
     const selectedFont = '600 11px Inter, ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif';
     let dailyGeometry = null;
+    let hourlyGeometry = null;
+    let selectedHourStart = null;
 
     function availableCanvasHeight(canvas, fallback) {
         const wrapHeight = canvas.parentElement?.getBoundingClientRect().height || 0;
@@ -300,6 +308,147 @@
             const candleTime = new Date(row.time.getTime() + 30 * 60 * 1000);
             drawCandle(context, row, timeX(candleTime, bounds.left, bounds.width), candleWidth, scale.y);
         });
+        if (selectedHourStart) {
+            const selectedX = timeX(
+                new Date(selectedHourStart.getTime() + 30 * 60 * 1000),
+                bounds.left,
+                bounds.width
+            );
+            context.strokeStyle = colors.blue;
+            context.lineWidth = 1.5;
+            context.strokeRect(
+                selectedX - candleWidth / 2 - 2,
+                bounds.top,
+                candleWidth + 4,
+                bounds.height
+            );
+        }
+        hourlyGeometry = { bounds, rows };
+    }
+
+    function detailX(value, left, width, start, end) {
+        return left + ((value.getTime() - start.getTime()) / (end.getTime() - start.getTime())) * width;
+    }
+
+    function drawFiveMinuteTimeAxis(context, bounds, start, end) {
+        context.font = font;
+        context.textAlign = "center";
+        context.textBaseline = "top";
+        for (let minute = 0; minute <= 60; minute += 15) {
+            const tick = new Date(start.getTime() + minute * 60 * 1000);
+            const x = detailX(tick, bounds.left, bounds.width, start, end);
+            context.strokeStyle = colors.grid;
+            context.beginPath();
+            context.moveTo(x, bounds.top);
+            context.lineTo(x, bounds.top + bounds.height);
+            context.stroke();
+            context.fillStyle = colors.axis;
+            context.fillText(
+                `${String(tick.getUTCHours()).padStart(2, "0")}:${String(tick.getUTCMinutes()).padStart(2, "0")}`,
+                x,
+                bounds.top + bounds.height + 9
+            );
+        }
+    }
+
+    function selectedFiveMinuteRows(rows) {
+        if (!selectedHourStart) return [];
+        const end = selectedHourStart.getTime() + 60 * 60 * 1000;
+        return rows.filter((row) => {
+            const value = row.time.getTime();
+            return value >= selectedHourStart.getTime() && value < end;
+        });
+    }
+
+    function drawFiveMinute() {
+        const canvas = root.querySelector('[data-chart="five-minute"]');
+        if (!canvas || !selectedHourStart) return;
+        const { context, width, height } = setupCanvas(
+            canvas,
+            availableCanvasHeight(canvas, 190)
+        );
+        const rows = finiteKlines(selectedFiveMinuteRows(fiveMinuteRows));
+        if (!rows.length) {
+            drawEmpty(context, width, height, "该小时暂无5m K线数据");
+            return;
+        }
+        const start = selectedHourStart;
+        const end = new Date(start.getTime() + 60 * 60 * 1000);
+        const bounds = { left: 18, right: 68, top: 14, bottom: 29 };
+        bounds.width = width - bounds.left - bounds.right;
+        bounds.height = height - bounds.top - bounds.bottom;
+        const scale = priceScale(rows, bounds.top, bounds.height);
+        drawPriceGrid(context, bounds, scale);
+        drawFiveMinuteTimeAxis(context, bounds, start, end);
+        const candleWidth = Math.max(3, Math.min(12, bounds.width / 12 * 0.55));
+        rows.forEach((row) => {
+            const center = new Date(row.time.getTime() + 2.5 * 60 * 1000);
+            drawCandle(
+                context,
+                row,
+                detailX(center, bounds.left, bounds.width, start, end),
+                candleWidth,
+                scale.y
+            );
+        });
+    }
+
+    function drawFiveMinuteOi() {
+        const canvas = root.querySelector('[data-chart="five-minute-oi"]');
+        if (!canvas || !selectedHourStart) return;
+        const { context, width, height } = setupCanvas(
+            canvas,
+            availableCanvasHeight(canvas, 190)
+        );
+        const rows = selectedFiveMinuteRows(fiveMinuteOiRows).filter(
+            (row) => Number.isFinite(row.time.getTime()) && Number.isFinite(row.value)
+        );
+        if (!rows.length) {
+            drawEmpty(context, width, height, "该小时暂无5m OI数据");
+            return;
+        }
+        const start = selectedHourStart;
+        const end = new Date(start.getTime() + 60 * 60 * 1000);
+        const bounds = { left: 72, right: 18, top: 14, bottom: 29 };
+        bounds.width = width - bounds.left - bounds.right;
+        bounds.height = height - bounds.top - bounds.bottom;
+        const domain = paddedDomain(rows.map((row) => row.value));
+        const y = (value) => bounds.top + ((domain.maximum - value) / (domain.maximum - domain.minimum)) * bounds.height;
+
+        context.font = font;
+        context.textBaseline = "middle";
+        context.textAlign = "right";
+        for (let index = 0; index <= 4; index += 1) {
+            const gridY = bounds.top + bounds.height * index / 4;
+            const value = domain.maximum - (domain.maximum - domain.minimum) * index / 4;
+            context.strokeStyle = colors.grid;
+            context.beginPath();
+            context.moveTo(bounds.left, gridY);
+            context.lineTo(bounds.left + bounds.width, gridY);
+            context.stroke();
+            context.fillStyle = colors.axis;
+            context.fillText(formatCompact(value), bounds.left - 9, gridY);
+        }
+        drawFiveMinuteTimeAxis(context, bounds, start, end);
+        const points = rows.map((row) => ({
+            x: detailX(
+                new Date(row.time.getTime() + 2.5 * 60 * 1000),
+                bounds.left,
+                bounds.width,
+                start,
+                end
+            ),
+            y: y(row.value),
+        }));
+        context.strokeStyle = colors.blue;
+        context.lineWidth = 2;
+        drawStraightLine(context, points);
+        points.forEach((point) => {
+            context.beginPath();
+            context.fillStyle = colors.blue;
+            context.arc(point.x, point.y, 2.5, 0, Math.PI * 2);
+            context.fill();
+        });
     }
 
     function paddedDomain(values, includeZero = false) {
@@ -406,7 +555,40 @@
     function drawAll() {
         drawDaily();
         drawHourly();
+        drawFiveMinute();
+        drawFiveMinuteOi();
         drawDerivatives();
+    }
+
+    const hourlyCanvas = root.querySelector('[data-chart="hourly"]');
+    if (hourlyCanvas) {
+        hourlyCanvas.addEventListener("click", (event) => {
+            if (!hourlyGeometry?.rows.length) return;
+            const rect = hourlyCanvas.getBoundingClientRect();
+            const x = event.clientX - rect.left;
+            const { bounds, rows } = hourlyGeometry;
+            if (x < bounds.left || x > bounds.left + bounds.width) return;
+            const targetTime = rangeStart.getTime()
+                + ((x - bounds.left) / bounds.width) * (rangeEnd.getTime() - rangeStart.getTime());
+            const selected = rows.reduce((closest, row) => (
+                Math.abs(row.time.getTime() + 30 * 60 * 1000 - targetTime)
+                    < Math.abs(closest.time.getTime() + 30 * 60 * 1000 - targetTime)
+                    ? row
+                    : closest
+            ));
+            selectedHourStart = new Date(selected.time);
+            const detail = root.querySelector("[data-five-minute-detail]");
+            const label = root.querySelector("[data-five-minute-label]");
+            if (detail) detail.hidden = false;
+            root.classList.add("has-five-minute-detail");
+            if (label) {
+                const klineCount = selectedFiveMinuteRows(fiveMinuteRows).length;
+                const oiCount = selectedFiveMinuteRows(fiveMinuteOiRows).length;
+                const dateHour = selectedHourStart.toISOString().slice(0, 13).replace("T", " ");
+                label.textContent = `${dateHour}:00–${String(selectedHourStart.getUTCHours()).padStart(2, "0")}:59 UTC · ${klineCount}根K线 · ${oiCount}条OI`;
+            }
+            drawAll();
+        });
     }
 
     const dailyCanvas = root.querySelector('[data-chart="daily"]');
