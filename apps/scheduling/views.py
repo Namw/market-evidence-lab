@@ -357,6 +357,7 @@ def schedule_index(request):
                     trigger=NewsWorkflowRun.Trigger.MANUAL,
                     schedule=None,
                     feed_group=NewsWorkflowSchedule.FeedGroup.CORE,
+                    use_source_proxy=request.POST.get("use_source_proxy") == "1",
                 )
             except NewsWorkflowAlreadyRunning:
                 messages.warning(request, "已有新闻工作流正在运行，未重复启动。")

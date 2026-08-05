@@ -18,6 +18,8 @@ class NewsCollectionViewTests(TestCase):
         self.assertContains(response, "SlowMist Hacked")
         self.assertContains(response, "CoinDesk")
         self.assertContains(response, "Circle Pressroom")
+        self.assertContains(response, "Federal Reserve Board")
+        self.assertContains(response, "U.S. Bureau of Labor Statistics")
         self.assertContains(response, "零可解析内容")
         self.assertContains(response, "新闻数据采集")
 

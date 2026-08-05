@@ -158,6 +158,10 @@ NEWS_COLLECTOR_USER_AGENT = os.getenv(
     "NEWS_COLLECTOR_USER_AGENT",
     "MarketEvidenceLab/1.0 jackywangcode@gmail.com",
 )
+NEWS_SOURCE_PROXY_URL = os.getenv(
+    "NEWS_SOURCE_PROXY_URL",
+    os.getenv("BLS_NEWS_PROXY_URL", ""),
+).strip()
 SEC_NEWS_USER_AGENT = os.getenv(
     "SEC_NEWS_USER_AGENT",
     "MarketEvidenceLab/1.0 jackywangcode@gmail.com",

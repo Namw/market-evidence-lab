@@ -11,6 +11,8 @@ TETHER_CODE = "tether_news"
 SLOWMIST_CODE = "slowmist_hacked"
 COINDESK_CODE = "coindesk"
 CIRCLE_CODE = "circle_pressroom"
+FEDERAL_RESERVE_CODE = "federal_reserve"
+BLS_CODE = "bls"
 
 SEC_PRESS_RELEASES_CODE = "sec_press_releases"
 SEC_SPEECHES_STATEMENTS_CODE = "sec_speeches_statements"
@@ -21,6 +23,10 @@ CFTC_SPEECHES_TESTIMONY_CODE = "cftc_speeches_testimony"
 TETHER_NEWS_CODE = "tether_news"
 SLOWMIST_HACKED_CODE = "slowmist_hacked"
 CIRCLE_PRESSROOM_CODE = "circle_pressroom"
+FED_MONETARY_POLICY_CODE = "fed_monetary_policy"
+BLS_EMPLOYMENT_SITUATION_CODE = "bls_employment_situation"
+BLS_CPI_CODE = "bls_cpi"
+BLS_PPI_CODE = "bls_ppi"
 
 
 @dataclass(frozen=True, slots=True)
@@ -113,6 +119,22 @@ SOURCE_DEFINITIONS = {
         base_url="https://www.circle.com",
         feed_url="https://www.circle.com/pressroom",
         parser_version="circle-pressroom-html-v1",
+    ),
+    FEDERAL_RESERVE_CODE: SourceDefinition(
+        code=FEDERAL_RESERVE_CODE,
+        name="Federal Reserve Board",
+        collection_method="rss",
+        observation_scope="crypto_systemic",
+        base_url="https://www.federalreserve.gov",
+        parser_version="multi-feed-v1",
+    ),
+    BLS_CODE: SourceDefinition(
+        code=BLS_CODE,
+        name="U.S. Bureau of Labor Statistics",
+        collection_method="rss",
+        observation_scope="crypto_systemic",
+        base_url="https://www.bls.gov",
+        parser_version="multi-feed-v1",
     ),
 }
 
@@ -223,7 +245,51 @@ FEED_DEFINITIONS = {
         parser_version="circle-pressroom-html-v1",
         bootstrap_visible_items=True,
     ),
+    FED_MONETARY_POLICY_CODE: FeedDefinition(
+        code=FED_MONETARY_POLICY_CODE,
+        source_code=FEDERAL_RESERVE_CODE,
+        name="Monetary Policy",
+        collection_method="rss",
+        feed_url="https://www.federalreserve.gov/feeds/press_monetary.xml",
+        parser_version="generic-rss-v2",
+        bootstrap_visible_items=True,
+    ),
+    BLS_EMPLOYMENT_SITUATION_CODE: FeedDefinition(
+        code=BLS_EMPLOYMENT_SITUATION_CODE,
+        source_code=BLS_CODE,
+        name="Employment Situation",
+        collection_method="rss",
+        feed_url="https://www.bls.gov/feed/empsit.rss",
+        parser_version="generic-rss-v2",
+        bootstrap_visible_items=True,
+    ),
+    BLS_CPI_CODE: FeedDefinition(
+        code=BLS_CPI_CODE,
+        source_code=BLS_CODE,
+        name="Consumer Price Index",
+        collection_method="rss",
+        feed_url="https://www.bls.gov/feed/cpi.rss",
+        parser_version="generic-rss-v2",
+        bootstrap_visible_items=True,
+    ),
+    BLS_PPI_CODE: FeedDefinition(
+        code=BLS_PPI_CODE,
+        source_code=BLS_CODE,
+        name="Producer Price Index",
+        collection_method="rss",
+        feed_url="https://www.bls.gov/feed/ppi.rss",
+        parser_version="generic-rss-v2",
+        bootstrap_visible_items=True,
+    ),
 }
+
+BLS_FEED_CODES = {
+    BLS_EMPLOYMENT_SITUATION_CODE,
+    BLS_CPI_CODE,
+    BLS_PPI_CODE,
+}
+
+OPTIONAL_PROXY_FEED_CODES = BLS_FEED_CODES | {BINANCE_ANNOUNCEMENTS_CODE}
 
 SEC_FEED_CODES = {
     SEC_PRESS_RELEASES_CODE,
@@ -237,6 +303,8 @@ SUMMARY_ONLY_SOURCE_CODES = {
     SLOWMIST_CODE,
     COINDESK_CODE,
     CIRCLE_CODE,
+    FEDERAL_RESERVE_CODE,
+    BLS_CODE,
 }
 
 BINANCE_PAGE_SIZE = 20

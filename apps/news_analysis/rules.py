@@ -4,7 +4,11 @@ import re
 from dataclasses import dataclass
 
 from apps.news_data.models import NewsRawRecord
-from apps.news_data.sources import BINANCE_ANNOUNCEMENTS_CODE
+from apps.news_data.sources import (
+    BINANCE_ANNOUNCEMENTS_CODE,
+    BLS_CODE,
+    FEDERAL_RESERVE_CODE,
+)
 
 from .models import NewsAnalysisResult
 
@@ -80,9 +84,20 @@ ETH_TITLE_RULES = (
     ),
 )
 
+OFFICIAL_MACRO_SOURCE_CODES = {FEDERAL_RESERVE_CODE, BLS_CODE}
+
 
 def match_fixed_rule(record: NewsRawRecord) -> RuleDecision | None:
     """Return only high-certainty conclusions available from the title alone."""
+    if record.source.code in OFFICIAL_MACRO_SOURCE_CODES:
+        return RuleDecision(
+            rule_id="official_macro_release_unclear_v1",
+            conclusion=NewsAnalysisResult.Conclusion.UNCLEAR,
+            rationale=(
+                "该条目属于已选定的官方宏观发布，保留为系统性市场事件候选；"
+                "仅凭发布内容不预设其对 ETH 的方向。"
+            ),
+        )
     title = " ".join(record.title.split())
     rules = ETH_TITLE_RULES
     if record.source.code == BINANCE_ANNOUNCEMENTS_CODE:

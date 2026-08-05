@@ -89,6 +89,7 @@ class NewsRequestClient:
         user_agent: str = "MarketEvidenceLab/1.0 jackywangcode@gmail.com",
         rate_limit_key: str = "",
         min_request_interval_seconds: float = 0,
+        proxy_url: str = "",
     ) -> None:
         self.max_retries = max_retries
         self.sleep_fn = sleep_fn
@@ -99,6 +100,8 @@ class NewsRequestClient:
             timeout=timeout_seconds,
             follow_redirects=True,
             headers={"User-Agent": user_agent},
+            proxy=proxy_url or None,
+            trust_env=False,
         )
         self.last_started_at: datetime | None = None
         self.last_finished_at: datetime | None = None

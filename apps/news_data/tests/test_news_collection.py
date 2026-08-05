@@ -6,7 +6,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 import httpx
-from django.test import TestCase
+from django.test import TestCase, override_settings
 
 from apps.collection.models import CollectionRun
 from apps.collection.pipeline import collect_and_inspect
@@ -33,9 +33,15 @@ from apps.news_data.services import (
 )
 from apps.news_data.sources import (
     BINANCE_ANNOUNCEMENTS_CODE,
+    BLS_CODE,
+    BLS_CPI_CODE,
+    BLS_EMPLOYMENT_SITUATION_CODE,
+    BLS_PPI_CODE,
     CIRCLE_PRESSROOM_CODE,
     COINDESK_CODE,
     ETHEREUM_FOUNDATION_CODE,
+    FEDERAL_RESERVE_CODE,
+    FED_MONETARY_POLICY_CODE,
     SEC_LITIGATION_RELEASES_CODE,
     SLOWMIST_HACKED_CODE,
     TETHER_NEWS_CODE,
@@ -155,6 +161,7 @@ class NewsCollectionTests(TestCase):
         self.binance.last_inspection_status = NewsSource.InspectionStatus.NEVER_RUN
         self.binance.health_status = NewsSource.HealthStatus.NEVER_RUN
         self.binance.save()
+        self.binance_feed = NewsFeed.objects.get(code=BINANCE_ANNOUNCEMENTS_CODE)
         self.tether = NewsSource.objects.get(code=TETHER_NEWS_CODE)
         self.tether_feed = NewsFeed.objects.get(code=TETHER_NEWS_CODE)
         self.tether_feed.activated_at = END - timedelta(minutes=1)
@@ -175,6 +182,21 @@ class NewsCollectionTests(TestCase):
         self.circle_feed.activated_at = END - timedelta(minutes=1)
         self.circle_feed.trusted_coverage_end = None
         self.circle_feed.save(update_fields=["activated_at", "trusted_coverage_end"])
+        self.federal_reserve = NewsSource.objects.get(code=FEDERAL_RESERVE_CODE)
+        self.fed_feed = NewsFeed.objects.get(code=FED_MONETARY_POLICY_CODE)
+        self.fed_feed.activated_at = END - timedelta(minutes=1)
+        self.fed_feed.trusted_coverage_end = None
+        self.fed_feed.save(update_fields=["activated_at", "trusted_coverage_end"])
+        self.bls = NewsSource.objects.get(code=BLS_CODE)
+        self.bls_feeds = {
+            feed.code: feed
+            for feed in NewsFeed.objects.filter(source=self.bls)
+        }
+        for feed in self.bls_feeds.values():
+            feed.activated_at = END - timedelta(minutes=1)
+            feed.trusted_coverage_end = None
+            feed.save(update_fields=["activated_at", "trusted_coverage_end"])
+        self.bls_cpi_feed = NewsFeed.objects.get(code=BLS_CPI_CODE)
 
     def test_first_run_only_accepts_items_at_or_after_activation(self):
         result = collect_and_inspect(
@@ -350,6 +372,105 @@ class NewsCollectionTests(TestCase):
         self.assertTrue(
             result.collection_run.news_diagnostics.get().details["xml_recovered"]
         )
+
+    def test_fed_and_bls_official_rss_feeds_are_seeded(self):
+        self.assertEqual(
+            set(
+                NewsFeed.objects.filter(source=self.bls).values_list(
+                    "code", flat=True
+                )
+            ),
+            {
+                BLS_EMPLOYMENT_SITUATION_CODE,
+                BLS_CPI_CODE,
+                BLS_PPI_CODE,
+            },
+        )
+        self.assertEqual(
+            self.federal_reserve.authority_level,
+            NewsSource.AuthorityLevel.HIGHEST,
+        )
+        self.assertEqual(self.bls.authority_level, NewsSource.AuthorityLevel.HIGHEST)
+        self.assertTrue(self.fed_feed.bootstrap_visible_items)
+        self.assertTrue(self.bls_cpi_feed.bootstrap_visible_items)
+        self.assertEqual(self.bls_cpi_feed.parser_version, "generic-rss-v2")
+
+    @override_settings(NEWS_SOURCE_PROXY_URL="http://127.0.0.1:7897")
+    def test_restricted_source_client_uses_proxy_only_when_selected(self):
+        with patch("apps.news_data.collectors.httpx.Client") as http_client:
+            proxied = _default_request_client(
+                self.bls_cpi_feed,
+                use_source_proxy=True,
+            )
+            proxy_call = http_client.call_args
+            direct = _default_request_client(
+                self.bls_cpi_feed,
+                use_source_proxy=False,
+            )
+            direct_call = http_client.call_args
+            binance = _default_request_client(
+                self.binance_feed,
+                use_source_proxy=True,
+            )
+            binance_call = http_client.call_args
+
+        self.assertEqual(proxy_call.kwargs["proxy"], "http://127.0.0.1:7897")
+        self.assertIsNone(direct_call.kwargs["proxy"])
+        self.assertEqual(binance_call.kwargs["proxy"], "http://127.0.0.1:7897")
+        self.assertFalse(proxy_call.kwargs["trust_env"])
+        self.assertFalse(direct_call.kwargs["trust_env"])
+        self.assertFalse(binance_call.kwargs["trust_env"])
+        proxied.close()
+        direct.close()
+        binance.close()
+
+    @override_settings(NEWS_SOURCE_PROXY_URL="")
+    def test_selected_source_proxy_requires_configured_url(self):
+        with self.assertRaisesMessage(ValueError, "NEWS_SOURCE_PROXY_URL"):
+            _default_request_client(self.bls_cpi_feed, use_source_proxy=True)
+
+    def test_fed_monetary_policy_rss_uses_generic_collection_pipeline(self):
+        result = collect_and_inspect(
+            data_type="news",
+            feed_code=FED_MONETARY_POLICY_CODE,
+            range_end=END,
+            client=request_client(
+                response_for(fixture("fed_monetary.xml"), "text/xml")
+            ),
+        )
+
+        record = NewsRawRecord.objects.get(source=self.federal_reserve)
+        self.assertEqual(record.title, "Federal Reserve issues FOMC statement")
+        self.assertEqual(record.source_category, "Monetary Policy")
+        self.assertEqual(
+            record.published_at,
+            datetime(2026, 7, 29, 18, 0, tzinfo=UTC),
+        )
+        self.assertEqual(result.collection_run.inserted_count, 1)
+        self.assertTrue(result.inspection_run.coverage_complete)
+
+    def test_bls_cpi_rss_preserves_release_summary_and_eastern_timestamp(self):
+        result = collect_and_inspect(
+            data_type="news",
+            feed_code=BLS_CPI_CODE,
+            range_end=END,
+            client=request_client(
+                response_for(fixture("bls_releases.xml"), "application/rss+xml")
+            ),
+        )
+
+        record = NewsRawRecord.objects.get(source=self.bls)
+        self.assertEqual(
+            record.summary,
+            "The Consumer Price Index increased 0.2 percent in June.",
+        )
+        self.assertEqual(
+            record.published_at,
+            datetime(2026, 7, 31, 12, 30, tzinfo=UTC),
+        )
+        self.assertEqual(record.source_category, "Consumer Price Index")
+        self.assertEqual(result.collection_run.inserted_count, 1)
+        self.assertTrue(result.inspection_run.coverage_complete)
 
     def test_generic_rss_parser_isolates_invalid_items(self):
         content = b"""<rss version='2.0'><channel>

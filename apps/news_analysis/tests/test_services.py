@@ -8,6 +8,7 @@ from apps.news_analysis.models import NewsAnalysisResult, NewsAnalysisRun
 from apps.news_analysis.services import prune_expired_news, run_news_analysis
 from apps.news_data.models import NewsRawRecord
 from apps.news_data.sources import (
+    BLS_CODE,
     CIRCLE_CODE,
     COINDESK_CODE,
     SEC_CODE,
@@ -71,6 +72,29 @@ class AnalysisServiceTests(TestCase):
         self.assertEqual(run.success_count, 1)
         self.assertFalse(NewsRawRecord.objects.filter(pk=record.pk).exists())
         self.assertFalse(NewsAnalysisResult.objects.exists())
+
+    def test_official_bls_release_is_retained_for_fact_and_event_processing(self):
+        record = make_record(
+            source_code=BLS_CODE,
+            title="Consumer prices increased in June",
+            summary="The Consumer Price Index increased 0.2 percent in June.",
+        )
+
+        class NoAI:
+            def analyze_batch(self, *args, **kwargs):
+                raise AssertionError("selected official macro releases use the retention rule")
+
+        run = run_news_analysis(client=NoAI(), article_loader=self.article_loader)
+
+        result = NewsAnalysisResult.objects.get(news_record=record)
+        self.assertEqual(run.rule_processed_count, 1)
+        self.assertEqual(result.conclusion, "unclear")
+        self.assertEqual(result.method, NewsAnalysisResult.Method.RULE)
+        self.assertEqual(
+            result.content_summary,
+            "The Consumer Price Index increased 0.2 percent in June.",
+        )
+        self.assertTrue(NewsRawRecord.objects.filter(pk=record.pk).exists())
 
     def test_clear_title_ai_result_stops_before_content_classification(self):
         record = make_record(title="Institution adopts Ethereum for settlement")

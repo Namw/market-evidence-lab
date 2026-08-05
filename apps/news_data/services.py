@@ -44,6 +44,7 @@ from .sources import (
     COLLECTION_OVERLAP_DAYS,
     ETHEREUM_FOUNDATION_CODE,
     FEED_DEFINITIONS,
+    OPTIONAL_PROXY_FEED_CODES,
     SEC_FEED_CODES,
     SLOWMIST_HACKED_CODE,
     SLOWMIST_LIST_PARAMS,
@@ -997,7 +998,21 @@ def _collect_circle_pressroom(
     )
 
 
-def _default_request_client(feed: NewsFeed) -> NewsRequestClient:
+def _default_request_client(
+    feed: NewsFeed,
+    *,
+    use_source_proxy: bool = False,
+) -> NewsRequestClient:
+    if feed.code in OPTIONAL_PROXY_FEED_CODES:
+        proxy_url = settings.NEWS_SOURCE_PROXY_URL if use_source_proxy else ""
+        if use_source_proxy and not proxy_url:
+            raise ValueError(
+                "新闻源代理已启用，但 NEWS_SOURCE_PROXY_URL 未配置。"
+            )
+        return NewsRequestClient(
+            user_agent=settings.NEWS_COLLECTOR_USER_AGENT,
+            proxy_url=proxy_url,
+        )
     if feed.code in SEC_FEED_CODES:
         return NewsRequestClient(
             user_agent=settings.SEC_NEWS_USER_AGENT,
@@ -1031,6 +1046,7 @@ def collect_news_feed(
     trigger: str = CollectionRun.Trigger.MANUAL,
     range_end: datetime | None = None,
     client: NewsRequestClient | None = None,
+    use_source_proxy: bool = False,
     safety_page_limit: int = max(
         BINANCE_SAFETY_PAGE_LIMIT,
         TETHER_SAFETY_PAGE_LIMIT,
@@ -1064,7 +1080,10 @@ def collect_news_feed(
         status=CollectionRun.Status.RUNNING,
         started_at=range_end,
     )
-    request_client = client or _default_request_client(feed)
+    request_client = client or _default_request_client(
+        feed,
+        use_source_proxy=use_source_proxy,
+    )
     owns_client = client is None
     try:
         if definition.collection_method == "rss":
@@ -1147,6 +1166,7 @@ def collect_news_source(
     trigger: str = CollectionRun.Trigger.MANUAL,
     range_end: datetime | None = None,
     client: NewsRequestClient | None = None,
+    use_source_proxy: bool = False,
     safety_page_limit: int = max(
         BINANCE_SAFETY_PAGE_LIMIT,
         TETHER_SAFETY_PAGE_LIMIT,
@@ -1182,5 +1202,6 @@ def collect_news_source(
         trigger=trigger,
         range_end=range_end,
         client=client,
+        use_source_proxy=use_source_proxy,
         safety_page_limit=safety_page_limit,
     )

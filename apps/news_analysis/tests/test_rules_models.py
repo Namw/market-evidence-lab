@@ -5,6 +5,7 @@ from django.utils import timezone
 
 from apps.news_analysis.models import NewsAnalysisResult, NewsAnalysisRun
 from apps.news_analysis.rules import match_fixed_rule
+from apps.news_data.sources import BLS_CODE, FEDERAL_RESERVE_CODE
 
 from .helpers import make_record
 
@@ -40,6 +41,21 @@ class FixedRuleTests(TestCase):
                 make_record(title="Binance Will Support the Ethereum Network Upgrade")
             )
         )
+
+    def test_selected_official_macro_releases_are_retained_without_direction(self):
+        for source_code in (FEDERAL_RESERVE_CODE, BLS_CODE):
+            with self.subTest(source_code=source_code):
+                decision = match_fixed_rule(
+                    make_record(
+                        source_code=source_code,
+                        title="Official macroeconomic release",
+                    )
+                )
+                self.assertEqual(decision.conclusion, "unclear")
+                self.assertEqual(
+                    decision.rule_id,
+                    "official_macro_release_unclear_v1",
+                )
 
 
 class ModelConstraintTests(TestCase):

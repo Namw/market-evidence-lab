@@ -102,6 +102,7 @@ def _create_news_workflow_run(
     trigger: str,
     schedule: NewsWorkflowSchedule | None,
     feed_group: str | None = None,
+    use_source_proxy: bool | None = None,
     started_at: datetime | None = None,
 ) -> NewsWorkflowRun:
     resolved_feed_group = (
@@ -111,11 +112,15 @@ def _create_news_workflow_run(
     )
     if resolved_feed_group not in NEWS_FEED_GROUP_CODES:
         raise ValueError(f"Unsupported news feed group: {resolved_feed_group}")
+    resolved_use_source_proxy = (
+        schedule.use_source_proxy if schedule is not None else bool(use_source_proxy)
+    )
     try:
         with transaction.atomic():
             return NewsWorkflowRun.objects.create(
                 schedule=schedule,
                 feed_group=resolved_feed_group,
+                use_source_proxy=resolved_use_source_proxy,
                 trigger=trigger,
                 status=NewsWorkflowRun.Status.RUNNING,
                 started_at=started_at or timezone.now(),
@@ -188,6 +193,7 @@ def execute_news_workflow(
     trigger: str = NewsWorkflowRun.Trigger.MANUAL,
     schedule: NewsWorkflowSchedule | None = None,
     feed_group: str | None = None,
+    use_source_proxy: bool = False,
     workflow_run: NewsWorkflowRun | None = None,
     range_end: datetime | None = None,
     collection_clients: dict[str, object] | None = None,
@@ -202,6 +208,7 @@ def execute_news_workflow(
             trigger=trigger,
             schedule=schedule,
             feed_group=feed_group,
+            use_source_proxy=use_source_proxy,
         )
     elif workflow_run.status != NewsWorkflowRun.Status.RUNNING:
         return workflow_run
@@ -245,6 +252,7 @@ def execute_news_workflow(
                 trigger=workflow_run.trigger,
                 range_end=effective_end,
                 client=clients.get(feed.code) or clients.get(feed.source.code),
+                use_source_proxy=workflow_run.use_source_proxy,
             )
         except Exception as exc:
             step.collection_status = NewsWorkflowRun.StepStatus.FAILED

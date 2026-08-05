@@ -15,8 +15,12 @@ from apps.news_analysis.tests.helpers import make_record
 from apps.news_data.models import NewsFeed, NewsRawRecord, NewsSource
 from apps.news_data.sources import (
     BINANCE_ANNOUNCEMENTS_CODE,
+    BLS_CPI_CODE,
+    BLS_EMPLOYMENT_SITUATION_CODE,
+    BLS_PPI_CODE,
     COINDESK_CODE,
     ETHEREUM_FOUNDATION_CODE,
+    FED_MONETARY_POLICY_CODE,
     FEED_DEFINITIONS,
     SOURCE_DEFINITIONS,
 )
@@ -26,6 +30,7 @@ from apps.scheduling.models import (
     NewsWorkflowSchedule,
 )
 from apps.scheduling.news_workflow import (
+    NEWS_FEED_GROUP_CODES,
     NewsWorkflowAlreadyRunning,
     _create_news_workflow_run,
     claim_due_news_schedules,
@@ -158,6 +163,9 @@ class NewsWorkflowExecutionTests(TestCase):
         self.assertEqual(
             [call.args[0] for call in collect.call_args_list],
             [ETHEREUM_FOUNDATION_CODE, BINANCE_ANNOUNCEMENTS_CODE],
+        )
+        self.assertTrue(
+            all(call.kwargs["use_source_proxy"] is False for call in collect.call_args_list)
         )
         self.assertEqual(
             order,
@@ -441,6 +449,7 @@ class NewsScheduleTests(TestCase):
     def test_due_schedule_claims_scheduled_run_and_advances_next_time(self):
         schedule = get_builtin_news_schedule()
         schedule.enabled = True
+        schedule.use_source_proxy = True
         schedule.next_run_at = FIXED_NOW - timedelta(minutes=1)
         schedule.save()
 
@@ -451,6 +460,7 @@ class NewsScheduleTests(TestCase):
         self.assertEqual(run.trigger, NewsWorkflowRun.Trigger.SCHEDULED)
         self.assertEqual(run.schedule, schedule)
         self.assertEqual(run.feed_group, NewsWorkflowSchedule.FeedGroup.CORE)
+        self.assertTrue(run.use_source_proxy)
         schedule.refresh_from_db()
         self.assertEqual(schedule.last_run_at, FIXED_NOW)
         self.assertGreater(schedule.next_run_at, FIXED_NOW)
@@ -467,6 +477,19 @@ class NewsScheduleTests(TestCase):
             ],
         )
         self.assertEqual([schedule.interval_hours for schedule in schedules], [24, 6])
+
+    def test_fed_and_bls_feeds_belong_to_daily_core_workflow(self):
+        core_codes = NEWS_FEED_GROUP_CODES[NewsWorkflowSchedule.FeedGroup.CORE]
+
+        self.assertTrue(
+            {
+                FED_MONETARY_POLICY_CODE,
+                BLS_EMPLOYMENT_SITUATION_CODE,
+                BLS_CPI_CODE,
+                BLS_PPI_CODE,
+            }.issubset(core_codes)
+        )
+        self.assertEqual(get_builtin_news_schedule().interval_hours, 24)
 
     def test_two_due_news_schedules_are_claimed_serially_without_skipping(self):
         core, coindesk = get_builtin_news_schedules()
@@ -554,6 +577,7 @@ class NewsScheduleTests(TestCase):
     ):
         schedule = get_builtin_news_schedule()
         schedule.enabled = True
+        schedule.use_source_proxy = True
         schedule.next_run_at = FIXED_NOW - timedelta(minutes=1)
         schedule.save()
         ethereum = child_pipeline(ETHEREUM_FOUNDATION_CODE)
@@ -574,6 +598,9 @@ class NewsScheduleTests(TestCase):
                 for call in collect.call_args_list
             )
         )
+        self.assertTrue(
+            all(call.kwargs["use_source_proxy"] for call in collect.call_args_list)
+        )
         self.assertEqual(
             analyze.call_args.kwargs["trigger"],
             NewsAnalysisRun.Trigger.SCHEDULED,
@@ -592,7 +619,9 @@ class NewsWorkflowPageTests(TestCase):
         self.assertContains(response, "官方与监管新闻工作流")
         self.assertContains(response, "CoinDesk 新闻工作流")
         self.assertContains(response, "Ethereum Foundation、Binance")
+        self.assertContains(response, "Fed、BLS")
         self.assertContains(response, "SlowMist Hacked 与 Circle Pressroom")
+        self.assertContains(response, "分析 → 事实提取 → 事件归并")
         self.assertContains(response, "只采集 CoinDesk")
         self.assertContains(response, "每天")
         self.assertContains(response, "每 6 小时")
@@ -604,12 +633,18 @@ class NewsWorkflowPageTests(TestCase):
 
         response = self.client.post(
             self.url,
-            {"action": "save_news", "enabled": "on", "run_time": "09:40"},
+            {
+                "action": "save_news",
+                "enabled": "on",
+                "use_source_proxy": "on",
+                "run_time": "09:40",
+            },
         )
 
         self.assertRedirects(response, self.url)
         news_schedule.refresh_from_db()
         self.assertTrue(news_schedule.enabled)
+        self.assertTrue(news_schedule.use_source_proxy)
         self.assertEqual((news_schedule.run_time.hour, news_schedule.run_time.minute), (9, 40))
         self.assertEqual(news_schedule.interval_hours, 24)
         self.assertEqual(self.client.get(self.url).context["schedule"].enabled, kline_enabled)
@@ -638,7 +673,11 @@ class NewsWorkflowPageTests(TestCase):
             status=NewsWorkflowRun.Status.SUCCESS,
         )
         token = self.client.get(self.url).context["news_run_token"]
-        payload = {"action": "run_news", "news_run_token": token}
+        payload = {
+            "action": "run_news",
+            "news_run_token": token,
+            "use_source_proxy": "1",
+        }
 
         response = self.client.post(self.url, payload)
         duplicate = self.client.post(self.url, payload, follow=True)
@@ -652,6 +691,7 @@ class NewsWorkflowPageTests(TestCase):
             trigger=NewsWorkflowRun.Trigger.MANUAL,
             schedule=None,
             feed_group=NewsWorkflowSchedule.FeedGroup.CORE,
+            use_source_proxy=True,
         )
         self.assertContains(duplicate, "未重复执行")
 

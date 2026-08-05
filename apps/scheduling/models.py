@@ -233,6 +233,7 @@ class NewsWorkflowSchedule(models.Model):
         unique=True,
     )
     enabled = models.BooleanField(default=False)
+    use_source_proxy = models.BooleanField(default=False)
     interval_hours = models.PositiveSmallIntegerField(default=24)
     run_time = models.TimeField(default=time(8, 35))
     timezone = models.CharField(max_length=64, default=SCHEDULE_TIMEZONE, editable=False)
@@ -286,6 +287,7 @@ class NewsWorkflowRun(models.Model):
         default=NewsWorkflowSchedule.FeedGroup.CORE,
     )
     trigger = models.CharField(max_length=20, choices=Trigger.choices)
+    use_source_proxy = models.BooleanField(default=False)
     status = models.CharField(
         max_length=20,
         choices=Status.choices,

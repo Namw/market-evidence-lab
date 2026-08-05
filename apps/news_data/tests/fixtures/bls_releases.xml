@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<rss version="2.0">
+  <channel>
+    <title>BLS Economic News Releases</title>
+    <link>https://www.bls.gov/</link>
+    <description>Official BLS economic news releases</description>
+    <item>
+      <title>Consumer prices increased in June</title>
+      <link>https://www.bls.gov/news.release/cpi.nr0.htm</link>
+      <guid>bls-cpi-2026-06</guid>
+      <description>The Consumer Price Index increased 0.2 percent in June.</description>
+      <pubDate>Fri, 31 Jul 2026 08:30:00 -0400</pubDate>
+    </item>
+  </channel>
+</rss>

@@ -10,7 +10,7 @@ Market Evidence Lab 是一个聚焦 ETHUSDT 市场数据与新闻事件观察的
    - Binance USD-M Futures ETHUSDT 1d / 1h / 5m K线采集。
    - 1h / 5m OI 与实际 Funding 结算数据采集。
    - Deribit ETH DVOL、活跃期权合约元数据与期权行情快照采集。
-   - 多新闻源采集。
+   - 多新闻源采集，包括 Federal Reserve 货币政策 RSS 与 BLS 非农、CPI、PPI RSS。
    - 采集质量检查、调度配置和运行记录。
 2. 新闻观察
    - 新闻原始数据查看与手工采集。
@@ -56,6 +56,14 @@ uv run --env-file .env python manage.py runserver 8001
 ```bash
 uv run --env-file .env python manage.py run_scheduler
 ```
+
+Binance 公告与 BLS RSS 默认显式直连，不使用系统环境代理。若当前网络无法访问，可在 `.env` 配置本地代理：
+
+```dotenv
+NEWS_SOURCE_PROXY_URL=http://127.0.0.1:7897
+```
+
+手动新闻任务可按次勾选是否使用该代理；每日官方新闻自动任务也可独立保存该选项。代理只作用于 Binance 公告与 BLS RSS，Fed 与其他新闻源保持直连；未勾选时不会自动采用降级数据源。
 
 Deribit 期权采集会同步合约元数据，并在同一轮保存 IV、期权 OI、价格与成交量快照：
 
