@@ -1,11 +1,11 @@
 {% extends "base.html" %}
 {% load tz %}
 
-{% block title %}系统管理 · 调度情况 · Market Evidence Lab{% endblock %}
+{% block title %}采集 · 调度情况 · Market Evidence Lab{% endblock %}
 
 {% block content %}
 <header class="page-header schedule-page-header">
-    <div><p class="eyebrow">系统管理</p><h1>调度情况</h1><p class="page-intro">默认展示今日采集情况，可按日期范围和任务类型筛选。所有日期均按 Asia/Shanghai 计算。</p></div>
+    <div><p class="eyebrow">采集</p><h1>调度情况</h1><p class="page-intro">默认展示今日采集情况，可按日期范围和任务类型筛选。所有日期均按 Asia/Shanghai 计算。</p></div>
     <a class="quiet-link" href="{% url 'scheduling:index' %}"><span aria-hidden="true">←</span> 自动调度</a>
 </header>
 

@@ -409,102 +409,6 @@
         drawDerivatives();
     }
 
-    function setupSummaryDialog() {
-        const layer = root.querySelector("[data-summary-layer]");
-        const dialog = root.querySelector("[data-summary-dialog]");
-        const openButton = root.querySelector("[data-summary-open]");
-        if (!layer || !dialog || !openButton) return;
-
-        const closeButtons = layer.querySelectorAll("[data-summary-close]");
-        let closingTimer = null;
-        let lastFocused = null;
-
-        const focusableElements = () => Array.from(
-            dialog.querySelectorAll('a[href], button:not([disabled]), [tabindex]:not([tabindex="-1"])')
-        ).filter((element) => !element.hidden && element.getClientRects().length > 0);
-
-        function setReturnTransform() {
-            dialog.style.setProperty("--summary-shift-x", "0px");
-            dialog.style.setProperty("--summary-shift-y", "0px");
-            const triggerRect = openButton.getBoundingClientRect();
-            const dialogRect = dialog.getBoundingClientRect();
-            const shiftX = triggerRect.left + triggerRect.width / 2 - (dialogRect.left + dialogRect.width / 2);
-            const shiftY = triggerRect.top + triggerRect.height / 2 - (dialogRect.top + dialogRect.height / 2);
-            dialog.style.setProperty("--summary-shift-x", `${Math.round(shiftX)}px`);
-            dialog.style.setProperty("--summary-shift-y", `${Math.round(shiftY)}px`);
-        }
-
-        function openDialog() {
-            if (!layer.hidden) return;
-            if (closingTimer) window.clearTimeout(closingTimer);
-            lastFocused = document.activeElement;
-            layer.hidden = false;
-            layer.classList.remove("is-closing", "is-open");
-            setReturnTransform();
-            document.body.classList.add("summary-dialog-open");
-            openButton.setAttribute("aria-expanded", "true");
-            window.requestAnimationFrame(() => {
-                window.requestAnimationFrame(() => {
-                    layer.classList.add("is-open");
-                    dialog.focus({ preventScroll: true });
-                });
-            });
-        }
-
-        function finishClose() {
-            layer.hidden = true;
-            layer.classList.remove("is-closing");
-            document.body.classList.remove("summary-dialog-open");
-            openButton.setAttribute("aria-expanded", "false");
-            if (lastFocused instanceof HTMLElement) lastFocused.focus({ preventScroll: true });
-        }
-
-        function closeDialog() {
-            if (layer.hidden || !layer.classList.contains("is-open")) return;
-            setReturnTransform();
-            layer.classList.add("is-closing");
-            layer.classList.remove("is-open");
-            const onTransitionEnd = (event) => {
-                if (event.target !== dialog || event.propertyName !== "transform") return;
-                dialog.removeEventListener("transitionend", onTransitionEnd);
-                if (closingTimer) window.clearTimeout(closingTimer);
-                finishClose();
-            };
-            dialog.addEventListener("transitionend", onTransitionEnd);
-            closingTimer = window.setTimeout(() => {
-                dialog.removeEventListener("transitionend", onTransitionEnd);
-                finishClose();
-            }, 450);
-        }
-
-        openButton.addEventListener("click", openDialog);
-        closeButtons.forEach((button) => button.addEventListener("click", closeDialog));
-        document.addEventListener("keydown", (event) => {
-            if (layer.hidden) return;
-            if (event.key === "Escape") {
-                event.preventDefault();
-                closeDialog();
-                return;
-            }
-            if (event.key !== "Tab") return;
-            const focusable = focusableElements();
-            if (!focusable.length) {
-                event.preventDefault();
-                dialog.focus();
-                return;
-            }
-            const first = focusable[0];
-            const last = focusable[focusable.length - 1];
-            if (event.shiftKey && document.activeElement === first) {
-                event.preventDefault();
-                last.focus();
-            } else if (!event.shiftKey && document.activeElement === last) {
-                event.preventDefault();
-                first.focus();
-            }
-        });
-    }
-
     const dailyCanvas = root.querySelector('[data-chart="daily"]');
     if (dailyCanvas) {
         dailyCanvas.addEventListener("click", (event) => {
@@ -523,7 +427,6 @@
         });
     }
 
-    setupSummaryDialog();
     drawAll();
     if ("ResizeObserver" in window) {
         const observer = new ResizeObserver(drawAll);

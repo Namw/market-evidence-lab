@@ -1,234 +1,65 @@
-# 核心思想
-市场如何形成价值共识。
-
 # Market Evidence Lab
 
-Market Evidence Lab 是一个面向市场证据工作流的 Django 单体项目。当前完成第 9 阶段“新闻客观事实提取 V1.1 与下游使用门槛”：在价格和衍生品证据之外，将数据库保存的新闻标题、摘要与正文逐篇转换为可追溯的结构化事实，并以统一规则判断结果是否可以进入后续证据链。
+Market Evidence Lab 是一个聚焦 ETHUSDT 市场数据与新闻事件观察的 Django 项目。
 
-## 当前实现范围
+## 当前范围
 
-- Python 3.12、Django 5.2、PostgreSQL 16 与 `uv` 依赖管理
-- Binance USD-M Futures 公开接口 `/fapi/v1/klines`、`/futures/data/openInterestHist`、`/fapi/v1/fundingRate`
-- 固定品种 ETHUSDT
-- 固定周期 1d、1h
-- 已闭合K线的分页采集和有限重试
-- 精确 Decimal 数值保存，不经过 `float`
-- 幂等写入：新数据插入、变化数据更新、相同数据跳过
-- 每个周期独立的采集运行记录
-- `/collection/` 手工采集、数据概况与最近运行历史页面
-- `/inspection/` 手工数据质量检查、最近运行与指定运行详情页面
-- 缺失、重复、时间未对齐、OHLC、负数值与 close_time 检查
-- 连续缺失时间压缩和最多 200 项异常详情保护
-- `/system/schedules/` 内置每日任务配置、立即运行、执行器状态与工作流历史
-- 默认 08:05 Asia/Shanghai、回看最近 3 个完整 UTC 日，可配置 1 至 30 天
-- 独立 `run_scheduler` 进程、数据库行锁领取、`--once` 部署检查与执行器心跳
-- 手工与自动入口统一执行 1d/1h K线、OI、Funding 的采集及对应原始质量检查
-- `/market-inspection/` 手工扫描已闭合 ETHUSDT 1d K线、最近运行和指定运行异常详情
-- V1日涨跌、连续20日成交量基线、长上下影线规则，全部使用 `Decimal` 判断
-- 每次扫描保存完整规则快照，每个异常日保存OHLC、成交量和衍生指标快照
-- `/research-cases/` 研究案例列表、案例详情及从 finding 人工建立案例的 POST 流程
-- 跨扫描运行按市场和 UTC 事件时间幂等建案，保存信号、OHLC、成交量和计算快照
-- 每个研究案例最多一份当前价格证据，支持显式生成和重新生成
-- 严格按 UTC 日冻结1h OHLCV、记录缺口、聚合核对日K，并计算 V1 价格路径指标
-- 项目内本地 Canvas 1h蜡烛图和成交量图，不依赖 CDN 或前端构建链
-- OI 与 Funding 独立原始表、Decimal 精确存储、幂等分页采集及独立运行统计
-- 每个案例最多一份当前衍生品证据，保存覆盖、计算、规则、来源与审计快照
-- OI 严格检查 UTC 日首尾共25个整点边界；Funding 按异常前、当日、异常后三个半开区间独立判断
-- 新闻客观事实提取使用项目现有 DeepSeek 客户端和配置，每篇新闻独立调用且不联网补正文
-- 正式保存输入快照、实际提示词、模型原始返回、解析结果、校验问题、证据匹配和运行统计，按 prompt version 保留历史
-- `objective-news-facts-v1.1` 将标题、摘要和已保存正文统一作为事实来源，并对重复事实进行可审计去重
-- `/analysis/news/objective-facts/` 提供新闻级筛选列表和原始输入/提取结果对比详情，证据仅支持精确或空白标准化匹配
-- 客观事实结果仅在 facts 至少一条且 validation errors 为空时具备下游使用资格；warning 不阻断，所有结果仍保留供审计
+项目只保留三组产品能力：
 
-数据质量检查只报告问题，不会自动修复或补采。自动任务在迁移后保持禁用；只有明确启用配置并独立运行调度命令后才会自动执行。
+1. 采集与调度
+   - Binance USD-M Futures ETHUSDT 1d / 1h K线采集。
+   - 1h OI 与实际 Funding 结算数据采集。
+   - 多新闻源采集。
+   - 采集质量检查、调度配置和运行记录。
+2. 新闻观察
+   - 新闻原始数据查看与手工采集。
+   - ETH 方向分类。
+   - 客观事实提取与校验。
+   - 多来源新闻归并为暂定事件库。
+3. 行情数据观察
+   - 联动展示日 K、小时 K、OI 与 Funding。
 
-## 环境要求
+市场异常巡检、研究案例、价格证据、衍生品证据、独立手工行情采集页和独立质检页已移除。
+
+## 页面
+
+- 首页：<http://127.0.0.1:8001/>
+- 自动调度：<http://127.0.0.1:8001/system/schedules/>
+- 调度情况：<http://127.0.0.1:8001/system/schedules/runs/>
+- 新闻数据采集：<http://127.0.0.1:8001/collection/news/>
+- 新闻分析：<http://127.0.0.1:8001/analysis/news/>
+- 客观事实提取：<http://127.0.0.1:8001/analysis/news/objective-facts/>
+- 新闻事件库：<http://127.0.0.1:8001/analysis/news/events/>
+- 行情数据查看：<http://127.0.0.1:8001/market-data/>
+
+以上页面的详情、运行、筛选和操作子路径仍属于对应功能的一部分。
+
+## 技术栈
 
 - Python 3.12
-- [uv](https://docs.astral.sh/uv/)
-- Docker 与 Docker Compose
+- Django 5.2
+- PostgreSQL 16
+- `uv`
 
-## 本地环境
-
-复制环境变量示例：
-
-```bash
-cp .env.example .env
-```
-
-`.env` 已被 Git 忽略。示例中的密钥和数据库密码只适用于本地开发。`BINANCE_FUTURES_BASE_URL` 默认指向 Binance USD-M Futures 公开 API，可在受控测试环境中覆盖。
-
-启动 PostgreSQL 16 并检查状态：
+## 本地启动
 
 ```bash
 docker compose up -d
-docker compose ps
-```
-
-默认将容器内 PostgreSQL `5432` 映射到宿主机 `55432`，可以通过 `POSTGRES_PORT` 修改。
-
-安装锁定依赖：
-
-```bash
 uv sync
-```
-
-执行迁移：
-
-```bash
 uv run --env-file .env python manage.py migrate
+uv run --env-file .env python manage.py runserver 8001
 ```
 
-启动 Django：
+自动任务需要单独启动调度执行器：
 
 ```bash
-uv run --env-file .env python manage.py runserver
+uv run --env-file .env python manage.py run_scheduler
 ```
 
-访问：
-
-- 总览：<http://127.0.0.1:8000/>
-- 采集：<http://127.0.0.1:8000/collection/>
-- OI / Funding 采集：<http://127.0.0.1:8000/collection/derivatives/>
-- 数据质量检查：<http://127.0.0.1:8000/inspection/>
-- 系统管理 / 自动调度：<http://127.0.0.1:8000/system/schedules/>
-- 市场异常巡检：<http://127.0.0.1:8000/market-inspection/>
-- 研究案例：<http://127.0.0.1:8000/research-cases/>
-- 新闻客观事实提取：<http://127.0.0.1:8000/analysis/news/objective-facts/>
-
-## 市场异常巡检 V1
-
-市场异常巡检与原始数据质量检查是两套独立能力。前者检查行情是否满足候选异常规则；后者检查数据库中的K线、OI与Funding是否完整、连续和有效，其中 `/inspection/` 当前提供K线检查的独立人工入口，OI/Funding检查随采集链路执行。
-
-页面只接受UTC开始和结束日期，范围为 `[开始日期 00:00, 结束日期 00:00)`，单次最长366天且只允许完整闭合日。扫描固定使用 Binance USD-M Futures、ETHUSDT、1d，不调用采集或数据质量服务，也不会补采、修复或删除数据。
-
-V1规则：
-
-- `abs((close - open) / open × 100) >= 5%`：分别产生上涨或下跌信号。
-- 当前日 `volume / 前20个连续UTC自然日volume平均值 >= 2`：当前日不进入基线，任一基线日缺失时不使用更早数据补足。
-- 长上影线或长下影线：全振幅大于0，影线/实体至少3且影线/全振幅至少40%；实体为0时不执行实体除法，但仍要求全振幅占比。
-
-同一天可以命中多个信号，但一次扫描只保存一条候选发现。扫描成功不表示“通过”，只表示程序正常完成；没有异常时异常日期数为0。候选 finding 本身不包含原因解释、未来收益、相似样本或预测结论，只有人工点击后才会建立研究案例。
-
-## 研究案例 V1
-
-巡检结果不会自动转换为案例。异常列表对尚未建案的 finding 提供带 CSRF 保护的 POST 操作；创建成功后进入案例详情。相同 exchange、market_type、symbol、interval 和 event_time 在数据库中只能存在一个案例，因此同一 finding 重复提交，或不同扫描运行再次发现同一市场同一天时，都会打开既有案例。
-
-案例保存来源 finding（删除保护）、案例标题、市场身份、UTC事件时间、异常信号、OHLC、成交量、涨跌幅、振幅及计算快照。列表和详情优先展示中文异常类型与人类可读摘要；英文枚举、精确参数和 JSON 位于折叠明细。第一类价格证据默认展开，第二类衍生品证据默认折叠；新闻证据、历史类似与 AI 报告仍为待建设结构。
-
-## 价格证据 V1
-
-价格证据只在用户从案例详情页显式 POST 生成时写入，不会随页面打开静默计算。数据范围固定为案例 `event_time` 到下一 UTC 日的左闭右开区间，并只读取同市场的1h K线。系统记录24个预期时间点、实际K线快照和精确缺口；前后相邻日的数据不会补入。
-
-24根1h齐全后，系统用首根 open、末根 close、最高 high、最低 low 和 volume 合计核对案例冻结的日K快照。完整且一致时才计算高低点顺序、小时涨跌计数、最大单小时涨跌、最终净涨跌80%首次达到时间、收盘序列最大回撤与反弹、收盘保留率和成交量集中度。缺失、不一致或不可用状态仅显示质量诊断和已有数据图表，不输出完整日结论。所有服务端价格计算使用 `Decimal`，JSON中的数值与UTC时间分别保存为十进制字符串和 ISO 8601 字符串。
-
-## 自动调度与工作流
-
-调度页包含两项独立内置任务。市场数据任务固定处理 Binance USD-M Futures 的 ETHUSDT 1d、1h K线、OI 与 Funding；新闻每日工作流逐栏目运行 Ethereum Foundation Blog、Binance 官方公告、SEC/CFTC 六个官方 RSS 栏目、Tether News 官方结构化列表与 SlowMist Hacked 安全事件列表的采集和质量检查，再运行当前版本的 ETH 方向增量分类。两项任务都只接受启用状态和 Asia/Shanghai 每日执行时间，不接受 Cron 表达式；市场数据任务另可配置 1 至 30 天回看范围。
-
-每次运行动态取当前 UTC 日期的 `00:00` 为 `range_end`，并以 `range_end - lookback_days` 为 `range_start`。K线与Funding范围是左闭右开的 `[range_start, range_end)`；OI有效范围额外延伸到 `range_end + 1h`（不包含），以纳入完整日所需的次日 `00:00` 边界。四类数据分别执行采集与原始质量检查，共八个步骤；某一数据类型失败后仍继续后续类型。工作流只有在1d K线、1h K线、OI、Funding四项检查全部完成且通过时才显示整体质量通过。采集执行状态与质量状态独立保存。
-
-新闻工作流的各栏目互不阻塞；每个栏目的采集、质量状态和整体分析状态分别保存，并关联 `CollectionRun`、`NewsInspectionRun` 与 `NewsAnalysisRun`。SEC 与 CFTC 首次运行会导入 Feed 当时仍可见的全部条目；Tether 与 SlowMist Hacked 首次运行只导入各自最新一页约 20 条，均作为有限初始化，后续按已有覆盖水位增量采集。监管 RSS 只保存 Feed 字段，Tether 只保存官方 API 的标题、链接、时间、摘要、作者与分类字段；SlowMist Hacked 保存公开列表中的事件日期、目标、事件描述、损失金额、攻击方式和引用链接。三者都不继续抓取或保存引用文章正文；同一机构是一个来源，其下地址建模为独立栏目。质量异常只影响工作流汇总，不阻止已合法保存的记录进入分析。增量分析会扫描当前版本下没有成功结果的全部原始新闻，并仅输出利好、利空、模糊不清、无关四种 ETH 方向结论；无关新闻物理删除，最高或中等权威来源的模糊不清新闻长期保留，只有一般来源的模糊不清新闻会在分类三天后物理删除。候选为零时成功结束且不调用 DeepSeek，未配置 API 且存在候选时记录为“未执行”。手动按钮和调度执行器调用同一个服务，并由数据库唯一约束共用单运行并发保护。
-
-## 新闻客观事实提取 V1.1
-
-客观事实提取独立于现有每日 ETH 方向分析，也尚未接入自动调度。正式服务只读取数据库实际保存的单篇新闻标题、摘要和正文，不访问原文 URL；没有正文时会明确记录本次输入仅包含标题和摘要。默认增量运行会跳过当前 prompt version 下已有成功结果的新闻，失败结果可以重试，新 prompt version 会保留旧结果。
-
-每次提取分别记录 AI 调用是否成功、JSON 是否解析成功和程序校验状态。JSON 可解析但证据、时间、枚举或结构校验失败时，解析结果仍然保存，不会被当作 AI 调用失败，也不会自动修正模型输出。`event_status` 由单一枚举来源约束；非法值保留在审计结果中并产生明确 error。
-
-下游使用资格统一由 `ObjectiveFactExtractionResult.is_evidence_chain_eligible` 判断：`facts_count > 0` 且 `validation_errors` 必须严格为空列表。`LIMITED_SOURCE_CONTEXT` 和 `DUPLICATE_FACT_REMOVED` 属于非阻断 warning；证据无法匹配、非法枚举、JSON 或结构错误以及未识别内部异常均不放行。该门槛只建立新闻事实结果的可用性边界，尚未组装研究案例新闻证据。
-
-执行正式增量提取：
-
-```bash
-uv run --env-file .env python manage.py extract_objective_facts
-```
-
-仅重试当前版本下没有成功结果的失败新闻：
-
-```bash
-uv run --env-file .env python manage.py extract_objective_facts --mode retry_failed
-```
-
-## OI / Funding 衍生品证据 V1
-
-衍生品证据只在案例详情页显式生成或重新生成。OI 固定使用 `sumOpenInterest` 数量作为方向主口径：异常日从 `D 00:00` 到 `D+1 00:00` 必须存在25个连续整点边界，起点非零，才输出完整日方向。数量绝对变化不足1%为不明显，达到 `+1%` 为扩张，达到 `-1%` 为收缩。名义价值仅为辅助事实；它与数量方向相反时会明确记录分歧并抑制方向性联合描述。
-
-价格方向以案例日开收盘计算，`±0.5%` 进入上涨/下跌；最大绝对涨跌1h K线并列时固定选择最早小时，并保存同小时起止 OI 边界。只有价格方向明确、OI完整且方向明确、数量与名义价值不分歧时，才输出固定的保守仓位行为描述；该描述不是价格异常的因果结论。
-
-Funding 仅使用实际结算记录，按 `[D-1,D)`、`[D,D+1)`、`[D+1,D+2)` 三段独立计算。V1 检查每段 `00:00`、`08:00`、`16:00` 三个 UTC 结算点；Binance 原始结算时间可能带毫秒级正偏移，因此从预期整点（包含）到其后1分钟（不包含）视为命中，但快照始终保留原始时间。缺失只影响所在区间；部分覆盖时保留计数与已有原始值，但不输出平均、净变化、趋势、方向或拥挤判断。完整覆盖时，`funding_rate >= 0.0003` 标记明显正 Funding，`<= -0.0003` 标记明显负 Funding。页面将原始小数乘以100后按百分比展示，数据库与快照仍保留原始小数。OI 接口只保留最近约一个月；更早案例没有 OI 时显示“来源不可用”，绝不以零值代替。
-
-启动独立调度执行器：
-
-```bash
-uv run python manage.py run_scheduler
-```
-
-只检查一次后退出，适合测试和部署健康检查：
-
-```bash
-uv run python manage.py run_scheduler --once
-```
-
-轮询间隔默认为 30 秒，可通过 `--poll-interval SECONDS` 设置为 1 至 3600 秒。执行器使用 PostgreSQL 事务和行锁领取到期任务；Web 请求和 `AppConfig.ready()` 都不会启动后台线程。页面根据每个执行器的运行标记和最近心跳判断在线状态，也不会提供操作系统进程的启动或停止按钮。
-
-## 手工采集
-
-在采集页面填写开始日期、结束日期，并选择 1d、1h 中的至少一个周期后提交。
-
-- 日期统一按 UTC 解释。
-- 开始日期的 `00:00` 包含在采集范围内。
-- 结束日期的 `00:00` 不包含在采集范围内。
-- 开始日期必须早于结束日期，且不能是未来日期。
-- 单次范围最长 366 天。
-- 每个周期独立采集和记录；一个周期失败不会阻止另一个周期继续。
-- 提交后 API 分页、数据库写入都在当前 HTTP 请求内同步执行，较大范围需要等待。
-
-运行记录中的统计口径：
-
-- `request_count`：包含重试在内的真实 HTTP 请求次数。
-- `received_count`：Binance 成功响应返回的原始K线条数。
-- `inserted_count`：新增数据库记录数。
-- `updated_count`：已有记录字段实际变化的数量。
-- `skipped_count`：范围外、未闭合、分页重复或数据库中完全相同的数据数量。
-- `failed_count`：该子采集运行发生的失败次数（V1 同步运行至多为1）。
-
-## 手工数据质量检查
-
-在数据质量检查页面填写开始日期、结束日期，并选择 1d、1h 中的至少一个周期后提交。
-
-- 范围按 `[开始日期 00:00, 结束日期 00:00)` UTC 解释。
-- 开始日期必须早于结束日期，单次范围最长 366 天。
-- 结束日期不得超过当前 UTC 日期 00:00，确保范围内K线已经闭合。
-- 每个周期独立检查；一个周期执行失败不会阻止另一个周期。
-- 执行状态表示数据质量检查程序是否正常完成，质量状态表示数据是否存在问题。
-- 发现数据问题时执行状态仍为成功，质量状态为“发现问题”。
-- 通过 `/inspection/?run=<运行ID>` 查看指定运行详情。
-
-数据质量检查规则包括：
-
-- 根据 1h UTC 整点或 1d UTC 00:00 生成预期 open_time。
-- 对比实际数据并压缩连续缺失时间区间。
-- 按市场逻辑键报告重复 open_time。
-- 检查 open_time 周期对齐。
-- 检查 OHLC 正数与高低价关系。
-- 检查成交量、成交笔数和主动买入量不得为负。
-- 检查 close_time 等于下一个周期边界减 1 毫秒。
-- OI按1h周期检查空范围、重复、非递增、缺口、时间对齐及数量/名义价值合法性。
-- Funding按Binance实际8小时结算口径检查空范围、重复结算、非递增、缺口、时间偏移及数值合法性。
-
-异常统计始终保持完整；保存的异常详情全局最多 200 项，超过时标记为已截断。
-
-## 检查与测试
+## 检查
 
 ```bash
 uv run --env-file .env python manage.py check
 uv run --env-file .env python manage.py test
 uv run --env-file .env python manage.py makemigrations --check --dry-run
 ```
-
-自动化测试使用 mock HTTP 响应，不会真实访问新闻来源、Binance 或 DeepSeek，也不会产生 API 费用。
-
-## 当前未实现
-
-当前没有实现通用 Cron 平台、Celery、Redis、消息队列、APScheduler、实时 WebSocket、自动补采或修复、技术指标、确定性行情原因、未来收益、历史相似样本、研究案例的新闻证据组装、AI报告、人工反馈、登录权限或 Django Admin 页面。没有采集 1m、清算、多空比、基差、订单流、订单簿、成交明细或链上数据。客观事实提取和市场异常巡检尚未接入自动调度。

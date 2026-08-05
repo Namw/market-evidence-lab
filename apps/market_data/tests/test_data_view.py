@@ -121,40 +121,12 @@ class MarketDataViewTests(TestCase):
         self.assertContains(response, 'data-chart="hourly"')
         self.assertContains(response, 'data-chart="derivatives"')
 
-    def test_page_contains_date_linked_conclusion_dialog(self):
-        selected = START + timedelta(days=30)
+    def test_page_only_presents_market_data_without_research_features(self):
+        response = self.client.get(self.url)
 
-        response = self.client.get(self.url, {"date": selected.date().isoformat()})
-
-        self.assertEqual(len(response.context["data_conclusions"]), 4)
-        self.assertEqual(
-            [item["label"] for item in response.context["data_conclusions"]],
-            ["日 K 结论", "小时 K 结论", "OI 结论", "Funding 结论"],
-        )
-        self.assertContains(response, 'data-summary-open')
-        self.assertContains(response, 'role="dialog"')
-        self.assertContains(response, f"{selected.date().isoformat()} 数据结论")
-        self.assertContains(response, "结论已与当前选中的日 K 联动")
-
-    def test_conclusion_content_switches_with_selected_daily_date(self):
-        first = START + timedelta(days=30)
-        second = START + timedelta(days=31)
-        Kline.objects.filter(
-            interval=Kline.Interval.ONE_DAY,
-            open_time=first,
-        ).update(close=Decimal("3200"))
-        Kline.objects.filter(
-            interval=Kline.Interval.ONE_DAY,
-            open_time=second,
-        ).update(close=Decimal("2800"))
-
-        first_response = self.client.get(self.url, {"date": first.date().isoformat()})
-        second_response = self.client.get(self.url, {"date": second.date().isoformat()})
-
-        self.assertIn("上涨", first_response.context["data_conclusions"][0]["text"])
-        self.assertIn("下跌", second_response.context["data_conclusions"][0]["text"])
-        self.assertContains(first_response, f"{first.date().isoformat()} 数据结论")
-        self.assertContains(second_response, f"{second.date().isoformat()} 数据结论")
+        self.assertNotContains(response, "研究案例")
+        self.assertNotContains(response, "数据结论")
+        self.assertNotContains(response, 'data-summary-open')
 
 
 class EmptyMarketDataViewTests(TestCase):

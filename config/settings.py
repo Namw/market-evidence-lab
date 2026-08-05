@@ -40,10 +40,6 @@ INSTALLED_APPS = [
     "apps.collection.apps.CollectionConfig",
     "apps.inspection.apps.InspectionConfig",
     "apps.scheduling.apps.SchedulingConfig",
-    "apps.market_monitoring.apps.MarketMonitoringConfig",
-    "apps.research_cases.apps.ResearchCasesConfig",
-    "apps.price_evidence.apps.PriceEvidenceConfig",
-    "apps.derivatives_evidence.apps.DerivativesEvidenceConfig",
     "apps.news_data.apps.NewsDataConfig",
     "apps.news_analysis.apps.NewsAnalysisConfig",
 ]

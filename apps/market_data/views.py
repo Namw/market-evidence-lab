@@ -4,9 +4,6 @@ from decimal import Decimal
 from django.shortcuts import render
 from django.views.decorators.http import require_GET
 
-from apps.research_cases.models import ResearchCase
-
-from .conclusions import build_data_conclusions
 from .models import FundingRate, Kline, OpenInterest
 
 
@@ -154,55 +151,9 @@ def data_view(request):
         else None
     )
 
-    selected_day_start = (
-        datetime.combine(selected_date, time.min, tzinfo=UTC)
-        if selected_date
-        else None
-    )
-    selected_day_end = (
-        selected_day_start + timedelta(days=1) if selected_day_start else None
-    )
+    selected_day_start = datetime.combine(selected_date, time.min, tzinfo=UTC) if selected_date else None
+    selected_day_end = selected_day_start + timedelta(days=1) if selected_day_start else None
     range_last_date = range_end.date() - timedelta(days=1) if range_end else None
-
-    research_case = None
-    data_conclusions = []
-    if selected_daily is not None and selected_day_start is not None and selected_day_end is not None:
-        research_case = (
-            ResearchCase.objects.select_related("price_evidence", "derivatives_evidence")
-            .filter(
-                exchange=EXCHANGE,
-                market_type=MARKET_TYPE,
-                symbol=SYMBOL,
-                interval=ResearchCase.Interval.ONE_DAY,
-                event_time=selected_day_start,
-            )
-            .first()
-        )
-        selected_hourly_rows = [
-            row for row in hourly_rows if selected_day_start <= row.open_time < selected_day_end
-        ]
-        selected_oi_rows = list(
-            OpenInterest.objects.filter(
-                exchange=EXCHANGE,
-                market_type=MARKET_TYPE,
-                symbol=SYMBOL,
-                period="1h",
-                timestamp__gte=selected_day_start,
-                timestamp__lte=selected_day_end,
-            ).order_by("timestamp")
-        )
-        selected_funding_rows = [
-            row
-            for row in funding_rows
-            if selected_day_start <= row.funding_time < selected_day_end
-        ]
-        data_conclusions = build_data_conclusions(
-            selected_daily=selected_daily,
-            selected_hourly_rows=selected_hourly_rows,
-            selected_oi_rows=selected_oi_rows,
-            selected_funding_rows=selected_funding_rows,
-            research_case=research_case,
-        )
 
     context = {
         "symbol": SYMBOL,
@@ -235,7 +186,5 @@ def data_view(request):
         "selected_day_end_iso": _utc_iso(selected_day_end) if selected_day_end else "",
         "range_start_iso": _utc_iso(range_start) if range_start else "",
         "range_end_iso": _utc_iso(range_end) if range_end else "",
-        "data_conclusions": data_conclusions,
-        "research_case": research_case,
     }
     return render(request, "market_data/data_view.html", context)

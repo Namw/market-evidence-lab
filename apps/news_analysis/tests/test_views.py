@@ -54,7 +54,7 @@ def make_result(record, **overrides):
     NEWS_AI_MODEL="deepseek-v4-flash",
 )
 class NewsClassificationViewTests(TestCase):
-    def test_page_is_recent_classification_list_with_single_news_submenu(self):
+    def test_page_is_recent_classification_list_with_requested_navigation(self):
         record = make_record(title="Ethereum adoption event")
         make_result(record)
         response = self.client.get(reverse("news_analysis:index"))
@@ -63,7 +63,7 @@ class NewsClassificationViewTests(TestCase):
         self.assertContains(response, record.title)
         self.assertContains(response, "利好")
         navigation = response.content.decode().split('<nav class="navigation">', 1)[1].split("</nav>", 1)[0]
-        self.assertEqual(navigation.count('class="nav-subitem'), 9)
+        self.assertEqual(navigation.count('class="nav-subitem'), 7)
         self.assertIn("新闻事件库", navigation)
         self.assertIn("客观事实提取", navigation)
         self.assertIn("每日分析结果", navigation)

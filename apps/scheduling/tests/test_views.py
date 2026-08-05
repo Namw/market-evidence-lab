@@ -246,11 +246,11 @@ class SchedulingPageTests(TestCase):
         self.assertEqual(response.context["open_dialog"], "market-config-dialog")
         self.assertContains(response, 'id="market-config-dialog" data-open-dialog')
 
-    def test_navigation_places_scheduler_under_system_group(self):
+    def test_navigation_places_scheduler_under_collection_group(self):
         response = self.client.get(self.url)
         html = response.content.decode()
         self.assertIn(
-            '<details class="nav-group is-active" data-nav-group="system" open>',
+            '<details class="nav-group is-active" data-nav-group="collection" open>',
             html,
         )
         self.assertIn(

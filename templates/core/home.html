@@ -1,48 +1,85 @@
 {% extends "base.html" %}
 
-{% block title %}总览 · Market Evidence Lab{% endblock %}
-
-{% block body_class %}home-page{% endblock %}
+{% block title %}首页 · Market Evidence Lab{% endblock %}
+{% block body_class %}home-body{% endblock %}
 
 {% block content %}
-<header class="page-header overview-header">
-    <div>
-        <p class="eyebrow">Market Evidence Lab</p>
-        <h1>系统总览</h1>
-        <p class="page-intro">查看证据采集、质量检查、研究案例与市场巡检的当前建设状态。</p>
-    </div>
-</header>
-
-<section class="panel" aria-labelledby="workflow-title">
-    <div class="panel-heading">
-        <div>
-            <p class="eyebrow">系统流程</p>
-            <h2 id="workflow-title">从证据采集到人工反馈</h2>
+<div class="home-page">
+    <section class="home-hero" aria-labelledby="home-title">
+        <div class="home-hero-copy">
+            <div class="home-hero-meta">
+                <p class="eyebrow">MARKET EVIDENCE LAB</p>
+                <span class="home-phase">ETHUSDT · UTC</span>
+            </div>
+            <h1 id="home-title"><span>观察市场事实，</span><strong>保留证据路径。</strong></h1>
+            <p class="home-thesis-note">把日 K、小时 K、OI、Funding 与多来源新闻放进同一套可追溯工作流，先确认发生了什么，再等待市场形成共识。</p>
+            <div class="home-hero-actions">
+                <a href="{% url 'market_data:index' %}">查看行情数据 <span aria-hidden="true">→</span></a>
+                <a href="{% url 'news_analysis:event_overview' %}">进入新闻事件库 <span aria-hidden="true">→</span></a>
+            </div>
         </div>
-        <div class="header-links">
-            <a class="text-link" href="{% url 'collection:index' %}">进入采集层 →</a>
-            <a class="text-link" href="{% url 'inspection:index' %}">进入数据质量检查 →</a>
-            <a class="text-link" href="{% url 'scheduling:index' %}">进入系统管理 →</a>
-            <a class="text-link" href="{% url 'market_monitoring:index' %}">进入市场异常巡检 →</a>
-            <a class="text-link" href="{% url 'research_cases:list' %}">进入研究案例 →</a>
+
+        <div class="consensus-field" aria-hidden="true">
+            <span class="consensus-axis axis-horizontal"></span>
+            <span class="consensus-axis axis-vertical"></span>
+            <span class="consensus-orbit orbit-outer"></span>
+            <span class="consensus-orbit orbit-middle"></span>
+            <span class="consensus-orbit orbit-inner"></span>
+            <span class="consensus-point point-fact"></span>
+            <span class="consensus-point point-evidence"></span>
+            <span class="consensus-point point-time"></span>
+            <span class="consensus-label label-fact">MARKET DATA</span>
+            <span class="consensus-label label-evidence">NEWS FACTS</span>
+            <span class="consensus-label label-time">TIME</span>
+            <span class="consensus-core"><small>VALUE</small><strong>共识</strong></span>
         </div>
-    </div>
 
-    <ol class="workflow" aria-label="系统流程">
-        <li class="is-ready"><span class="step-number">01</span><strong>采集</strong><small>已建设</small></li>
-        <li><span class="step-number">02</span><strong>分析</strong><small>待建设</small></li>
-        <li class="is-ready"><span class="step-number">03</span><strong>数据质量检查</strong><small>已建设</small></li>
-        <li class="is-ready"><span class="step-number">04</span><strong>研究案例</strong><small>V1 已建设</small></li>
-        <li><span class="step-number">05</span><strong>AI报告</strong><small>待建设</small></li>
-        <li><span class="step-number">06</span><strong>人工反馈</strong><small>待建设</small></li>
-    </ol>
-</section>
+        <ul class="home-principles" aria-label="当前数据覆盖">
+            <li><span>01</span><div><strong>{{ market_record_count }} 条行情记录</strong><small>{% if latest_kline_at %}最近 K 线 {{ latest_kline_at|date:"Y-m-d H:i" }} UTC{% else %}等待首次行情采集{% endif %}</small></div></li>
+            <li><span>02</span><div><strong>{{ news_record_count }} 条新闻 · {{ enabled_feed_count }} 个栏目</strong><small>{{ eligible_fact_count }} 份客观事实结果可进入下游</small></div></li>
+            <li><span>03</span><div><strong>{{ event_count }} 个当前新闻事件</strong><small>来自当前有效事件库快照</small></div></li>
+        </ul>
+    </section>
 
-<section class="scope-note" aria-labelledby="scope-title">
-    <div class="scope-icon" aria-hidden="true">✓</div>
-    <div>
-        <h2 id="scope-title">当前交付范围</h2>
-        <p>当前支持手工或每日自动编排 ETHUSDT K线、1h OI 和实际 Funding 结算数据采集，并可按固定 V1 规则扫描1d行情异常候选、由人工选择建立研究案例。案例可分别生成价格证据与衍生品证据；新闻、历史类似和 AI 报告仍待后续阶段建设。</p>
-    </div>
-</section>
+    <section class="home-scope-section" aria-labelledby="scope-title">
+        <div class="home-section-heading">
+            <div><p class="eyebrow">WORKSPACE</p><h2 id="scope-title">三个工作入口</h2></div>
+            <p>范围保持克制：采集、观察、提取事实。</p>
+        </div>
+
+        <div class="home-scope-grid">
+            <article class="home-scope-card is-market">
+                <div class="home-card-index">01</div>
+                <p class="home-card-kicker">MARKET DATA</p>
+                <h3>行情数据观察</h3>
+                <p>联动查看 ETHUSDT 日 K、小时 K、OI 与 Funding，沿 UTC 时间轴还原当日市场变化。</p>
+                <a href="{% url 'market_data:index' %}">打开数据查看 <span aria-hidden="true">→</span></a>
+            </article>
+
+            <article class="home-scope-card is-news">
+                <div class="home-card-index">02</div>
+                <p class="home-card-kicker">NEWS OBSERVATION</p>
+                <h3>新闻观察</h3>
+                <p>从原始新闻采集、ETH 方向分类到客观事实提取，并将多来源报道归入暂定事件库。</p>
+                <div class="home-card-links">
+                    <a href="{% url 'news_data:index' %}">数据采集</a>
+                    <a href="{% url 'news_analysis:index' %}">每日分析</a>
+                    <a href="{% url 'news_analysis:objective_fact_list' %}">客观事实</a>
+                    <a href="{% url 'news_analysis:event_overview' %}">事件库</a>
+                </div>
+            </article>
+
+            <article class="home-scope-card is-collection">
+                <div class="home-card-index">03</div>
+                <p class="home-card-kicker">COLLECTION</p>
+                <h3>采集</h3>
+                <p>统一管理行情与新闻任务，查看执行频率、运行状态、质量检查结果和历史记录。</p>
+                <div class="home-card-links">
+                    <a href="{% url 'scheduling:index' %}">自动调度</a>
+                    <a href="{% url 'scheduling:runs' %}">调度情况</a>
+                </div>
+            </article>
+        </div>
+    </section>
+</div>
 {% endblock %}
