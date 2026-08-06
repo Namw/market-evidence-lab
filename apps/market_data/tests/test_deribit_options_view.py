@@ -105,6 +105,13 @@ class DeribitOptionsViewTests(TestCase):
         self.assertEqual(response.context["term_structure"]["items"][0]["value"], "56.00%")
         self.assertContains(response, "ATM IV 期限结构")
         self.assertContains(response, "按行权价的 Call / Put OI")
+        self.assertContains(response, "Mark IV（年化隐含波动率）")
+        self.assertContains(response, "行权价 ÷ 标的价格（价内程度）")
+        self.assertContains(response, "data-hover-chart", count=2)
+        self.assertContains(response, 'data-x-label="到期日（X）"')
+        self.assertContains(response, 'data-y-label="Mark IV（Y）"')
+        self.assertContains(response, 'data-x-value="95.0%"')
+        self.assertContains(response, 'data-y-value="56.00%"')
         self.assertContains(response, "24h +480")
 
     def test_expiry_query_selects_requested_real_expiry(self):
@@ -126,6 +133,9 @@ class DeribitOptionsViewTests(TestCase):
         self.assertEqual(first_expiry["call_oi"], Decimal("220"))
         self.assertEqual(first_expiry["put_oi"], Decimal("220"))
         self.assertEqual(len(context["skew"]["series"]), 2)
+        first_point = context["skew"]["series"][0]["coordinates"][0]
+        self.assertEqual(first_point["x_value"], "95.0%")
+        self.assertEqual(first_point["y_value"], "51.00%")
 
     def test_navigation_marks_deribit_entry_active(self):
         response = self.client.get(reverse("market_data:deribit_options"))

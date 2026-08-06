@@ -46,8 +46,6 @@ class ProductSurfaceTests(TestCase):
         "market_data:index",
         "market_data:deribit_options",
         "market_funds:index",
-        "market_funds:stablecoins",
-        "market_funds:etf_flows",
         "market_funds:addresses",
         "news_data:index",
         "news_analysis:index",
@@ -75,9 +73,7 @@ class ProductSurfaceTests(TestCase):
                 "数据查看",
                 "Deribit 期权数据",
                 "ETH 资金观察",
-                "资金概览",
-                "稳定币供应",
-                "ETF 流",
+                "资金与流动性",
                 "地址变化",
                 "新闻观察",
                 "数据采集",
@@ -133,8 +129,6 @@ class ProductSurfaceTests(TestCase):
             "news_analysis:event_overview": "news",
             "market_data:index": "market-data",
             "market_funds:index": "market-funds",
-            "market_funds:stablecoins": "market-funds",
-            "market_funds:etf_flows": "market-funds",
             "market_funds:addresses": "market-funds",
         }
         for name, expected_group in expected_groups.items():

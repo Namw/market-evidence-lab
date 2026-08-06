@@ -5,7 +5,7 @@ from django.test import TestCase
 from django.urls import reverse
 from django.utils import timezone
 
-from apps.market_funds.models import StablecoinSupplyDaily
+from apps.market_funds.models import EtfFlowDaily, StablecoinSupplyDaily
 from apps.scheduling.funds_workflow import (
     FundWorkflowAlreadyRunning,
     calculate_next_fund_run,
@@ -57,8 +57,79 @@ class ViewAndSchedulingTests(TestCase):
             circulating_supply=123, circulating_supply_usd=1230000000,
             source_url="https://example.test", retrieved_at=timezone.now(),
         )
-        populated = self.client.get(reverse("market_funds:stablecoins"))
+        populated = self.client.get(reverse("market_funds:index"))
         self.assertContains(populated, "$1.23B")
+
+    def test_fund_page_combines_overview_stablecoin_and_etf_sections(self):
+        response = self.client.get(reverse("market_funds:index"))
+
+        self.assertContains(response, 'href="#summary"')
+        self.assertContains(response, 'id="stablecoins"')
+        self.assertContains(response, 'id="etf-flows"')
+        self.assertContains(response, "关键资金信号")
+        self.assertContains(response, "稳定币供应")
+        self.assertContains(response, "ETH ETF 资金流")
+        self.assertNotContains(response, "自动采集当前已安全停止")
+
+    def test_fund_charts_expose_axes_tooltips_and_ranked_etf_contributions(self):
+        for day, value in ((date(2026, 8, 4), 100), (date(2026, 8, 5), 120)):
+            StablecoinSupplyDaily.objects.create(
+                observation_date=day,
+                chain="Ethereum",
+                stablecoin_symbol="",
+                circulating_supply=value,
+                circulating_supply_usd=value,
+                source_url="https://example.test",
+                retrieved_at=timezone.now(),
+            )
+            EtfFlowDaily.objects.create(
+                trade_date=day,
+                ticker="TOTAL",
+                flow_usd=value,
+                raw_value=str(value),
+                is_total=True,
+                source_url="https://example.test",
+                retrieved_at=timezone.now(),
+            )
+        for ticker, flow in (("ETHA", 80), ("FETH", -40), ("CETH", 0), ("QETH", None)):
+            EtfFlowDaily.objects.create(
+                trade_date=date(2026, 8, 5),
+                ticker=ticker,
+                flow_usd=flow,
+                raw_value="" if flow is None else str(flow),
+                source_url="https://example.test",
+                retrieved_at=timezone.now(),
+            )
+
+        response = self.client.get(reverse("market_funds:index"))
+
+        self.assertContains(response, 'data-fund-chart="area"')
+        self.assertContains(response, 'data-fund-chart="bars"')
+        self.assertContains(response, 'id="stablecoin-chart-data"')
+        self.assertContains(response, 'id="etf-chart-data"')
+        self.assertContains(response, "各 ETF 对总净流的贡献")
+        self.assertContains(response, "净流入")
+        self.assertContains(response, "净流出")
+        self.assertContains(response, "明确为零")
+        self.assertContains(response, "未公布")
+        self.assertEqual(response.context["etf_contribution_groups"]["inflows"][0]["ticker"], "ETHA")
+        self.assertEqual(response.context["etf_contribution_groups"]["outflows"][0]["ticker"], "FETH")
+
+    def test_legacy_fund_section_urls_redirect_to_page_anchors(self):
+        stablecoins = self.client.get(reverse("market_funds:stablecoins"))
+        etf_flows = self.client.get(reverse("market_funds:etf_flows"))
+
+        self.assertEqual(stablecoins.status_code, 302)
+        self.assertEqual(stablecoins["Location"], f'{reverse("market_funds:index")}#stablecoins')
+        self.assertEqual(etf_flows.status_code, 302)
+        self.assertEqual(etf_flows["Location"], f'{reverse("market_funds:index")}#etf-flows')
+
+    def test_addresses_remain_a_separate_page(self):
+        response = self.client.get(reverse("market_funds:addresses"))
+
+        self.assertContains(response, "ETH 地址变化")
+        self.assertContains(response, "自动采集当前已安全停止")
+        self.assertNotContains(response, "关键资金信号")
 
     def test_navigation_order_and_active_group(self):
         html = self.client.get(reverse("market_funds:index")).content.decode()

@@ -45,14 +45,15 @@
         <section class="deribit-panel" aria-labelledby="atm-term-title">
             <header class="deribit-panel-header"><div><h2 id="atm-term-title">ATM IV 期限结构</h2><p>按到期日对 Call / Put 平值 IV 分别插值后取均值，不使用全合约平均 IV。</p></div><span class="deribit-legend"><i class="is-call"></i>ATM IV</span></header>
             {% if term_structure.items %}
-            <div class="deribit-svg-wrap">
-                <svg viewBox="0 0 760 280" role="img" aria-labelledby="atm-term-title">
+            <div class="deribit-chart-stage" data-hover-chart>
+                <div class="deribit-svg-wrap"><svg viewBox="0 0 760 280" role="img" aria-labelledby="atm-term-title" data-chart-left="54" data-chart-right="738" data-chart-top="24" data-chart-bottom="238" data-x-label="到期日（X）" data-y-label="ATM IV（Y）">
                     <line class="deribit-chart-axis" x1="54" y1="238" x2="738" y2="238"></line>
                     <line class="deribit-chart-axis" x1="54" y1="24" x2="54" y2="238"></line>
                     {% for tick in term_structure.ticks %}<line class="deribit-chart-grid" x1="54" y1="{{ tick.y }}" x2="738" y2="{{ tick.y }}"></line><text class="deribit-axis-text" x="8" y="{{ tick.y|add:'4' }}">{{ tick.value }}</text>{% endfor %}
                     <polyline class="deribit-atm-line" points="{{ term_structure.points }}"></polyline>
-                    {% for item in term_structure.items %}<circle class="deribit-atm-point" cx="{{ item.x }}" cy="{{ item.y }}" r="4"><title>{{ item.label }} · {{ item.value }}</title></circle><text class="deribit-axis-text" x="{{ item.x }}" y="260" text-anchor="middle">{{ item.label }}</text>{% endfor %}
-                </svg>
+                    {% for item in term_structure.items %}<circle class="deribit-atm-point" cx="{{ item.x }}" cy="{{ item.y }}" r="4" data-chart-point data-x-value="{{ item.label }}" data-y-value="{{ item.value }}" data-series="ATM IV" aria-label="到期日 {{ item.label }}，ATM IV {{ item.value }}"></circle><text class="deribit-axis-text" x="{{ item.x }}" y="260" text-anchor="middle">{{ item.label }}</text>{% endfor %}
+                </svg></div>
+                <div class="deribit-chart-tooltip" role="status" aria-live="polite" hidden></div>
             </div>
             {% else %}<p class="deribit-panel-empty">当前快照没有足够的 Mark IV 和标的价格来计算 ATM IV。</p>{% endif %}
         </section>
@@ -106,13 +107,17 @@
         <section class="deribit-panel is-wide" aria-labelledby="skew-title">
             <header class="deribit-panel-header"><div><h2 id="skew-title">波动率偏度</h2><p>选取最接近 30 天与 90 天的实际到期日，按行权价 / 标的价格展示 Mark IV。</p></div><div class="deribit-inline-legend">{% for item in skew.series %}<span><i class="is-skew-{{ forloop.counter }}"></i>{{ item.label }}</span>{% endfor %}</div></header>
             {% if skew.series %}
-            <div class="deribit-svg-wrap">
-                <svg viewBox="0 0 900 250" role="img" aria-labelledby="skew-title">
+            <div class="deribit-chart-stage" data-hover-chart>
+                <div class="deribit-svg-wrap"><svg viewBox="0 0 900 270" role="img" aria-labelledby="skew-title skew-chart-description" data-chart-left="58" data-chart-right="870" data-chart-top="24" data-chart-bottom="205" data-x-label="价内程度（X）" data-y-label="Mark IV（Y）">
+                    <desc id="skew-chart-description">横轴为行权价除以标的价格，用百分比表示价内程度；纵轴为 Mark IV，用百分比表示年化隐含波动率。</desc>
+                    <text class="deribit-axis-title" x="58" y="14">Mark IV（年化隐含波动率）</text>
                     <line class="deribit-chart-axis" x1="58" y1="205" x2="870" y2="205"></line><line class="deribit-chart-axis" x1="58" y1="24" x2="58" y2="205"></line>
                     {% for tick in skew.ticks %}<line class="deribit-chart-grid" x1="58" y1="{{ tick.y }}" x2="870" y2="{{ tick.y }}"></line><text class="deribit-axis-text" x="8" y="{{ tick.y|add:'4' }}">{{ tick.value }}</text>{% endfor %}
-                    {% for item in skew.series %}<polyline class="deribit-skew-line is-series-{{ forloop.counter }}" points="{{ item.path }}"></polyline>{% for point in item.coordinates %}<circle class="deribit-skew-point is-series-{{ forloop.parentloop.counter }}" cx="{{ point.x }}" cy="{{ point.y }}" r="3"></circle>{% endfor %}{% endfor %}
+                    {% for item in skew.series %}<polyline class="deribit-skew-line is-series-{{ forloop.counter }}" points="{{ item.path }}"></polyline>{% for point in item.coordinates %}<circle class="deribit-skew-point is-series-{{ forloop.parentloop.counter }}" cx="{{ point.x }}" cy="{{ point.y }}" r="3" data-chart-point data-x-value="{{ point.x_value }}" data-y-value="{{ point.y_value }}" data-series="{{ item.label }}" aria-label="{{ item.label }}，价内程度 {{ point.x_value }}，Mark IV {{ point.y_value }}"></circle>{% endfor %}{% endfor %}
                     <text class="deribit-axis-text" x="58" y="230">70%</text><text class="deribit-axis-text" x="261" y="230" text-anchor="middle">85%</text><text class="deribit-axis-text" x="464" y="230" text-anchor="middle">100%</text><text class="deribit-axis-text" x="667" y="230" text-anchor="middle">115%</text><text class="deribit-axis-text" x="870" y="230" text-anchor="end">130%</text>
-                </svg>
+                    <text class="deribit-axis-title" x="464" y="258" text-anchor="middle">行权价 ÷ 标的价格（价内程度）</text>
+                </svg></div>
+                <div class="deribit-chart-tooltip" role="status" aria-live="polite" hidden></div>
             </div>
             {% else %}<p class="deribit-panel-empty">当前快照没有足够的 IV 数据来生成偏度曲线。</p>{% endif %}
             <p class="deribit-method-note">ATM 期限结构回答“不同期限预期波动有多高”；偏度曲线回答“尾部风险偏向哪一侧”。</p>
@@ -124,4 +129,4 @@
 </div>
 {% endblock %}
 
-{% block extra_js %}<link rel="stylesheet" href="{% static 'market_data/css/deribit_options.css' %}?v=1"><script src="{% static 'market_data/js/deribit_options.js' %}?v=1" defer></script>{% endblock %}
+{% block extra_js %}<link rel="stylesheet" href="{% static 'market_data/css/deribit_options.css' %}?v=3"><script src="{% static 'market_data/js/deribit_options.js' %}?v=2" defer></script>{% endblock %}

@@ -174,6 +174,10 @@
     background: #8b5bd6;
 }
 
+.deribit-chart-stage {
+    position: relative;
+}
+
 .deribit-svg-wrap {
     width: 100%;
     overflow-x: auto;
@@ -202,6 +206,12 @@
     font-size: 11px;
 }
 
+.deribit-axis-title {
+    fill: #4f5c72;
+    font-size: 11px;
+    font-weight: 700;
+}
+
 .deribit-atm-line {
     fill: none;
     stroke: #3867d8;
@@ -214,6 +224,84 @@
     fill: #fff;
     stroke: #3867d8;
     stroke-width: 2.5;
+}
+
+.deribit-hover-guide {
+    stroke: #8b96a9;
+    stroke-width: 1;
+    stroke-dasharray: 4 4;
+    pointer-events: none;
+}
+
+.deribit-hover-point {
+    fill: #fff;
+    stroke-width: 3;
+    pointer-events: none;
+}
+
+.deribit-hover-guide[hidden],
+.deribit-hover-point[hidden],
+.deribit-chart-tooltip[hidden] {
+    display: none;
+}
+
+.deribit-chart-tooltip {
+    position: absolute;
+    z-index: 2;
+    min-width: 178px;
+    padding: 11px 12px;
+    border: 1px solid rgba(30, 46, 76, .12);
+    border-radius: 10px;
+    color: #fff;
+    background: rgba(24, 36, 58, .94);
+    box-shadow: 0 8px 24px rgba(21, 37, 65, .18);
+    pointer-events: none;
+    transform: translateY(-100%);
+}
+
+.deribit-chart-tooltip.is-left {
+    transform: translate(-100%, -100%);
+}
+
+.deribit-chart-tooltip.is-below {
+    transform: none;
+}
+
+.deribit-chart-tooltip.is-left.is-below {
+    transform: translateX(-100%);
+}
+
+.deribit-chart-tooltip strong {
+    display: block;
+    margin-bottom: 7px;
+    font-size: .76rem;
+}
+
+.deribit-chart-tooltip dl {
+    display: grid;
+    gap: 5px;
+    margin: 0;
+}
+
+.deribit-chart-tooltip dl div {
+    display: flex;
+    justify-content: space-between;
+    gap: 18px;
+}
+
+.deribit-chart-tooltip dt,
+.deribit-chart-tooltip dd {
+    margin: 0;
+    font-size: .72rem;
+    font-variant-numeric: tabular-nums;
+}
+
+.deribit-chart-tooltip dt {
+    color: #bac3d2;
+}
+
+.deribit-chart-tooltip dd {
+    font-weight: 700;
 }
 
 .deribit-toggle {

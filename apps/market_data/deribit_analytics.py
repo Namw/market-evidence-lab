@@ -244,7 +244,14 @@ def _skew_series(expiry_groups: list[dict], latest_at: datetime) -> dict:
         for point in item["points"]:
             x = left + float((point["moneyness"] - Decimal("70")) / Decimal("60")) * (right - left)
             y = bottom - float((point["iv"] - low) / span) * (bottom - top)
-            coordinates.append({"x": round(x, 2), "y": round(y, 2)})
+            coordinates.append(
+                {
+                    "x": round(x, 2),
+                    "y": round(y, 2),
+                    "x_value": f'{point["moneyness"]:.1f}%',
+                    "y_value": f'{point["iv"]:.2f}%',
+                }
+            )
         item["coordinates"] = coordinates
         item["path"] = " ".join(
             f"{point['x']},{point['y']}" for point in coordinates

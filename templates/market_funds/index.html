@@ -1,99 +1,180 @@
 {% extends "base.html" %}
 {% load static funds_format %}
 
-{% block title %}ETH 资金观察 · Market Evidence Lab{% endblock %}
-{% block extra_css %}<link rel="stylesheet" href="{% static 'market_funds/css/funds.css' %}?v=1">{% endblock %}
+{% block title %}{% if active_page == "addresses" %}ETH 地址变化{% else %}ETH 资金观察{% endif %} · Market Evidence Lab{% endblock %}
+{% block extra_css %}<link rel="stylesheet" href="{% static 'market_funds/css/funds.css' %}?v=4">{% endblock %}
 {% block body_class %}market-funds-page{% endblock %}
 {% block content %}
-<header class="page-header funds-header">
+<header class="page-header funds-header" id="page-top">
     <div>
+        {% if active_page == "addresses" %}
+        <p class="eyebrow">公开地址 · 来源边界</p>
+        <h1>ETH 地址变化</h1>
+        <p>公开标签地址余额快照与排名变化；地址不等于真实持有人，缺失时不会用零值代替。</p>
+        {% else %}
         <p class="eyebrow">公开数据 · 可复算指标</p>
         <h1>ETH 资金观察</h1>
-        <p>Ethereum 稳定币供应、ETH ETF 日流量与公开标签地址快照；所有数字均来自数据库，缺失时不会用零值代替。</p>
+        <p>在一个页面观察 Ethereum 稳定币存量与 ETH ETF 资金流；所有数字均来自数据库，缺失时不会用零值代替。</p>
+        {% endif %}
     </div>
 </header>
 
-<nav class="fund-tabs" aria-label="ETH 资金观察页签">
-    <a href="{% url 'market_funds:index' %}" class="{% if active_tab == 'overview' %}is-active{% endif %}">资金概览</a>
-    <a href="{% url 'market_funds:stablecoins' %}" class="{% if active_tab == 'stablecoins' %}is-active{% endif %}">稳定币供应</a>
-    <a href="{% url 'market_funds:etf_flows' %}" class="{% if active_tab == 'etf-flows' %}is-active{% endif %}">ETF 流</a>
-    <a href="{% url 'market_funds:addresses' %}" class="{% if active_tab == 'addresses' %}is-active{% endif %}">地址变化</a>
+{% if active_page == "funds" %}
+<nav class="fund-jump-nav" aria-label="本页内容">
+    <a href="#summary">资金总览</a>
+    <a href="#stablecoins">稳定币供应</a>
+    <a href="#etf-flows">ETF 资金流</a>
 </nav>
 
-{% if active_tab == 'overview' %}
-<section class="fund-summary-grid" aria-label="资金摘要">
-    <article class="panel fund-summary-card">
-        <span>Ethereum 稳定币总供应</span>
-        <strong>{{ stablecoin.latest.circulating_supply_usd|human_usd }}</strong>
-        <small>7 日变化 {{ stablecoin.change_7d|signed_usd }}</small>
-        <p>{% if stablecoin.latest %}数据日期 {{ stablecoin.latest.observation_date }}{% else %}尚未采集 DeFiLlama 日频数据{% endif %}</p>
-    </article>
-    <article class="panel fund-summary-card">
-        <span>ETH ETF 最近交易日净流</span>
-        <strong class="{{ etf.latest.flow_usd|flow_class }}">{{ etf.latest.flow_usd|signed_usd }}</strong>
-        <small>5 个交易日累计 {{ etf.cumulative_5d|signed_usd }}</small>
-        <p>{% if etf.latest %}交易日 {{ etf.latest.trade_date }}{% else %}尚未采集 Farside 数据{% endif %}</p>
-    </article>
-    <article class="panel fund-summary-card">
-        <span>公开大地址页面观察快照</span>
-        <strong>{% if addresses.snapshot_date %}{{ addresses.covered_count }} 个地址{% else %}暂无可用快照{% endif %}</strong>
-        <small>{% if addresses.snapshot_date %}快照日期 {{ addresses.snapshot_date }}{% else %}来源策略阻止自动采集{% endif %}</small>
-        <p>不是交易所准确余额，也不代表真实持有人或完整实体覆盖。</p>
-    </article>
+<section class="fund-section fund-section-summary" id="summary" aria-labelledby="summary-title">
+    <div class="fund-section-heading">
+        <div>
+            <p class="eyebrow">一眼看懂</p>
+            <h2 id="summary-title">关键资金信号</h2>
+            <p>先看链上资金存量，再看传统市场交易日流量。</p>
+        </div>
+    </div>
+    <div class="fund-summary-grid overview">
+        <article class="panel fund-summary-card">
+            <span>Ethereum 稳定币总供应 · 存量</span>
+            <strong>{{ stablecoin.latest.circulating_supply_usd|human_usd }}</strong>
+            <small>7 日变化 {{ stablecoin.change_7d|signed_usd }}</small>
+            <p>{% if stablecoin.latest %}数据日期 {{ stablecoin.latest.observation_date }}{% else %}尚未采集 DeFiLlama 日频数据{% endif %}</p>
+        </article>
+        <article class="panel fund-summary-card">
+            <span>ETH ETF 最近交易日净流 · 流量</span>
+            <strong class="{{ etf.latest.flow_usd|flow_class }}">{{ etf.latest.flow_usd|signed_usd }}</strong>
+            <small>5 个交易日累计 {{ etf.cumulative_5d|signed_usd }}</small>
+            <p>{% if etf.latest %}交易日 {{ etf.latest.trade_date }}{% else %}尚未采集 Farside 数据{% endif %}</p>
+        </article>
+    </div>
+    <aside class="panel fund-reading-note">
+        <strong>阅读口径</strong>
+        <p>稳定币供应是某日的资金存量，ETF 净流是交易日内的资金流量。两者可以共同判断资金环境，但不能直接相加或放在同一坐标轴比较。</p>
+    </aside>
 </section>
 
-<section class="panel fund-chart-panel">
-    <div class="panel-heading"><div><p class="eyebrow">90 日观察</p><h2>Ethereum 稳定币供应趋势</h2></div></div>
-    {% if stablecoin_path %}
-    <svg viewBox="0 0 720 180" role="img" aria-label="最近 90 日稳定币供应趋势"><polyline points="{{ stablecoin_path }}" /></svg>
-    {% else %}<div class="fund-empty">至少需要两个日频观测点后才能绘制趋势。</div>{% endif %}
+<section class="fund-section" id="stablecoins" aria-labelledby="stablecoins-title">
+    <div class="fund-section-heading">
+        <div>
+            <p class="eyebrow">链上资金存量 · 日频</p>
+            <h2 id="stablecoins-title">稳定币供应</h2>
+            <p>观察可在 Ethereum 上使用的美元计价稳定币总量及其变化速度。</p>
+        </div>
+        <a href="#page-top">返回顶部</a>
+    </div>
+    <div class="fund-summary-grid detail-metrics stablecoin-metrics">
+        <article class="panel fund-summary-card"><span>1 日变化</span><strong>{{ stablecoin.change_1d|signed_usd }}</strong></article>
+        <article class="panel fund-summary-card"><span>7 日变化</span><strong>{{ stablecoin.change_7d|signed_usd }}</strong></article>
+        <article class="panel fund-summary-card"><span>30 日变化</span><strong>{{ stablecoin.change_30d|signed_usd }}</strong></article>
+    </div>
+    <section class="panel fund-chart-panel" aria-labelledby="stablecoin-chart-title">
+        <div class="panel-heading fund-chart-heading">
+            <div><p class="eyebrow">最近 90 日</p><h3 id="stablecoin-chart-title">总供应量</h3><p>纵轴为美元供应规模，悬停可查看每日数值与日变化。</p></div>
+            <span class="fund-chart-legend"><i class="is-stablecoin"></i>总供应量（USD）</span>
+        </div>
+        {% if stablecoin_chart_data|length > 1 %}
+        <div class="fund-chart-stage" data-fund-chart="area" data-source="stablecoin-chart-data">
+            <canvas role="img" aria-label="最近 90 日稳定币总供应量，包含日期轴、美元金额轴与每日悬停读数"></canvas>
+            <div class="fund-chart-tooltip" role="status" aria-live="polite" hidden></div>
+        </div>
+        {% else %}<div class="fund-empty">至少需要两个日频观测点后才能绘制趋势。</div>{% endif %}
+    </section>
+    <details class="panel reliability-panel fund-methodology">
+        <summary><div><p class="eyebrow">数据说明</p><h3>来源、更新时间与解释边界</h3></div><span>查看详情</span></summary>
+        <dl>
+            <div><dt>来源</dt><dd>DeFiLlama · <a href="https://stablecoins.llama.fi/stablecoincharts/Ethereum" rel="noopener noreferrer">源接口</a></dd></div>
+            <div><dt>观测日期</dt><dd>{{ stablecoin.latest.observation_date|default:"暂无" }}</dd></div>
+            <div><dt>最近采集</dt><dd>{% if stablecoin.latest.retrieved_at %}{{ stablecoin.latest.retrieved_at|date:"Y-m-d H:i:s" }} 北京时间{% else %}暂无{% endif %}</dd></div>
+            <div><dt>历史修订</dt><dd>{% if stablecoin.revision_detected %}已检测到记录修订{% else %}当前记录未检测到修订{% endif %}</dd></div>
+            <div class="fund-methodology-wide"><dt>解释边界</dt><dd>免费接口当前仅稳定提供 Ethereum 总量；未展示无法可靠获得的币种分项，bridged 字段保留为空。</dd></div>
+        </dl>
+    </details>
 </section>
 
-<section class="panel fund-table-panel">
-    <div class="panel-heading"><div><p class="eyebrow">关键变化</p><h2>最近 ETF 贡献</h2></div></div>
-    {% if etf.contributions %}
-    <div class="table-scroll"><table><thead><tr><th>Ticker</th><th>流量</th><th>原始值</th><th>交易日</th></tr></thead><tbody>
-    {% for row in etf.contributions %}<tr><td><strong>{{ row.ticker }}</strong></td><td class="{{ row.flow_usd|flow_class }}">{{ row.flow_usd|signed_usd }}</td><td>{% if row.flow_usd == None %}<span class="missing-value">未公布</span>{% else %}{{ row.raw_value }}{% endif %}</td><td>{{ row.trade_date }}</td></tr>{% endfor %}
-    </tbody></table></div>
-    {% else %}<div class="fund-empty">暂无 ETF 明细数据。</div>{% endif %}
+<section class="fund-section" id="etf-flows" aria-labelledby="etf-flows-title">
+    <div class="fund-section-heading">
+        <div>
+            <p class="eyebrow">传统市场资金流 · 交易日</p>
+            <h2 id="etf-flows-title">ETH ETF 资金流</h2>
+            <p>观察美国现货 ETH ETF 的净申购与净赎回，不把周末或节假日当作零流量。</p>
+        </div>
+        <a href="#page-top">返回顶部</a>
+    </div>
+    <div class="fund-summary-grid detail-metrics etf-metrics">
+        <article class="panel fund-summary-card"><span>最近交易日总净流</span><strong class="{{ etf.latest.flow_usd|flow_class }}">{{ etf.latest.flow_usd|signed_usd }}</strong><p>{% if etf.latest %}{{ etf.latest.trade_date }}{% else %}暂无数据{% endif %}</p></article>
+        <article class="panel fund-summary-card"><span>5 个交易日累计</span><strong>{{ etf.cumulative_5d|signed_usd }}</strong></article>
+        <article class="panel fund-summary-card"><span>20 个交易日累计</span><strong>{{ etf.cumulative_20d|signed_usd }}</strong></article>
+    </div>
+    <section class="panel fund-chart-panel" aria-labelledby="etf-chart-title">
+        <div class="panel-heading fund-chart-heading">
+            <div><p class="eyebrow">最近 20 个交易日</p><h3 id="etf-chart-title">每日总净流</h3><p>柱体高于零表示净流入，低于零表示净流出；悬停可查看精确金额。</p></div>
+            <span class="fund-chart-legend"><i class="is-inflow"></i>净流入 <i class="is-outflow"></i>净流出</span>
+        </div>
+        {% if etf_chart_data|length > 1 %}
+        <div class="fund-chart-stage" data-fund-chart="bars" data-source="etf-chart-data">
+            <canvas role="img" aria-label="最近 20 个交易日 ETH ETF 总净流柱状图，包含日期轴、零线、美元金额轴与每日悬停读数"></canvas>
+            <div class="fund-chart-tooltip" role="status" aria-live="polite" hidden></div>
+        </div>
+        {% else %}<div class="fund-empty">至少需要两个交易日观测点后才能绘制趋势。</div>{% endif %}
+    </section>
+    <section class="panel fund-contribution-panel" aria-labelledby="etf-contribution-title">
+        <div class="panel-heading fund-contribution-heading">
+            <div><p class="eyebrow">{{ etf.latest.trade_date|default:"最近交易日" }}</p><h3 id="etf-contribution-title">各 ETF 对总净流的贡献</h3><p>按绝对金额从高到低排列，流入和流出分开显示。</p></div>
+            {% if etf.latest %}<div class="fund-contribution-total"><span>当日合计</span><strong class="{{ etf.latest.flow_usd|flow_class }}">{{ etf.latest.flow_usd|signed_usd }}</strong></div>{% endif %}
+        </div>
+        {% if etf.contributions %}
+        <div class="fund-contribution-grid">
+            <section class="fund-contribution-group is-inflow" aria-labelledby="etf-inflows-title">
+                <div class="fund-contribution-group-heading"><h4 id="etf-inflows-title">净流入</h4><span>{{ etf_contribution_groups.inflows|length }} 只</span></div>
+                {% for row in etf_contribution_groups.inflows %}
+                <div class="fund-contribution-row">
+                    <strong>{{ row.ticker }}</strong>
+                    <div class="fund-contribution-track" aria-hidden="true"><i style="--bar-size: {{ row.bar_percent }}%"></i></div>
+                    <span>{{ row.flow_usd|signed_usd }}</span>
+                </div>
+                {% empty %}<p class="fund-contribution-empty">当日没有已公布的净流入。</p>{% endfor %}
+            </section>
+            <section class="fund-contribution-group is-outflow" aria-labelledby="etf-outflows-title">
+                <div class="fund-contribution-group-heading"><h4 id="etf-outflows-title">净流出</h4><span>{{ etf_contribution_groups.outflows|length }} 只</span></div>
+                {% for row in etf_contribution_groups.outflows %}
+                <div class="fund-contribution-row">
+                    <strong>{{ row.ticker }}</strong>
+                    <div class="fund-contribution-track" aria-hidden="true"><i style="--bar-size: {{ row.bar_percent }}%"></i></div>
+                    <span>{{ row.flow_usd|signed_usd }}</span>
+                </div>
+                {% empty %}<p class="fund-contribution-empty">当日没有已公布的净流出。</p>{% endfor %}
+            </section>
+        </div>
+        {% if etf_contribution_groups.zero or etf_contribution_groups.missing %}
+        <div class="fund-contribution-status">
+            {% if etf_contribution_groups.zero %}<div><span>明确为零</span>{% for ticker in etf_contribution_groups.zero %}<strong>{{ ticker }}</strong>{% endfor %}</div>{% endif %}
+            {% if etf_contribution_groups.missing %}<div><span>未公布</span>{% for ticker in etf_contribution_groups.missing %}<strong>{{ ticker }}</strong>{% endfor %}</div>{% endif %}
+        </div>
+        {% endif %}
+        {% else %}<div class="fund-empty">暂无 ETF 明细数据。</div>{% endif %}
+    </section>
+    <details class="panel reliability-panel fund-methodology">
+        <summary><div><p class="eyebrow">数据说明</p><h3>来源、更新时间与完整性</h3></div><span>查看详情</span></summary>
+        <dl>
+            <div><dt>来源</dt><dd><a href="https://farside.co.uk/eth/" rel="noopener noreferrer">Farside 免费网页</a></dd></div>
+            <div><dt>观测日期</dt><dd>{{ etf.latest.trade_date|default:"暂无" }}</dd></div>
+            <div><dt>最近采集</dt><dd>{% if etf.latest.retrieved_at %}{{ etf.latest.retrieved_at|date:"Y-m-d H:i:s" }} 北京时间{% else %}暂无{% endif %}</dd></div>
+            <div><dt>完整性</dt><dd>空值与明确零值分别保存；周末及美国节假日没有新行不视为失败。</dd></div>
+            <div class="fund-methodology-wide"><dt>解释边界</dt><dd>该来源没有正式 JSON API 或 SLA，历史值可能补录或修订。</dd></div>
+        </dl>
+    </details>
 </section>
+{{ stablecoin_chart_data|json_script:"stablecoin-chart-data" }}
+{{ etf_chart_data|json_script:"etf-chart-data" }}
 {% endif %}
 
-{% if active_tab == 'stablecoins' %}
-<section class="fund-summary-grid compact">
-    <article class="panel fund-summary-card"><span>当前总供应</span><strong>{{ stablecoin.latest.circulating_supply_usd|human_usd }}</strong></article>
-    <article class="panel fund-summary-card"><span>1 日变化</span><strong>{{ stablecoin.change_1d|signed_usd }}</strong></article>
-    <article class="panel fund-summary-card"><span>7 日变化</span><strong>{{ stablecoin.change_7d|signed_usd }}</strong></article>
-    <article class="panel fund-summary-card"><span>30 日变化</span><strong>{{ stablecoin.change_30d|signed_usd }}</strong></article>
-</section>
-<section class="panel fund-chart-panel">
-    <div class="panel-heading"><div><p class="eyebrow">日频总量</p><h2>90 日趋势</h2></div></div>
-    {% if stablecoin_path %}<svg viewBox="0 0 720 180"><polyline points="{{ stablecoin_path }}" /></svg>{% else %}<div class="fund-empty">暂无足够数据。</div>{% endif %}
-</section>
-<section class="panel reliability-panel"><h2>数据可信度</h2><dl>
-    <div><dt>来源</dt><dd>DeFiLlama · <a href="https://stablecoins.llama.fi/stablecoincharts/Ethereum" rel="noopener noreferrer">源接口</a></dd></div>
-    <div><dt>观测日期</dt><dd>{{ stablecoin.latest.observation_date|default:"暂无" }}</dd></div>
-    <div><dt>最近采集</dt><dd>{% if stablecoin.latest.retrieved_at %}{{ stablecoin.latest.retrieved_at|date:"Y-m-d H:i:s" }} 北京时间{% else %}暂无{% endif %}</dd></div>
-    <div><dt>历史修订</dt><dd>{% if stablecoin.revision_detected %}已检测到记录修订{% else %}当前记录未检测到修订{% endif %}</dd></div>
-    <div><dt>解释边界</dt><dd>免费接口当前仅稳定提供 Ethereum 总量；未展示无法可靠获得的币种分项，bridged 字段保留为空。</dd></div>
-</dl></section>
-{% endif %}
-
-{% if active_tab == 'etf-flows' %}
-<section class="fund-summary-grid compact">
-    <article class="panel fund-summary-card"><span>最近交易日总净流</span><strong class="{{ etf.latest.flow_usd|flow_class }}">{{ etf.latest.flow_usd|signed_usd }}</strong></article>
-    <article class="panel fund-summary-card"><span>5 日累计</span><strong>{{ etf.cumulative_5d|signed_usd }}</strong></article>
-    <article class="panel fund-summary-card"><span>20 日累计</span><strong>{{ etf.cumulative_20d|signed_usd }}</strong></article>
-</section>
-<section class="panel fund-chart-panel"><div class="panel-heading"><div><p class="eyebrow">交易日序列</p><h2>ETF 总流量趋势</h2></div></div>{% if etf_path %}<svg viewBox="0 0 720 180"><line x1="0" y1="90" x2="720" y2="90" class="zero-line"/><polyline points="{{ etf_path }}" /></svg>{% else %}<div class="fund-empty">暂无足够数据。</div>{% endif %}</section>
-<section class="panel fund-table-panel"><div class="panel-heading"><div><p class="eyebrow">动态表头来源</p><h2>每只 ETF 明细</h2></div></div>{% if etf.contributions %}<div class="table-scroll"><table><thead><tr><th>Ticker</th><th>流量</th><th>原始值</th><th>数据状态</th></tr></thead><tbody>{% for row in etf.contributions %}<tr><td>{{ row.ticker }}</td><td class="{{ row.flow_usd|flow_class }}">{{ row.flow_usd|signed_usd }}</td><td>{{ row.raw_value|default:"空值" }}</td><td>{% if row.flow_usd == None %}未公布/缺失{% elif row.flow_usd == 0 %}明确为零{% else %}已公布{% endif %}</td></tr>{% endfor %}</tbody></table></div>{% else %}<div class="fund-empty">暂无 ETF 明细数据。</div>{% endif %}</section>
-<section class="panel reliability-panel"><h2>数据可信度</h2><dl><div><dt>来源</dt><dd><a href="https://farside.co.uk/eth/" rel="noopener noreferrer">Farside 免费网页</a></dd></div><div><dt>观测日期</dt><dd>{{ etf.latest.trade_date|default:"暂无" }}</dd></div><div><dt>最近采集</dt><dd>{% if etf.latest.retrieved_at %}{{ etf.latest.retrieved_at|date:"Y-m-d H:i:s" }} 北京时间{% else %}暂无{% endif %}</dd></div><div><dt>完整性</dt><dd>空值与明确零值分别保存；周末及美国节假日没有新行不视为失败。</dd></div></dl><p>该来源没有正式 JSON API 或 SLA，历史值可能补录或修订。</p></section>
-{% endif %}
-
-{% if active_tab == 'addresses' %}
+{% if active_page == "addresses" %}
 <section class="panel policy-warning"><p class="eyebrow">来源策略</p><h2>自动采集当前已安全停止</h2><p>Etherscan 当前条款禁止机器人、抓取器及自动数据收集。系统保留结构化模型和离线 fixture 解析能力，但不会绕过限制进行线上 Top 1,000 采集；获得书面许可前，此页只显示数据库中已有的合法数据。</p></section>
 <section class="panel fund-table-panel"><div class="panel-heading"><div><p class="eyebrow">页面观察快照</p><h2>{% if addresses.snapshot_date %}{{ addresses.snapshot_date }} · {{ addresses.covered_count }} 个地址{% else %}暂无地址快照{% endif %}</h2></div></div>
 {% if addresses.rows %}<div class="table-scroll"><table><thead><tr><th>排名</th><th>地址 / 公开标签</th><th>余额</th><th>24h 变化</th><th>7d 变化</th><th>排名变化</th><th>标记</th><th>来源</th></tr></thead><tbody>{% for row in addresses.rows %}<tr><td>{{ row.balance.rank }}</td><td><a href="https://etherscan.io/address/{{ row.balance.address.address }}" rel="noopener noreferrer">{{ row.balance.address.address|slice:":10" }}…</a><small>{{ row.balance.address.public_label|default:"无公开标签" }}</small></td><td>{{ row.balance.balance_eth|floatformat:4 }} ETH</td><td>{{ row.balance_change_1d|signed_eth }}</td><td>{{ row.balance_change_7d|signed_eth }}</td><td>{{ row.rank_change|default:"—" }}</td><td>{% if row.newly_entered_top_list %}<span class="fact-status fact-status-warning">新进入</span>{% endif %}{% if row.large_balance_change %}<span class="fact-status fact-status-error">大额变化</span>{% endif %}{% if not row.newly_entered_top_list and not row.large_balance_change %}—{% endif %}</td><td>{{ row.balance.source }}</td></tr>{% endfor %}</tbody></table></div>{% else %}<div class="fund-empty">数据库中没有可展示的地址快照。</div>{% endif %}</section>
 <section class="panel reliability-panel"><h2>数据可信度与解释边界</h2><dl><div><dt>来源</dt><dd><a href="https://etherscan.io/accounts" rel="noopener noreferrer">Etherscan Top Accounts</a></dd></div><div><dt>观测日期</dt><dd>{{ addresses.snapshot_date|default:"暂无" }}</dd></div><div><dt>最近采集</dt><dd>{% if addresses.observed_at %}{{ addresses.observed_at|date:"Y-m-d H:i:s" }} 北京时间{% else %}暂无{% endif %}</dd></div><div><dt>公开标签更新时间</dt><dd>{% if addresses.label_updated_at %}{{ addresses.label_updated_at|date:"Y-m-d H:i:s" }} 北京时间{% else %}暂无{% endif %}</dd></div><div><dt>区块高度</dt><dd>{{ addresses.block_number|default:"未提供（页面观察快照）" }}</dd></div><div><dt>完整性</dt><dd>仅限公开页面 Top 1,000 与公开标签覆盖；当前自动采集受条款阻止。</dd></div></dl><ul><li>地址不等于真实持有人；一个交易所地址可能代表大量用户，一个实体也可能控制多个地址。</li><li>合约、跨链桥、WETH 与质押合约不等于鲸鱼。</li><li>余额变化不等于买入或卖出，也无法完整排除实体内部调拨。</li><li>公开 Name Tag 只是来源标签，不是最终实体归属；快照不是 finalized 区块精确快照。</li></ul></section>
 {% endif %}
 {% endblock %}
+
+{% block extra_js %}{% if active_page == "funds" %}<script src="{% static 'market_funds/js/funds.js' %}?v=1" defer></script>{% endif %}{% endblock %}
