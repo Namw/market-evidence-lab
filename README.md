@@ -104,7 +104,7 @@ uv run --env-file .env python manage.py collect_market_funds addresses
 当前阶段实现盘口数据接入、每秒特征快照和 UTC 5分钟汇总，并提供采集控制与
 汇总查看页面，暂不包含复杂趋势图。
 先执行迁移。可以从侧边栏进入“微观结构 → 盘口采集”，在页面启动、停止并查看
-实时进度和最近5分钟汇总；也可以使用常驻采集命令：
+实时进度、最新 Top20 订单簿和最近5分钟汇总；也可以使用常驻采集命令：
 
 ```bash
 uv run --env-file .env python manage.py migrate
@@ -118,7 +118,8 @@ uv run --env-file .env python manage.py collect_orderbook
 命令使用 Binance USD-M Futures 官方 Top20 partial depth WebSocket，默认接收
 500ms 更新，并在内存中保留最新盘口；每秒最多写入一条
 `OrderBookSnapshot`，跨过5分钟边界后自动汇总上一完整区间到
-`OrderBookFiveMinuteSummary`。按 `Ctrl+C` 可停止采集。
+`OrderBookFiveMinuteSummary`。页面采集任务会额外覆盖保存最新一份买卖各 20 档，
+用于页面实时展示；历史每秒快照不保存完整档位。按 `Ctrl+C` 可停止采集。
 
 也可以手工重算最近一个完整区间，或指定 UTC 对齐的时间范围：
 

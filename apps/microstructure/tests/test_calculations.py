@@ -44,6 +44,10 @@ class OrderBookCalculationTests(SimpleTestCase):
         self.assertEqual(result.ask_depth_top10_quote, Decimal("1055.000000000000000000"))
         self.assertEqual(result.bid_depth_top20_quote, Decimal("1810.000000000000000000"))
         self.assertEqual(result.ask_depth_top20_quote, Decimal("2210.000000000000000000"))
+        self.assertEqual(len(result.bids), 20)
+        self.assertEqual(len(result.asks), 20)
+        self.assertEqual(result.bids[0].price, Decimal(100))
+        self.assertEqual(result.asks[0].price, Decimal(101))
         self.assertEqual(
             result.imbalance_top5,
             depth_imbalance(Decimal("490"), Decimal("515")),

@@ -39,6 +39,8 @@ class OrderBookFeatures:
     imbalance_top5: Decimal | None
     imbalance_top10: Decimal | None
     imbalance_top20: Decimal | None
+    bids: tuple[DepthLevel, ...] = ()
+    asks: tuple[DepthLevel, ...] = ()
 
 
 def decimal_18(value: Decimal) -> Decimal:
@@ -149,6 +151,8 @@ def parse_depth_message(
         imbalance_top5=imbalances[5],
         imbalance_top10=imbalances[10],
         imbalance_top20=imbalances[20],
+        bids=tuple(bids),
+        asks=tuple(asks),
     )
 
 

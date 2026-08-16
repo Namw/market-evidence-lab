@@ -4,7 +4,7 @@
 {% block title %}盘口采集 · 微观结构 · Market Evidence Lab{% endblock %}
 {% block body_class %}microstructure-body{% endblock %}
 
-{% block extra_css %}<link rel="stylesheet" href="{% static 'microstructure/css/index.css' %}?v=1">{% endblock %}
+{% block extra_css %}<link rel="stylesheet" href="{% static 'microstructure/css/index.css' %}?v=2">{% endblock %}
 
 {% block content %}
 <div class="microstructure-page" data-microstructure-page data-status-url="{% url 'microstructure:status' %}" data-start-url="{% url 'microstructure:start' %}" data-stop-url="{% url 'microstructure:stop' %}">
@@ -94,6 +94,35 @@
         </dl>
     </section>
 
+    <section class="orderbook-panel" aria-labelledby="orderbook-title">
+        <div class="microstructure-section-heading">
+            <div>
+                <p class="eyebrow">WebSocket 最新推送</p>
+                <h2 id="orderbook-title">Top20 订单簿</h2>
+            </div>
+            <p><span data-orderbook-time>等待盘口数据</span><span data-orderbook-update></span></p>
+        </div>
+        <div class="table-scroll orderbook-table-scroll">
+            <table class="orderbook-table">
+                <thead>
+                    <tr>
+                        <th class="bid-heading">买价</th>
+                        <th>数量（ETH）</th>
+                        <th>金额（USDT）</th>
+                        <th class="level-heading">档位</th>
+                        <th class="ask-heading">卖价</th>
+                        <th>数量（ETH）</th>
+                        <th>金额（USDT）</th>
+                    </tr>
+                </thead>
+                <tbody data-orderbook-body>
+                    <tr><td colspan="7" class="empty-state">启动采集后，这里会显示 Binance 最新买卖各 20 档订单簿。</td></tr>
+                </tbody>
+            </table>
+        </div>
+        <p class="orderbook-retention-note">这里只保留当前采集任务的最新一份订单簿；每秒历史记录仍只保存盘口特征，不保存完整档位。</p>
+    </section>
+
     <section class="summary-table-panel" aria-labelledby="summary-table-title">
         <div class="microstructure-section-heading">
             <div>
@@ -144,4 +173,4 @@
 </div>
 {% endblock %}
 
-{% block extra_js %}<script src="{% static 'microstructure/js/index.js' %}?v=1" defer></script>{% endblock %}
+{% block extra_js %}<script src="{% static 'microstructure/js/index.js' %}?v=2" defer></script>{% endblock %}

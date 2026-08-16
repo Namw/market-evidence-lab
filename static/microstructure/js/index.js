@@ -22,6 +22,14 @@
         notation: "compact",
         maximumFractionDigits: 2,
     });
+    const quantityFormatter = new Intl.NumberFormat("zh-CN", {
+        minimumFractionDigits: 3,
+        maximumFractionDigits: 6,
+    });
+    const quoteFormatter = new Intl.NumberFormat("zh-CN", {
+        minimumFractionDigits: 2,
+        maximumFractionDigits: 2,
+    });
     const timeFormatter = new Intl.DateTimeFormat("zh-CN", {
         timeZone: "Asia/Shanghai",
         month: "2-digit",
@@ -68,6 +76,71 @@
         message.hidden = !text;
         message.textContent = text || "";
         message.classList.toggle("is-error", isError);
+    }
+
+    function renderOrderBook(book) {
+        const body = root.querySelector("[data-orderbook-body]");
+        if (!body) return;
+        body.replaceChildren();
+
+        const bids = Array.isArray(book?.bids) ? book.bids : [];
+        const asks = Array.isArray(book?.asks) ? book.asks : [];
+        setText(
+            "[data-orderbook-time]",
+            book?.event_time ? `${localTime(book.event_time)} 北京时间` : "等待盘口数据"
+        );
+        setText(
+            "[data-orderbook-update]",
+            book?.update_id ? ` · 更新 ${book.update_id}` : ""
+        );
+
+        if (!bids.length || !asks.length) {
+            const row = document.createElement("tr");
+            const cell = document.createElement("td");
+            cell.colSpan = 7;
+            cell.className = "empty-state";
+            cell.textContent = "启动采集后，这里会显示 Binance 最新买卖各 20 档订单簿。";
+            row.appendChild(cell);
+            body.appendChild(row);
+            return;
+        }
+
+        const quoteValue = (level) => {
+            const levelPrice = numberValue(level?.price);
+            const quantity = numberValue(level?.quantity);
+            return levelPrice === null || quantity === null ? 0 : levelPrice * quantity;
+        };
+        const maxQuote = Math.max(1, ...bids.map(quoteValue), ...asks.map(quoteValue));
+        const rowCount = Math.max(bids.length, asks.length);
+
+        for (let index = 0; index < rowCount; index += 1) {
+            const bid = bids[index];
+            const ask = asks[index];
+            const bidQuote = quoteValue(bid);
+            const askQuote = quoteValue(ask);
+            const row = document.createElement("tr");
+            const values = [
+                [price(bid?.price), "book-price book-bid"],
+                [bid ? quantityFormatter.format(numberValue(bid.quantity) ?? 0) : "—", "book-number"],
+                [bid ? quoteFormatter.format(bidQuote) : "—", "book-number book-depth book-depth-bid"],
+                [String(index + 1), "book-level"],
+                [price(ask?.price), "book-price book-ask"],
+                [ask ? quantityFormatter.format(numberValue(ask.quantity) ?? 0) : "—", "book-number"],
+                [ask ? quoteFormatter.format(askQuote) : "—", "book-number book-depth book-depth-ask"],
+            ];
+            values.forEach(([value, className], cellIndex) => {
+                const cell = document.createElement("td");
+                cell.textContent = value;
+                cell.className = className;
+                if (cellIndex === 2) {
+                    cell.style.setProperty("--depth-share", `${bidQuote / maxQuote * 100}%`);
+                } else if (cellIndex === 6) {
+                    cell.style.setProperty("--depth-share", `${askQuote / maxQuote * 100}%`);
+                }
+                row.appendChild(cell);
+            });
+            body.appendChild(row);
+        }
     }
 
     function renderSummaries(rows) {
@@ -148,6 +221,7 @@
         setText("[data-latest-bid-depth]", snapshot ? compact(snapshot.bid_depth_top20_quote) : "—");
         setText("[data-latest-ask-depth]", snapshot ? compact(snapshot.ask_depth_top20_quote) : "—");
         setText("[data-latest-imbalance]", snapshot ? decimal(snapshot.imbalance_top20, 4) : "—");
+        renderOrderBook(data.latest_order_book);
         renderSummaries(data.recent_summaries);
 
         if (run.error_message && run.status === "failed") {

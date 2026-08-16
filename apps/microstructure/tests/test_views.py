@@ -16,6 +16,7 @@ class MicrostructureViewTests(TestCase):
 
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, "盘口采集")
+        self.assertContains(response, "Top20 订单簿")
         self.assertContains(response, "启动采集")
         self.assertContains(response, 'href="/microstructure/"')
 
@@ -48,6 +49,24 @@ class MicrostructureViewTests(TestCase):
 
         self.assertFalse(payload["can_start"])
         self.assertFalse(payload["can_stop"])
+
+    def test_status_returns_latest_order_book_levels(self):
+        MicrostructureCollectorRun.objects.create(
+            symbol="ETHUSDT",
+            status=MicrostructureCollectorRun.Status.RUNNING,
+            latest_event_time=datetime(2026, 8, 17, 1, 2, 3, tzinfo=UTC),
+            latest_update_id=987,
+            latest_bids=[{"price": "4200.10", "quantity": "1.25"}],
+            latest_asks=[{"price": "4200.20", "quantity": "0.75"}],
+        )
+
+        book = self.client.get(reverse("microstructure:status")).json()[
+            "latest_order_book"
+        ]
+
+        self.assertEqual(book["update_id"], 987)
+        self.assertEqual(book["bids"][0]["price"], "4200.10")
+        self.assertEqual(book["asks"][0]["quantity"], "0.75")
 
     @patch("apps.microstructure.views.launch_collector")
     def test_start_endpoint_launches_collector(self, launch):
@@ -94,7 +113,12 @@ class CollectorRunProgressTests(TestCase):
             received_messages=20,
             saved_snapshots=10,
             reconnect_count=1,
-            latest=SimpleNamespace(event_time=event_time),
+            latest=SimpleNamespace(
+                event_time=event_time,
+                update_id=456,
+                bids=[SimpleNamespace(price=4200, quantity=1.25)],
+                asks=[SimpleNamespace(price=4201, quantity=0.75)],
+            ),
             latest_sampled_at=sampled_at,
             last_error="",
         )
@@ -107,4 +131,13 @@ class CollectorRunProgressTests(TestCase):
         self.assertEqual(run.saved_snapshots, 10)
         self.assertEqual(run.latest_event_time, event_time)
         self.assertEqual(run.latest_sampled_at, sampled_at)
+        self.assertEqual(run.latest_update_id, 456)
+        self.assertEqual(
+            run.latest_bids,
+            [{"price": "4200", "quantity": "1.25"}],
+        )
+        self.assertEqual(
+            run.latest_asks,
+            [{"price": "4201", "quantity": "0.75"}],
+        )
         self.assertIsNotNone(run.heartbeat_at)

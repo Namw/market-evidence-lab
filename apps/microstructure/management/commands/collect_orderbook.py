@@ -25,6 +25,13 @@ class Command(BaseCommand):
         )
 
     @staticmethod
+    def _serialize_levels(levels) -> list[dict[str, str]]:
+        return [
+            {"price": str(level.price), "quantity": str(level.quantity)}
+            for level in levels
+        ]
+
+    @staticmethod
     def _write_progress(
         run_id: int,
         collector: OrderBookCollector,
@@ -37,6 +44,9 @@ class Command(BaseCommand):
             reconnect_count=collector.reconnect_count,
             latest_event_time=latest.event_time if latest else None,
             latest_sampled_at=collector.latest_sampled_at,
+            latest_update_id=latest.update_id if latest else None,
+            latest_bids=Command._serialize_levels(latest.bids) if latest else [],
+            latest_asks=Command._serialize_levels(latest.asks) if latest else [],
             heartbeat_at=timezone.now(),
             error_message=collector.last_error,
         )

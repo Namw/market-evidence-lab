@@ -78,6 +78,19 @@ def _snapshot_payload(snapshot: OrderBookSnapshot | None) -> dict[str, object] |
     }
 
 
+def _order_book_payload(
+    run: MicrostructureCollectorRun | None,
+) -> dict[str, object] | None:
+    if run is None or not run.latest_bids or not run.latest_asks:
+        return None
+    return {
+        "event_time": _utc_iso(run.latest_event_time),
+        "update_id": run.latest_update_id,
+        "bids": run.latest_bids,
+        "asks": run.latest_asks,
+    }
+
+
 def _summary_payload(summary: OrderBookFiveMinuteSummary) -> dict[str, object]:
     return {
         "interval_start": _utc_iso(summary.interval_start),
@@ -147,6 +160,7 @@ def _status_payload() -> dict[str, object]:
             symbol=symbol
         ).count(),
         "latest_snapshot": _snapshot_payload(latest_snapshot),
+        "latest_order_book": _order_book_payload(latest_run),
         "recent_summaries": [_summary_payload(item) for item in summaries],
     }
 
