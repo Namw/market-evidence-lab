@@ -3,114 +3,91 @@ from decimal import Decimal
 
 from django.test import TestCase
 
-from apps.microstructure.calculations import OrderBookFeatures
-from apps.microstructure.models import OrderBookFiveMinuteSummary, OrderBookSnapshot
-from apps.microstructure.services import (
-    aggregate_interval,
-    aggregate_range,
-    save_snapshot,
-)
+from apps.microstructure.calculations import MinuteKline, OrderBookFeatures
+from apps.microstructure.models import MarketMinute
+from apps.microstructure.services import save_book_sample, save_kline
 
 START = datetime(2026, 8, 17, 12, 0, tzinfo=UTC)
 
 
-def features(*, update_id: int, mid: str, spread_bps: str = "1") -> OrderBookFeatures:
-    mid_value = Decimal(mid)
-    return OrderBookFeatures(
+def kline(*, close: str = "101", buy: str = "600", total: str = "1000") -> MinuteKline:
+    buy_value = Decimal(buy)
+    total_value = Decimal(total)
+    sell_value = total_value - buy_value
+    return MinuteKline(
         symbol="ETHUSDT",
-        event_time=START + timedelta(seconds=update_id),
-        received_at=START + timedelta(seconds=update_id, milliseconds=10),
-        update_id=update_id,
-        best_bid=mid_value - Decimal("0.5"),
-        best_ask=mid_value + Decimal("0.5"),
-        mid_price=mid_value,
-        spread=Decimal("1"),
-        spread_bps=Decimal(spread_bps),
-        bid_depth_top5_quote=Decimal(100 + update_id),
-        ask_depth_top5_quote=Decimal(200 + update_id),
-        bid_depth_top10_quote=Decimal(300 + update_id),
-        ask_depth_top10_quote=Decimal(400 + update_id),
-        bid_depth_top20_quote=Decimal(500 + update_id),
-        ask_depth_top20_quote=Decimal(600 + update_id),
-        imbalance_top5=Decimal("0.1") * update_id,
-        imbalance_top10=Decimal("0.01") * update_id,
-        imbalance_top20=Decimal("0.001") * update_id,
+        event_time=START + timedelta(seconds=30),
+        minute_start=START,
+        minute_end=START + timedelta(minutes=1),
+        open_price=Decimal("100"),
+        high_price=Decimal("102"),
+        low_price=Decimal("99"),
+        close_price=Decimal(close),
+        quote_volume=total_value,
+        taker_buy_quote=buy_value,
+        taker_sell_quote=sell_value,
+        delta_quote=buy_value - sell_value,
+        trade_count=20,
+        first_trade_id=10,
+        last_trade_id=29,
+        closed=False,
     )
 
 
-class OrderBookServiceTests(TestCase):
-    def save(self, second: int, mid: str, spread_bps: str = "1") -> OrderBookSnapshot:
-        return save_snapshot(
-            features(update_id=second + 1, mid=mid, spread_bps=spread_bps),
-            sampled_at=START + timedelta(seconds=second),
-        )
+def book(*, bid_depth: str, ask_depth: str, spread: str) -> OrderBookFeatures:
+    return OrderBookFeatures(
+        symbol="ETHUSDT",
+        event_time=START,
+        received_at=START,
+        update_id=1,
+        best_bid=Decimal("100"),
+        best_ask=Decimal("100.1"),
+        mid_price=Decimal("100.05"),
+        spread=Decimal("0.1"),
+        spread_bps=Decimal(spread),
+        bid_depth_top5_quote=Decimal(1),
+        ask_depth_top5_quote=Decimal(1),
+        bid_depth_top10_quote=Decimal(1),
+        ask_depth_top10_quote=Decimal(1),
+        bid_depth_top20_quote=Decimal(bid_depth),
+        ask_depth_top20_quote=Decimal(ask_depth),
+        imbalance_top5=Decimal(0),
+        imbalance_top10=Decimal(0),
+        imbalance_top20=Decimal(0),
+    )
 
-    def test_snapshot_save_is_idempotent_per_symbol_and_second(self):
-        self.save(0, "100")
-        save_snapshot(
-            features(update_id=2, mid="101"),
-            sampled_at=START,
-        )
 
-        self.assertEqual(OrderBookSnapshot.objects.count(), 1)
-        self.assertEqual(OrderBookSnapshot.objects.get().mid_price, Decimal("101"))
+class MarketMinuteServiceTests(TestCase):
+    def test_exchange_kline_updates_one_minute_idempotently(self):
+        save_kline(kline())
+        save_kline(kline(close="103", buy="700"))
 
-    def test_five_minute_summary_uses_left_closed_right_open_interval(self):
-        self.save(0, "100", "1")
-        self.save(120, "105", "2")
-        self.save(299, "102", "3")
-        self.save(300, "999", "99")
+        self.assertEqual(MarketMinute.objects.count(), 1)
+        row = MarketMinute.objects.get()
+        self.assertEqual(row.close_price, Decimal("103"))
+        self.assertEqual(row.taker_buy_quote, Decimal("700"))
+        self.assertEqual(row.taker_sell_quote, Decimal("300"))
+        self.assertEqual(row.delta_quote, Decimal("400"))
 
-        summary = aggregate_interval(symbol="ETHUSDT", interval_start=START)
+    def test_second_book_samples_build_depth_mean_p95_and_coverage(self):
+        save_book_sample(book(bid_depth="100", ask_depth="200", spread="1"), sampled_at=START)
+        save_book_sample(book(bid_depth="300", ask_depth="400", spread="3"), sampled_at=START + timedelta(seconds=1))
 
-        assert summary is not None
-        self.assertEqual(summary.interval_end, START + timedelta(minutes=5))
-        self.assertEqual(summary.snapshot_count, 3)
-        self.assertEqual(summary.mid_open, Decimal("100"))
-        self.assertEqual(summary.mid_high, Decimal("105"))
-        self.assertEqual(summary.mid_low, Decimal("100"))
-        self.assertEqual(summary.mid_close, Decimal("102"))
-        self.assertEqual(summary.spread_bps_mean, Decimal("2"))
-        self.assertEqual(summary.spread_bps_max, Decimal("3"))
-        self.assertEqual(summary.spread_bps_end, Decimal("3"))
-        self.assertEqual(
-            summary.bid_depth_top5_quote_mean,
-            Decimal("240.666666666666666667"),
-        )
-        self.assertEqual(
-            summary.ask_depth_top20_quote_mean,
-            Decimal("740.666666666666666667"),
-        )
-        self.assertEqual(
-            summary.imbalance_top10_mean,
-            Decimal("1.406666666666666667"),
-        )
-        self.assertEqual(summary.imbalance_top20_end, Decimal("0.3"))
+        row = MarketMinute.objects.get()
+        self.assertEqual(row.bid_depth_open, Decimal("100"))
+        self.assertEqual(row.bid_depth_close, Decimal("300"))
+        self.assertEqual(row.bid_depth_mean, Decimal("200"))
+        self.assertEqual(row.ask_depth_mean, Decimal("300"))
+        self.assertEqual(row.spread_bps_mean, Decimal("2"))
+        self.assertEqual(row.spread_bps_p95, Decimal("3"))
+        self.assertEqual(row.book_sample_count, 2)
+        self.assertAlmostEqual(float(row.coverage_ratio), 2 / 60, places=6)
 
-    def test_reaggregation_updates_one_existing_summary(self):
-        last = self.save(0, "100")
-        aggregate_interval(symbol="ETHUSDT", interval_start=START)
-        last.mid_price = Decimal("110")
-        last.save(update_fields=["mid_price"])
+    def test_duplicate_second_does_not_double_count_depth(self):
+        save_book_sample(book(bid_depth="100", ask_depth="200", spread="1"), sampled_at=START)
+        _, written = save_book_sample(book(bid_depth="999", ask_depth="999", spread="9"), sampled_at=START)
 
-        aggregate_interval(symbol="ETHUSDT", interval_start=START)
-
-        self.assertEqual(OrderBookFiveMinuteSummary.objects.count(), 1)
-        self.assertEqual(OrderBookFiveMinuteSummary.objects.get().mid_close, Decimal("110"))
-
-    def test_empty_interval_does_not_create_a_summary(self):
-        self.assertIsNone(
-            aggregate_interval(symbol="ETHUSDT", interval_start=START)
-        )
-        self.assertFalse(OrderBookFiveMinuteSummary.objects.exists())
-
-    def test_range_reports_written_and_empty_intervals(self):
-        self.save(0, "100")
-
-        written, empty = aggregate_range(
-            symbol="ETHUSDT",
-            range_start=START,
-            range_end=START + timedelta(minutes=10),
-        )
-
-        self.assertEqual((written, empty), (1, 1))
+        self.assertFalse(written)
+        row = MarketMinute.objects.get()
+        self.assertEqual(row.book_sample_count, 1)
+        self.assertEqual(row.bid_depth_close, Decimal("100"))

@@ -1,126 +1,99 @@
 from __future__ import annotations
 
-from collections.abc import Iterable, Sequence
+import math
 from datetime import datetime, timedelta
 from decimal import Decimal, localcontext
 
+from django.conf import settings
 from django.db import transaction
 
-from .calculations import OrderBookFeatures, decimal_18, iter_five_minute_starts
-from .models import OrderBookFiveMinuteSummary, OrderBookSnapshot
+from .calculations import MinuteKline, OrderBookFeatures, decimal_18, floor_time
+from .models import MarketMinute
 
 
-def save_snapshot(features: OrderBookFeatures, *, sampled_at: datetime) -> OrderBookSnapshot:
-    if sampled_at.tzinfo is None:
-        raise ValueError("sampled_at must be timezone-aware")
-    values = {
-        field: getattr(features, field)
-        for field in (
-            "event_time",
-            "received_at",
-            "update_id",
-            "best_bid",
-            "best_ask",
-            "mid_price",
-            "spread",
-            "spread_bps",
-            "bid_depth_top5_quote",
-            "ask_depth_top5_quote",
-            "bid_depth_top10_quote",
-            "ask_depth_top10_quote",
-            "bid_depth_top20_quote",
-            "ask_depth_top20_quote",
-            "imbalance_top5",
-            "imbalance_top10",
-            "imbalance_top20",
-        )
-    }
-    snapshot, _ = OrderBookSnapshot.objects.update_or_create(
-        symbol=features.symbol,
-        sampled_at=sampled_at,
-        defaults=values,
-    )
-    return snapshot
-
-
-def _mean(values: Iterable[Decimal | None]) -> Decimal | None:
-    present = [value for value in values if value is not None]
-    if not present:
+def _mean(total: Decimal, count: int) -> Decimal | None:
+    if count <= 0:
         return None
     with localcontext() as context:
         context.prec = 60
-        return decimal_18(sum(present, Decimal(0)) / Decimal(len(present)))
+        return decimal_18(total / Decimal(count))
 
 
-def _summary_values(
-    snapshots: Sequence[OrderBookSnapshot],
-    interval_end: datetime,
-) -> dict[str, object]:
-    first = snapshots[0]
-    last = snapshots[-1]
-    spread_values = [
-        item.spread_bps for item in snapshots if item.spread_bps is not None
-    ]
-    values: dict[str, object] = {
-        "interval_end": interval_end,
-        "mid_open": first.mid_price,
-        "mid_high": max(item.mid_price for item in snapshots),
-        "mid_low": min(item.mid_price for item in snapshots),
-        "mid_close": last.mid_price,
-        "spread_bps_mean": _mean(item.spread_bps for item in snapshots),
-        "spread_bps_max": max(spread_values) if spread_values else None,
-        "spread_bps_end": last.spread_bps,
-        "snapshot_count": len(snapshots),
-    }
-    for depth in (5, 10, 20):
-        for side in ("bid", "ask"):
-            source = f"{side}_depth_top{depth}_quote"
-            values[f"{source}_mean"] = _mean(
-                getattr(item, source) for item in snapshots
-            )
-        imbalance = f"imbalance_top{depth}"
-        values[f"{imbalance}_mean"] = _mean(getattr(item, imbalance) for item in snapshots)
-        values[f"{imbalance}_end"] = getattr(last, imbalance)
-    return values
+def _p95(values: list[str]) -> Decimal | None:
+    if not values:
+        return None
+    ordered = sorted(Decimal(value) for value in values)
+    return decimal_18(ordered[max(0, math.ceil(len(ordered) * 0.95) - 1)])
 
 
 @transaction.atomic
-def aggregate_interval(
-    *,
-    symbol: str,
-    interval_start: datetime,
-) -> OrderBookFiveMinuteSummary | None:
-    if interval_start.tzinfo is None:
-        raise ValueError("interval_start must be timezone-aware")
-    interval_end = interval_start + timedelta(minutes=5)
-    snapshots = list(
-        OrderBookSnapshot.objects.filter(
-            symbol=symbol,
-            sampled_at__gte=interval_start,
-            sampled_at__lt=interval_end,
-        ).order_by("sampled_at")
+def save_kline(kline: MinuteKline) -> MarketMinute:
+    minute, _ = MarketMinute.objects.select_for_update().get_or_create(
+        symbol=kline.symbol,
+        minute_start=kline.minute_start,
+        defaults={"minute_end": kline.minute_end},
     )
-    if not snapshots:
-        return None
-    summary, _ = OrderBookFiveMinuteSummary.objects.update_or_create(
-        symbol=symbol,
-        interval_start=interval_start,
-        defaults=_summary_values(snapshots, interval_end),
-    )
-    return summary
+    minute.minute_end = kline.minute_end
+    minute.open_price = kline.open_price
+    minute.high_price = kline.high_price
+    minute.low_price = kline.low_price
+    minute.close_price = kline.close_price
+    minute.quote_volume = kline.quote_volume
+    minute.taker_buy_quote = kline.taker_buy_quote
+    minute.taker_sell_quote = kline.taker_sell_quote
+    minute.delta_quote = kline.delta_quote
+    minute.trade_count = kline.trade_count
+    minute.first_trade_id = kline.first_trade_id
+    minute.last_trade_id = kline.last_trade_id
+    minute.kline_closed = kline.closed
+    minute.latest_event_time = kline.event_time
+    minute.save()
+    return minute
 
 
-def aggregate_range(
+@transaction.atomic
+def save_book_sample(
+    features: OrderBookFeatures,
     *,
-    symbol: str,
-    range_start: datetime,
-    range_end: datetime,
-) -> tuple[int, int]:
-    written = 0
-    empty = 0
-    for interval_start in iter_five_minute_starts(range_start, range_end):
-        if aggregate_interval(symbol=symbol, interval_start=interval_start) is None:
-            empty += 1
-        else:
-            written += 1
-    return written, empty
+    sampled_at: datetime,
+) -> tuple[MarketMinute, bool]:
+    if sampled_at.tzinfo is None:
+        raise ValueError("sampled_at must be timezone-aware")
+    minute_start = floor_time(sampled_at, seconds=60)
+    minute, _ = MarketMinute.objects.select_for_update().get_or_create(
+        symbol=features.symbol,
+        minute_start=minute_start,
+        defaults={"minute_end": minute_start + timedelta(minutes=1)},
+    )
+    if minute.last_book_sample_at and minute.last_book_sample_at >= sampled_at:
+        return minute, False
+
+    bid = features.bid_depth_top20_quote
+    ask = features.ask_depth_top20_quote
+    spread = features.spread_bps
+    if minute.book_sample_count == 0:
+        minute.bid_depth_open = bid
+        minute.ask_depth_open = ask
+        minute.first_book_sample_at = sampled_at
+    minute.bid_depth_close = bid
+    minute.ask_depth_close = ask
+    minute.bid_depth_sum += bid
+    minute.ask_depth_sum += ask
+    minute.book_sample_count += 1
+    minute.bid_depth_mean = _mean(minute.bid_depth_sum, minute.book_sample_count)
+    minute.ask_depth_mean = _mean(minute.ask_depth_sum, minute.book_sample_count)
+    if spread is not None:
+        samples = [*minute.spread_bps_samples, str(spread)]
+        minute.spread_bps_samples = samples
+        minute.spread_bps_sum += spread
+        minute.spread_bps_mean = _mean(minute.spread_bps_sum, len(samples))
+        minute.spread_bps_p95 = _p95(samples)
+    expected = max(1, round(60 / settings.MICROSTRUCTURE_SAMPLE_INTERVAL_SECONDS))
+    minute.coverage_ratio = decimal_18(
+        min(Decimal(1), Decimal(minute.book_sample_count) / Decimal(expected))
+    )
+    minute.last_book_sample_at = sampled_at
+    if minute.latest_event_time is None or features.event_time > minute.latest_event_time:
+        minute.latest_event_time = features.event_time
+    minute.save()
+    return minute, True

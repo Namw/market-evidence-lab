@@ -8,6 +8,8 @@ from apps.microstructure.calculations import (
     depth_imbalance,
     floor_time,
     parse_depth_message,
+    parse_kline_message,
+    parse_rest_kline,
 )
 
 NOW = datetime(2026, 8, 17, 12, 0, 0, 500_000, tzinfo=UTC)
@@ -24,6 +26,30 @@ def depth_payload() -> dict[str, object]:
         "pu": 99,
         "b": [[str(100 - index), "1"] for index in range(20)],
         "a": [[str(101 + index), "1"] for index in range(20)],
+    }
+
+
+def kline_payload() -> dict[str, object]:
+    return {
+        "e": "kline",
+        "E": 1_776_600_030_000,
+        "s": "ETHUSDT",
+        "k": {
+            "t": 1_776_600_000_000,
+            "T": 1_776_600_059_999,
+            "s": "ETHUSDT",
+            "i": "1m",
+            "f": 10,
+            "L": 20,
+            "o": "3200",
+            "c": "3210",
+            "h": "3220",
+            "l": "3190",
+            "n": 11,
+            "q": "1000000",
+            "Q": "650000",
+            "x": False,
+        },
     }
 
 
@@ -82,3 +108,35 @@ class OrderBookCalculationTests(SimpleTestCase):
             floor_time(value, seconds=300),
             datetime(2026, 8, 17, 12, 5, tzinfo=UTC),
         )
+
+    def test_kline_builds_trade_side_totals_and_delta(self):
+        result = parse_kline_message(kline_payload())
+
+        self.assertEqual(result.symbol, "ETHUSDT")
+        self.assertEqual(result.open_price, Decimal("3200.000000000000000000"))
+        self.assertEqual(result.taker_buy_quote, Decimal("650000.000000000000000000"))
+        self.assertEqual(result.taker_sell_quote, Decimal("350000.000000000000000000"))
+        self.assertEqual(result.delta_quote, Decimal("300000.000000000000000000"))
+        self.assertFalse(result.closed)
+
+    def test_rest_kline_is_usable_as_resilient_trade_source(self):
+        row = [
+            1_776_600_000_000,
+            "3200",
+            "3220",
+            "3190",
+            "3210",
+            "100",
+            1_776_600_059_999,
+            "1000000",
+            11,
+            "60",
+            "650000",
+            "0",
+        ]
+
+        result = parse_rest_kline(row, symbol="ETHUSDT", observed_at=NOW)
+
+        self.assertEqual(result.trade_count, 11)
+        self.assertEqual(result.taker_sell_quote, Decimal("350000.000000000000000000"))
+        self.assertEqual(result.delta_quote, Decimal("300000.000000000000000000"))

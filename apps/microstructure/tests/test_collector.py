@@ -5,7 +5,7 @@ from unittest import IsolatedAsyncioTestCase
 
 from apps.microstructure.collector import OrderBookCollector, next_reconnect_delay
 
-from .test_calculations import depth_payload
+from .test_calculations import depth_payload, kline_payload
 
 NOW = datetime(2026, 8, 17, 12, 0, tzinfo=UTC)
 
@@ -26,10 +26,10 @@ def collector(**overrides) -> OrderBookCollector:
 
 
 class OrderBookCollectorTests(IsolatedAsyncioTestCase):
-    def test_stream_url_uses_top20_partial_depth(self):
+    def test_stream_url_combines_one_minute_kline_and_top20_depth(self):
         self.assertEqual(
             collector().stream_url,
-            "wss://example.test/public/ws/ethusdt@depth20@500ms",
+            "wss://example.test/public/stream?streams=ethusdt@kline_1m/ethusdt@depth20@500ms",
         )
 
     def test_valid_message_replaces_latest_book(self):
@@ -40,6 +40,16 @@ class OrderBookCollectorTests(IsolatedAsyncioTestCase):
         self.assertTrue(accepted)
         self.assertEqual(instance.received_messages, 1)
         self.assertEqual(instance.latest.update_id, 120)
+
+    def test_kline_message_is_kept_for_minute_persistence(self):
+        instance = collector()
+
+        accepted = instance.accept_message(json.dumps(kline_payload()))
+
+        self.assertTrue(accepted)
+        self.assertEqual(instance.received_messages, 1)
+        self.assertEqual(instance.latest_kline.trade_count, 11)
+        self.assertIn(instance.latest_kline.minute_start, instance.pending_klines)
 
     def test_wrong_symbol_message_is_ignored(self):
         instance = collector()

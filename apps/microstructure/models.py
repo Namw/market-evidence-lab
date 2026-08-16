@@ -1,165 +1,88 @@
 from django.db import models
 
 
-class OrderBookSnapshot(models.Model):
+class MarketMinute(models.Model):
+    """One display-ready minute built from Binance trade and depth streams."""
+
     symbol = models.CharField(max_length=20)
-    sampled_at = models.DateTimeField()
-    event_time = models.DateTimeField()
-    received_at = models.DateTimeField()
-    update_id = models.PositiveBigIntegerField()
+    minute_start = models.DateTimeField()
+    minute_end = models.DateTimeField()
 
-    best_bid = models.DecimalField(max_digits=40, decimal_places=18)
-    best_ask = models.DecimalField(max_digits=40, decimal_places=18)
-    mid_price = models.DecimalField(max_digits=40, decimal_places=18)
-    spread = models.DecimalField(max_digits=40, decimal_places=18)
-    spread_bps = models.DecimalField(
-        max_digits=40,
-        decimal_places=18,
-        null=True,
-        blank=True,
+    open_price = models.DecimalField(
+        max_digits=40, decimal_places=18, null=True, blank=True
     )
-
-    bid_depth_top5_quote = models.DecimalField(max_digits=40, decimal_places=18)
-    ask_depth_top5_quote = models.DecimalField(max_digits=40, decimal_places=18)
-    bid_depth_top10_quote = models.DecimalField(max_digits=40, decimal_places=18)
-    ask_depth_top10_quote = models.DecimalField(max_digits=40, decimal_places=18)
-    bid_depth_top20_quote = models.DecimalField(max_digits=40, decimal_places=18)
-    ask_depth_top20_quote = models.DecimalField(max_digits=40, decimal_places=18)
-
-    imbalance_top5 = models.DecimalField(
-        max_digits=40,
-        decimal_places=18,
-        null=True,
-        blank=True,
+    high_price = models.DecimalField(
+        max_digits=40, decimal_places=18, null=True, blank=True
     )
-    imbalance_top10 = models.DecimalField(
-        max_digits=40,
-        decimal_places=18,
-        null=True,
-        blank=True,
+    low_price = models.DecimalField(
+        max_digits=40, decimal_places=18, null=True, blank=True
     )
-    imbalance_top20 = models.DecimalField(
-        max_digits=40,
-        decimal_places=18,
-        null=True,
-        blank=True,
+    close_price = models.DecimalField(
+        max_digits=40, decimal_places=18, null=True, blank=True
     )
-    created_at = models.DateTimeField(auto_now_add=True)
-    updated_at = models.DateTimeField(auto_now=True)
+    quote_volume = models.DecimalField(max_digits=40, decimal_places=18, default=0)
+    taker_buy_quote = models.DecimalField(max_digits=40, decimal_places=18, default=0)
+    taker_sell_quote = models.DecimalField(max_digits=40, decimal_places=18, default=0)
+    delta_quote = models.DecimalField(max_digits=40, decimal_places=18, default=0)
+    trade_count = models.PositiveIntegerField(default=0)
+    first_trade_id = models.PositiveBigIntegerField(null=True, blank=True)
+    last_trade_id = models.PositiveBigIntegerField(null=True, blank=True)
+    kline_closed = models.BooleanField(default=False)
 
-    class Meta:
-        ordering = ["sampled_at"]
-        constraints = [
-            models.UniqueConstraint(
-                fields=["symbol", "sampled_at"],
-                name="unique_orderbook_snapshot_time",
-            )
-        ]
-        indexes = [
-            models.Index(
-                fields=["symbol", "-sampled_at"],
-                name="orderbook_symbol_time_idx",
-            )
-        ]
-
-    def __str__(self) -> str:
-        return f"{self.symbol}:{self.sampled_at.isoformat()}"
-
-
-class OrderBookFiveMinuteSummary(models.Model):
-    symbol = models.CharField(max_length=20)
-    interval_start = models.DateTimeField()
-    interval_end = models.DateTimeField()
-
-    mid_open = models.DecimalField(max_digits=40, decimal_places=18)
-    mid_high = models.DecimalField(max_digits=40, decimal_places=18)
-    mid_low = models.DecimalField(max_digits=40, decimal_places=18)
-    mid_close = models.DecimalField(max_digits=40, decimal_places=18)
-
+    bid_depth_open = models.DecimalField(
+        max_digits=40, decimal_places=18, null=True, blank=True
+    )
+    bid_depth_close = models.DecimalField(
+        max_digits=40, decimal_places=18, null=True, blank=True
+    )
+    bid_depth_mean = models.DecimalField(
+        max_digits=40, decimal_places=18, null=True, blank=True
+    )
+    bid_depth_sum = models.DecimalField(max_digits=50, decimal_places=18, default=0)
+    ask_depth_open = models.DecimalField(
+        max_digits=40, decimal_places=18, null=True, blank=True
+    )
+    ask_depth_close = models.DecimalField(
+        max_digits=40, decimal_places=18, null=True, blank=True
+    )
+    ask_depth_mean = models.DecimalField(
+        max_digits=40, decimal_places=18, null=True, blank=True
+    )
+    ask_depth_sum = models.DecimalField(max_digits=50, decimal_places=18, default=0)
     spread_bps_mean = models.DecimalField(
-        max_digits=40,
-        decimal_places=18,
-        null=True,
-        blank=True,
+        max_digits=40, decimal_places=18, null=True, blank=True
     )
-    spread_bps_max = models.DecimalField(
-        max_digits=40,
-        decimal_places=18,
-        null=True,
-        blank=True,
+    spread_bps_p95 = models.DecimalField(
+        max_digits=40, decimal_places=18, null=True, blank=True
     )
-    spread_bps_end = models.DecimalField(
-        max_digits=40,
-        decimal_places=18,
-        null=True,
-        blank=True,
-    )
+    spread_bps_sum = models.DecimalField(max_digits=40, decimal_places=18, default=0)
+    spread_bps_samples = models.JSONField(default=list, blank=True)
+    book_sample_count = models.PositiveSmallIntegerField(default=0)
+    coverage_ratio = models.DecimalField(max_digits=7, decimal_places=6, default=0)
+    first_book_sample_at = models.DateTimeField(null=True, blank=True)
+    last_book_sample_at = models.DateTimeField(null=True, blank=True)
 
-    bid_depth_top5_quote_mean = models.DecimalField(max_digits=40, decimal_places=18)
-    ask_depth_top5_quote_mean = models.DecimalField(max_digits=40, decimal_places=18)
-    bid_depth_top10_quote_mean = models.DecimalField(max_digits=40, decimal_places=18)
-    ask_depth_top10_quote_mean = models.DecimalField(max_digits=40, decimal_places=18)
-    bid_depth_top20_quote_mean = models.DecimalField(max_digits=40, decimal_places=18)
-    ask_depth_top20_quote_mean = models.DecimalField(max_digits=40, decimal_places=18)
-
-    imbalance_top5_mean = models.DecimalField(
-        max_digits=40,
-        decimal_places=18,
-        null=True,
-        blank=True,
-    )
-    imbalance_top5_end = models.DecimalField(
-        max_digits=40,
-        decimal_places=18,
-        null=True,
-        blank=True,
-    )
-    imbalance_top10_mean = models.DecimalField(
-        max_digits=40,
-        decimal_places=18,
-        null=True,
-        blank=True,
-    )
-    imbalance_top10_end = models.DecimalField(
-        max_digits=40,
-        decimal_places=18,
-        null=True,
-        blank=True,
-    )
-    imbalance_top20_mean = models.DecimalField(
-        max_digits=40,
-        decimal_places=18,
-        null=True,
-        blank=True,
-    )
-    imbalance_top20_end = models.DecimalField(
-        max_digits=40,
-        decimal_places=18,
-        null=True,
-        blank=True,
-    )
-
-    snapshot_count = models.PositiveIntegerField()
+    latest_event_time = models.DateTimeField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
-        ordering = ["interval_start"]
+        ordering = ["minute_start"]
         constraints = [
             models.UniqueConstraint(
-                fields=["symbol", "interval_start"],
-                name="unique_orderbook_5m_summary",
+                fields=["symbol", "minute_start"],
+                name="unique_market_minute",
             )
         ]
         indexes = [
             models.Index(
-                fields=["symbol", "-interval_start"],
-                name="orderbook_5m_symbol_idx",
+                fields=["symbol", "-minute_start"],
+                name="market_minute_symbol_idx",
             )
         ]
 
     def __str__(self) -> str:
-        return f"{self.symbol}:5m:{self.interval_start.isoformat()}"
+        return f"{self.symbol}:1m:{self.minute_start.isoformat()}"
 
 
 class MicrostructureCollectorRun(models.Model):
@@ -178,9 +101,7 @@ class MicrostructureCollectorRun(models.Model):
 
     symbol = models.CharField(max_length=20)
     status = models.CharField(
-        max_length=20,
-        choices=Status.choices,
-        default=Status.STARTING,
+        max_length=20, choices=Status.choices, default=Status.STARTING
     )
     connection_state = models.CharField(
         max_length=20,
@@ -189,7 +110,7 @@ class MicrostructureCollectorRun(models.Model):
     )
     process_id = models.PositiveIntegerField(null=True, blank=True)
     received_messages = models.PositiveBigIntegerField(default=0)
-    saved_snapshots = models.PositiveBigIntegerField(default=0)
+    saved_minute_updates = models.PositiveBigIntegerField(default=0)
     reconnect_count = models.PositiveIntegerField(default=0)
     latest_event_time = models.DateTimeField(null=True, blank=True)
     latest_sampled_at = models.DateTimeField(null=True, blank=True)

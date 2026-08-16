@@ -1,176 +1,105 @@
 {% extends "base.html" %}
 {% load static %}
 
-{% block title %}盘口采集 · 微观结构 · Market Evidence Lab{% endblock %}
+{% block title %}分钟盘口观察 · Market Evidence Lab{% endblock %}
 {% block body_class %}microstructure-body{% endblock %}
 
-{% block extra_css %}<link rel="stylesheet" href="{% static 'microstructure/css/index.css' %}?v=2">{% endblock %}
+{% block extra_css %}<link rel="stylesheet" href="{% static 'microstructure/css/index.css' %}?v=3">{% endblock %}
 
 {% block content %}
-<div class="microstructure-page" data-microstructure-page data-status-url="{% url 'microstructure:status' %}" data-start-url="{% url 'microstructure:start' %}" data-stop-url="{% url 'microstructure:stop' %}">
-    <header class="page-header microstructure-header">
-        <div>
-            <p class="eyebrow">微观结构 · {{ symbol }}</p>
-            <h1>盘口采集</h1>
-            <p class="page-intro">从 Binance USD-M Futures 接收 Top20 盘口，每秒保存一次特征，并按 UTC 5分钟汇总。</p>
+{{ initial_status|json_script:"microstructure-initial-data" }}
+<div class="market-terminal"
+     data-microstructure-page
+     data-status-url="{% url 'microstructure:status' %}"
+     data-start-url="{% url 'microstructure:start' %}"
+     data-stop-url="{% url 'microstructure:stop' %}">
+    <header class="terminal-toolbar">
+        <div class="terminal-symbol">
+            <strong>{{ symbol }} 永续</strong>
+            <span class="toolbar-divider"></span>
+            <span>1分钟</span>
+            <span class="toolbar-divider"></span>
+            <span>最近2小时</span>
         </div>
-        <span class="collector-status status-{{ initial_status.run.status }}" data-run-status>{{ initial_status.run.status_label }}</span>
+        <div class="collector-tools">
+            <span class="live-state state-{{ initial_status.run.connection_state }}" data-live-state>
+                <i aria-hidden="true"></i><span data-live-label>{{ initial_status.run.connection_label }}</span>
+            </span>
+            <span class="refresh-copy">界面每1分钟更新</span>
+            <form data-collector-action="start">{% csrf_token %}<button type="submit" data-start-button{% if not initial_status.can_start %} disabled{% endif %}>启动采集</button></form>
+            <form data-collector-action="stop">{% csrf_token %}<button type="submit" data-stop-button{% if not initial_status.can_stop %} disabled{% endif %}>停止</button></form>
+        </div>
     </header>
 
-    <section class="collector-console" aria-labelledby="collector-console-title">
-        <div class="collector-identity">
-            <span class="connection-indicator connection-{{ initial_status.run.connection_state }}" data-connection-indicator aria-hidden="true"></span>
-            <div>
-                <p class="collector-kicker">实时采集进程</p>
-                <h2 id="collector-console-title"><span data-connection-label>{{ initial_status.run.connection_label }}</span></h2>
-                <p data-heartbeat-label>{% if initial_status.run.heartbeat_at %}最近心跳 {{ initial_status.run.heartbeat_at }}{% else %}尚未启动页面采集{% endif %}</p>
-            </div>
-        </div>
+    <div class="terminal-message" role="status" aria-live="polite" data-message hidden></div>
 
-        <div class="interval-progress-block">
-            <div class="interval-progress-heading">
-                <span>当前 UTC 5分钟区间</span>
-                <strong><span data-current-count>{{ initial_status.current_snapshot_count }}</span> 条快照</strong>
-            </div>
-            <div class="interval-progress-track" role="progressbar" aria-label="当前5分钟时间进度" aria-valuemin="0" aria-valuemax="100" aria-valuenow="{{ initial_status.current_interval_progress|floatformat:0 }}" data-progress-track>
-                <span style="width: {{ initial_status.current_interval_progress|floatformat:2 }}%" data-progress-bar></span>
-            </div>
-            <p><span data-interval-start>{{ initial_status.current_interval_start }}</span> 开始 · 按区间时间推进，不代表数据完整率</p>
-        </div>
+    <div class="terminal-layout">
+        <main class="chart-stack">
+            <section class="chart-panel price-panel">
+                <div class="chart-heading">
+                    <div><span>{{ symbol }} 永续 · 1 · 最新价</span> <strong data-ohlc>O — H — L — C —</strong></div>
+                    <span data-last-update>等待分钟数据</span>
+                </div>
+                <div class="canvas-wrap"><canvas data-chart="price" aria-label="1分钟K线图"></canvas></div>
+            </section>
 
-        <div class="collector-actions">
-            <form data-collector-action="start">
-                {% csrf_token %}
-                <button class="primary-button" type="submit"{% if not initial_status.can_start %} disabled{% endif %} data-start-button>启动采集</button>
-            </form>
-            <form data-collector-action="stop">
-                {% csrf_token %}
-                <button class="secondary-button collector-stop-button" type="submit"{% if not initial_status.can_stop %} disabled{% endif %} data-stop-button>停止采集</button>
-            </form>
-        </div>
-    </section>
+            <section class="chart-panel flow-panel">
+                <div class="chart-heading">
+                    <div><strong>主动成交与 Delta</strong><span class="legend buy">主动买入</span><span class="legend sell">主动卖出</span><span class="legend delta">Delta</span></div>
+                </div>
+                <div class="canvas-wrap"><canvas data-chart="flow" aria-label="主动买卖与Delta图"></canvas></div>
+            </section>
 
-    <div class="collector-message" role="status" aria-live="polite" data-collector-message hidden></div>
+            <section class="chart-panel depth-panel">
+                <div class="chart-heading">
+                    <div><strong>盘口深度与价差</strong><span class="legend bid-depth">买盘深度</span><span class="legend ask-depth">卖盘深度</span><span class="legend spread">Spread P95</span></div>
+                </div>
+                <div class="canvas-wrap"><canvas data-chart="depth" aria-label="盘口深度与价差图"></canvas></div>
+                <div class="chart-axis-footer"><span data-range-start>—</span><span data-range-date>—</span><span data-range-end>—</span></div>
+            </section>
+            <div class="empty-chart" data-empty-chart hidden>启动采集后，首个一分钟数据会显示在这里。</div>
+        </main>
 
-    <section class="microstructure-stat-grid" aria-label="采集进度">
-        <article>
-            <span>本次收到消息</span>
-            <strong data-received-count>{{ initial_status.run.received_messages }}</strong>
-            <small>WebSocket 更新</small>
-        </article>
-        <article>
-            <span>本次保存快照</span>
-            <strong data-saved-count>{{ initial_status.run.saved_snapshots }}</strong>
-            <small>每秒最多一条</small>
-        </article>
-        <article>
-            <span>累计1秒快照</span>
-            <strong data-total-snapshots>{{ initial_status.total_snapshot_count }}</strong>
-            <small>PostgreSQL</small>
-        </article>
-        <article>
-            <span>累计5分钟汇总</span>
-            <strong data-total-summaries>{{ initial_status.total_summary_count }}</strong>
-            <small>完整区间自动生成</small>
-        </article>
-    </section>
+        <aside class="evidence-sidebar">
+            <div class="selected-minute-title">选中分钟 <strong data-selected-range>—</strong></div>
 
-    <section class="latest-book-panel" aria-labelledby="latest-book-title">
-        <div class="microstructure-section-heading">
-            <div>
-                <p class="eyebrow">最新1秒快照</p>
-                <h2 id="latest-book-title">当前盘口特征</h2>
-            </div>
-            <p data-latest-time>{% if initial_status.latest_snapshot %}{{ initial_status.latest_snapshot.sampled_at }}{% else %}暂无快照{% endif %}</p>
-        </div>
-        <dl class="latest-book-grid">
-            <div><dt>中间价</dt><dd data-latest-mid>{% if initial_status.latest_snapshot %}{{ initial_status.latest_snapshot.mid_price }}{% else %}—{% endif %}</dd></div>
-            <div><dt>买一</dt><dd data-latest-bid>{% if initial_status.latest_snapshot %}{{ initial_status.latest_snapshot.best_bid }}{% else %}—{% endif %}</dd></div>
-            <div><dt>卖一</dt><dd data-latest-ask>{% if initial_status.latest_snapshot %}{{ initial_status.latest_snapshot.best_ask }}{% else %}—{% endif %}</dd></div>
-            <div><dt>点差</dt><dd><span data-latest-spread>{% if initial_status.latest_snapshot %}{{ initial_status.latest_snapshot.spread_bps }}{% else %}—{% endif %}</span><small> bps</small></dd></div>
-            <div><dt>Top20 买方深度</dt><dd data-latest-bid-depth>{% if initial_status.latest_snapshot %}{{ initial_status.latest_snapshot.bid_depth_top20_quote }}{% else %}—{% endif %}</dd></div>
-            <div><dt>Top20 卖方深度</dt><dd data-latest-ask-depth>{% if initial_status.latest_snapshot %}{{ initial_status.latest_snapshot.ask_depth_top20_quote }}{% else %}—{% endif %}</dd></div>
-            <div class="imbalance-cell"><dt>Top20 失衡</dt><dd data-latest-imbalance>{% if initial_status.latest_snapshot %}{{ initial_status.latest_snapshot.imbalance_top20 }}{% else %}—{% endif %}</dd></div>
-        </dl>
-    </section>
+            <section class="evidence-card">
+                <h2>价格结果</h2>
+                <dl>
+                    <div><dt>涨跌</dt><dd data-price-change>—</dd></div>
+                    <div><dt>振幅</dt><dd data-price-range>—</dd></div>
+                    <div><dt>成交额</dt><dd data-quote-volume>—</dd></div>
+                </dl>
+            </section>
 
-    <section class="orderbook-panel" aria-labelledby="orderbook-title">
-        <div class="microstructure-section-heading">
-            <div>
-                <p class="eyebrow">WebSocket 最新推送</p>
-                <h2 id="orderbook-title">Top20 订单簿</h2>
-            </div>
-            <p><span data-orderbook-time>等待盘口数据</span><span data-orderbook-update></span></p>
-        </div>
-        <div class="table-scroll orderbook-table-scroll">
-            <table class="orderbook-table">
-                <thead>
-                    <tr>
-                        <th class="bid-heading">买价</th>
-                        <th>数量（ETH）</th>
-                        <th>金额（USDT）</th>
-                        <th class="level-heading">档位</th>
-                        <th class="ask-heading">卖价</th>
-                        <th>数量（ETH）</th>
-                        <th>金额（USDT）</th>
-                    </tr>
-                </thead>
-                <tbody data-orderbook-body>
-                    <tr><td colspan="7" class="empty-state">启动采集后，这里会显示 Binance 最新买卖各 20 档订单簿。</td></tr>
-                </tbody>
-            </table>
-        </div>
-        <p class="orderbook-retention-note">这里只保留当前采集任务的最新一份订单簿；每秒历史记录仍只保存盘口特征，不保存完整档位。</p>
-    </section>
+            <section class="evidence-card">
+                <h2>主动成交</h2>
+                <dl>
+                    <div><dt>主动买入</dt><dd class="positive" data-buy-volume>—</dd></div>
+                    <div><dt>主动卖出</dt><dd class="negative" data-sell-volume>—</dd></div>
+                    <div><dt>Delta</dt><dd data-delta>—</dd></div>
+                </dl>
+            </section>
 
-    <section class="summary-table-panel" aria-labelledby="summary-table-title">
-        <div class="microstructure-section-heading">
-            <div>
-                <p class="eyebrow">5分钟汇总</p>
-                <h2 id="summary-table-title">最近区间</h2>
-            </div>
-            <p>北京时间显示 · OHLC 为盘口中间价</p>
-        </div>
-        <div class="table-scroll microstructure-table-scroll">
-            <table class="microstructure-table">
-                <thead>
-                    <tr>
-                        <th>区间开始</th>
-                        <th>样本</th>
-                        <th>Open</th>
-                        <th>High</th>
-                        <th>Low</th>
-                        <th>Close</th>
-                        <th>平均点差</th>
-                        <th>Top20 买深度</th>
-                        <th>Top20 卖深度</th>
-                        <th>Top20 失衡</th>
-                    </tr>
-                </thead>
-                <tbody data-summary-body>
-                    {% for item in initial_status.recent_summaries %}
-                    <tr>
-                        <td>{{ item.interval_start }}</td>
-                        <td>{{ item.snapshot_count }}</td>
-                        <td>{{ item.mid_open }}</td>
-                        <td>{{ item.mid_high }}</td>
-                        <td>{{ item.mid_low }}</td>
-                        <td>{{ item.mid_close }}</td>
-                        <td>{{ item.spread_bps_mean }}</td>
-                        <td>{{ item.bid_depth_top20_quote_mean }}</td>
-                        <td>{{ item.ask_depth_top20_quote_mean }}</td>
-                        <td>{{ item.imbalance_top20_mean }}</td>
-                    </tr>
-                    {% empty %}
-                    <tr><td colspan="10" class="empty-state">运行满一个 UTC 5分钟区间后，这里会出现汇总记录。</td></tr>
-                    {% endfor %}
-                </tbody>
-            </table>
-        </div>
-    </section>
+            <section class="evidence-card">
+                <h2>盘口状态</h2>
+                <dl>
+                    <div><dt>买盘深度</dt><dd class="cyan" data-bid-depth>—</dd></div>
+                    <div><dt>卖盘深度</dt><dd class="purple" data-ask-depth>—</dd></div>
+                    <div><dt>Spread P95</dt><dd data-spread>—</dd></div>
+                    <div><dt>数据覆盖率</dt><dd data-coverage>—</dd></div>
+                </dl>
+            </section>
 
-    <p class="microstructure-scope-note">当前为体验版：直接写 PostgreSQL，不提供缺口修复、质量告警或交易判断。页面关闭不会停止采集，请使用“停止采集”按钮结束进程。</p>
+            <section class="evidence-card group-card">
+                <h2>所属5分钟观察组</h2>
+                <div class="minute-group" data-minute-group></div>
+            </section>
+
+            <p class="fact-note">事实数据，不代表方向结论</p>
+        </aside>
+    </div>
 </div>
 {% endblock %}
 
-{% block extra_js %}<script src="{% static 'microstructure/js/index.js' %}?v=2" defer></script>{% endblock %}
+{% block extra_js %}<script src="{% static 'microstructure/js/index.js' %}?v=3" defer></script>{% endblock %}

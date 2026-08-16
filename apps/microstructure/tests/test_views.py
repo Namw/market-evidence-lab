@@ -1,4 +1,4 @@
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
 from unittest.mock import patch
 
@@ -7,7 +7,7 @@ from django.urls import reverse
 from django.utils import timezone
 
 from apps.microstructure.management.commands.collect_orderbook import Command
-from apps.microstructure.models import MicrostructureCollectorRun
+from apps.microstructure.models import MarketMinute, MicrostructureCollectorRun
 
 
 class MicrostructureViewTests(TestCase):
@@ -15,8 +15,8 @@ class MicrostructureViewTests(TestCase):
         response = self.client.get(reverse("microstructure:index"))
 
         self.assertEqual(response.status_code, 200)
-        self.assertContains(response, "盘口采集")
-        self.assertContains(response, "Top20 订单簿")
+        self.assertContains(response, "主动成交与 Delta")
+        self.assertContains(response, "盘口深度与价差")
         self.assertContains(response, "启动采集")
         self.assertContains(response, 'href="/microstructure/"')
 
@@ -26,7 +26,7 @@ class MicrostructureViewTests(TestCase):
             status=MicrostructureCollectorRun.Status.RUNNING,
             connection_state=MicrostructureCollectorRun.ConnectionState.CONNECTED,
             received_messages=42,
-            saved_snapshots=20,
+            saved_minute_updates=20,
             heartbeat_at=timezone.now(),
         )
 
@@ -38,6 +38,28 @@ class MicrostructureViewTests(TestCase):
         self.assertEqual(payload["run"]["received_messages"], 42)
         self.assertTrue(payload["can_stop"])
         self.assertFalse(payload["can_start"])
+
+    def test_status_returns_display_ready_minutes_in_time_order(self):
+        later = datetime(2026, 8, 17, 1, 1, tzinfo=UTC)
+        earlier = datetime(2026, 8, 17, 1, 0, tzinfo=UTC)
+        for start, close in ((later, "3201"), (earlier, "3200")):
+            MarketMinute.objects.create(
+                symbol="ETHUSDT",
+                minute_start=start,
+                minute_end=start + timedelta(minutes=1),
+                open_price="3199",
+                high_price="3202",
+                low_price="3198",
+                close_price=close,
+                quote_volume="1000000",
+                taker_buy_quote="600000",
+                taker_sell_quote="400000",
+                delta_quote="200000",
+            )
+
+        minutes = self.client.get(reverse("microstructure:status")).json()["minutes"]
+
+        self.assertEqual([row["close"] for row in minutes], ["3200.000000000000000000", "3201.000000000000000000"])
 
     def test_stopping_run_cannot_receive_duplicate_stop(self):
         MicrostructureCollectorRun.objects.create(
@@ -111,7 +133,7 @@ class CollectorRunProgressTests(TestCase):
         collector = SimpleNamespace(
             connection_state="connected",
             received_messages=20,
-            saved_snapshots=10,
+            saved_minute_updates=10,
             reconnect_count=1,
             latest=SimpleNamespace(
                 event_time=event_time,
@@ -119,6 +141,7 @@ class CollectorRunProgressTests(TestCase):
                 bids=[SimpleNamespace(price=4200, quantity=1.25)],
                 asks=[SimpleNamespace(price=4201, quantity=0.75)],
             ),
+            latest_kline=None,
             latest_sampled_at=sampled_at,
             last_error="",
         )
@@ -128,7 +151,7 @@ class CollectorRunProgressTests(TestCase):
         run.refresh_from_db()
         self.assertEqual(run.connection_state, "connected")
         self.assertEqual(run.received_messages, 20)
-        self.assertEqual(run.saved_snapshots, 10)
+        self.assertEqual(run.saved_minute_updates, 10)
         self.assertEqual(run.latest_event_time, event_time)
         self.assertEqual(run.latest_sampled_at, sampled_at)
         self.assertEqual(run.latest_update_id, 456)

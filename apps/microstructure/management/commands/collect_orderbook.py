@@ -11,7 +11,7 @@ from apps.microstructure.models import MicrostructureCollectorRun
 
 
 class Command(BaseCommand):
-    help = "Collect Binance ETHUSDT Top20 order-book data into one-second snapshots."
+    help = "Collect Binance ETHUSDT 1m klines and Top20 depth into minute facts."
 
     def add_arguments(self, parser):
         parser.add_argument(
@@ -37,12 +37,23 @@ class Command(BaseCommand):
         collector: OrderBookCollector,
     ) -> None:
         latest = collector.latest
+        latest_event_time = max(
+            (
+                value
+                for value in (
+                    latest.event_time if latest else None,
+                    collector.latest_kline.event_time if collector.latest_kline else None,
+                )
+                if value is not None
+            ),
+            default=None,
+        )
         MicrostructureCollectorRun.objects.filter(pk=run_id).update(
             connection_state=collector.connection_state,
             received_messages=collector.received_messages,
-            saved_snapshots=collector.saved_snapshots,
+            saved_minute_updates=collector.saved_minute_updates,
             reconnect_count=collector.reconnect_count,
-            latest_event_time=latest.event_time if latest else None,
+            latest_event_time=latest_event_time,
             latest_sampled_at=collector.latest_sampled_at,
             latest_update_id=latest.update_id if latest else None,
             latest_bids=Command._serialize_levels(latest.bids) if latest else [],
@@ -133,7 +144,7 @@ class Command(BaseCommand):
             self.style.SUCCESS(
                 "Order-book collection stopped; "
                 f"messages={collector.received_messages}; "
-                f"snapshots={collector.saved_snapshots}; "
+                f"minute_updates={collector.saved_minute_updates}; "
                 f"reconnects={collector.reconnect_count}."
             )
         )

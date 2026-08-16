@@ -4,20 +4,24 @@ import asyncio
 import json
 import logging
 from collections.abc import Awaitable, Callable
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime
 from typing import Any
 
+import httpx
 from django.conf import settings
 from django.utils import timezone
 from websockets.asyncio.client import connect
 
 from .calculations import (
     DepthPayloadError,
+    KlinePayloadError,
+    MinuteKline,
     OrderBookFeatures,
-    floor_time,
     parse_depth_message,
+    parse_kline_message,
+    parse_rest_kline,
 )
-from .services import aggregate_interval, save_snapshot
+from .services import save_book_sample, save_kline
 
 logger = logging.getLogger(__name__)
 
@@ -37,6 +41,8 @@ async def wait_for_stop(stop_event: asyncio.Event, seconds: float) -> bool:
 
 
 class OrderBookCollector:
+    """Collect 1m exchange klines and Top20 depth over one combined socket."""
+
     def __init__(
         self,
         *,
@@ -47,6 +53,8 @@ class OrderBookCollector:
         reconnect_initial_seconds: float,
         reconnect_max_seconds: float,
         open_timeout_seconds: float,
+        http_base_url: str = "https://fapi.binance.com",
+        kline_poll_seconds: float = 5,
         proxy_url: str = "",
         connect_factory: Callable[..., Any] = connect,
         now_provider: Callable[[], datetime] = timezone.now,
@@ -58,6 +66,8 @@ class OrderBookCollector:
             raise ValueError("sample_interval_seconds must be positive")
         if reconnect_initial_seconds <= 0 or reconnect_max_seconds <= 0:
             raise ValueError("Reconnect delays must be positive")
+        if kline_poll_seconds <= 0:
+            raise ValueError("kline_poll_seconds must be positive")
         self.symbol = symbol.upper()
         self.ws_base_url = ws_base_url.rstrip("/")
         self.update_speed = update_speed
@@ -65,16 +75,19 @@ class OrderBookCollector:
         self.reconnect_initial_seconds = reconnect_initial_seconds
         self.reconnect_max_seconds = reconnect_max_seconds
         self.open_timeout_seconds = open_timeout_seconds
+        self.http_base_url = http_base_url.rstrip("/")
+        self.kline_poll_seconds = kline_poll_seconds
         self.proxy_url = proxy_url
         self.connect_factory = connect_factory
         self.now_provider = now_provider
         self.wait_for_stop_fn = wait_for_stop_fn
 
         self.latest: OrderBookFeatures | None = None
-        self.last_saved_update_id: int | None = None
-        self.last_aggregation_boundary: datetime | None = None
+        self.latest_kline: MinuteKline | None = None
+        self.pending_klines: dict[datetime, MinuteKline] = {}
+        self.persisted_closed_minutes: set[datetime] = set()
         self.received_messages = 0
-        self.saved_snapshots = 0
+        self.saved_minute_updates = 0
         self.reconnect_count = 0
         self.latest_sampled_at: datetime | None = None
         self.connection_state = "connecting"
@@ -90,28 +103,48 @@ class OrderBookCollector:
             reconnect_initial_seconds=settings.MICROSTRUCTURE_RECONNECT_INITIAL_SECONDS,
             reconnect_max_seconds=settings.MICROSTRUCTURE_RECONNECT_MAX_SECONDS,
             open_timeout_seconds=settings.MICROSTRUCTURE_WS_OPEN_TIMEOUT_SECONDS,
+            http_base_url=settings.BINANCE_FUTURES_BASE_URL,
+            kline_poll_seconds=settings.MICROSTRUCTURE_KLINE_POLL_SECONDS,
             proxy_url=settings.MICROSTRUCTURE_WS_PROXY_URL,
         )
 
     @property
     def stream_url(self) -> str:
-        stream = f"{self.symbol.lower()}@depth20@{self.update_speed}"
-        return f"{self.ws_base_url}/{stream}"
+        base = self.ws_base_url
+        if base.endswith("/ws"):
+            base = f"{base[:-3]}/stream"
+        elif not base.endswith("/stream"):
+            base = f"{base}/stream"
+        symbol = self.symbol.lower()
+        streams = f"{symbol}@kline_1m/{symbol}@depth20@{self.update_speed}"
+        return f"{base}?streams={streams}"
 
     def accept_message(self, raw_message: str | bytes) -> bool:
         try:
             payload = json.loads(raw_message)
-            features = parse_depth_message(payload, received_at=self.now_provider())
-        except (json.JSONDecodeError, UnicodeDecodeError, DepthPayloadError) as exc:
-            logger.warning("Ignoring unusable Binance depth message: %s", exc)
+            data = payload.get("data", payload) if isinstance(payload, dict) else None
+            event_type = data.get("e") if isinstance(data, dict) else None
+            if event_type == "kline":
+                kline = parse_kline_message(payload)
+                if kline.symbol != self.symbol:
+                    return False
+                self.latest_kline = kline
+                self.pending_klines[kline.minute_start] = kline
+            elif event_type == "depthUpdate":
+                features = parse_depth_message(payload, received_at=self.now_provider())
+                if features.symbol != self.symbol:
+                    return False
+                self.latest = features
+            else:
+                return False
+        except (
+            json.JSONDecodeError,
+            UnicodeDecodeError,
+            DepthPayloadError,
+            KlinePayloadError,
+        ) as exc:
+            logger.warning("Ignoring unusable Binance market message: %s", exc)
             return False
-        if features.symbol != self.symbol:
-            logger.warning(
-                "Ignoring depth message for unexpected symbol %s.",
-                features.symbol,
-            )
-            return False
-        self.latest = features
         self.received_messages += 1
         return True
 
@@ -145,15 +178,14 @@ class OrderBookCollector:
                 self.connection_state = "reconnecting"
                 self.last_error = exc.__class__.__name__
                 logger.warning(
-                    "Binance depth WebSocket disconnected (%s); reconnecting in %.1fs.",
+                    "Binance market WebSocket disconnected (%s); reconnecting in %.1fs.",
                     exc.__class__.__name__,
                     reconnect_delay,
                 )
                 if await self.wait_for_stop_fn(stop_event, reconnect_delay):
                     break
                 reconnect_delay = next_reconnect_delay(
-                    reconnect_delay,
-                    self.reconnect_max_seconds,
+                    reconnect_delay, self.reconnect_max_seconds
                 )
             else:
                 if stop_event.is_set():
@@ -170,24 +202,57 @@ class OrderBookCollector:
                 reconnect_delay = next_reconnect_delay(delay, self.reconnect_max_seconds)
         self.connection_state = "disconnected"
 
-    async def sample_latest(self, *, sampled_at: datetime) -> bool:
-        latest = self.latest
-        if latest is None or latest.update_id == self.last_saved_update_id:
-            return False
-        await asyncio.to_thread(save_snapshot, latest, sampled_at=sampled_at)
-        self.last_saved_update_id = latest.update_id
-        self.saved_snapshots += 1
-        self.latest_sampled_at = sampled_at
+    async def _poll_klines(self, stop_event: asyncio.Event) -> None:
+        async with httpx.AsyncClient(
+            proxy=self.proxy_url or None,
+            timeout=httpx.Timeout(10),
+        ) as client:
+            while not stop_event.is_set():
+                observed_at = self.now_provider().astimezone(UTC)
+                try:
+                    response = await client.get(
+                        f"{self.http_base_url}/fapi/v1/klines",
+                        params={"symbol": self.symbol, "interval": "1m", "limit": 2},
+                    )
+                    response.raise_for_status()
+                    payload = response.json()
+                    if not isinstance(payload, list):
+                        raise KlinePayloadError("Binance returned an invalid REST response.")
+                    for row in payload:
+                        kline = parse_rest_kline(
+                            row, symbol=self.symbol, observed_at=observed_at
+                        )
+                        self.latest_kline = kline
+                        if kline.closed and kline.minute_start in self.persisted_closed_minutes:
+                            continue
+                        self.pending_klines[kline.minute_start] = kline
+                except (httpx.HTTPError, ValueError, KlinePayloadError) as exc:
+                    logger.warning("Unable to refresh Binance minute kline: %s", exc)
+                if await self.wait_for_stop_fn(stop_event, self.kline_poll_seconds):
+                    break
 
-        boundary = floor_time(sampled_at, seconds=300)
-        if boundary != self.last_aggregation_boundary:
-            await asyncio.to_thread(
-                aggregate_interval,
-                symbol=self.symbol,
-                interval_start=boundary - timedelta(minutes=5),
+    async def sample_latest(self, *, sampled_at: datetime) -> bool:
+        saved = False
+        pending = list(self.pending_klines.items())
+        for minute_start, kline in pending:
+            await asyncio.to_thread(save_kline, kline)
+            if self.pending_klines.get(minute_start) is kline:
+                self.pending_klines.pop(minute_start, None)
+            if kline.closed:
+                self.persisted_closed_minutes.add(minute_start)
+            self.saved_minute_updates += 1
+            saved = True
+        latest = self.latest
+        if latest is not None:
+            _, written = await asyncio.to_thread(
+                save_book_sample, latest, sampled_at=sampled_at
             )
-            self.last_aggregation_boundary = boundary
-        return True
+            if written:
+                self.saved_minute_updates += 1
+                saved = True
+        if saved:
+            self.latest_sampled_at = sampled_at
+        return saved
 
     async def _sample(self, stop_event: asyncio.Event) -> None:
         while not stop_event.is_set():
@@ -205,3 +270,4 @@ class OrderBookCollector:
         async with asyncio.TaskGroup() as tasks:
             tasks.create_task(self._receive(stop_event))
             tasks.create_task(self._sample(stop_event))
+            tasks.create_task(self._poll_klines(stop_event))

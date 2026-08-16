@@ -2,274 +2,378 @@
     const root = document.querySelector("[data-microstructure-page]");
     if (!root) return;
 
-    const statusUrl = root.dataset.statusUrl;
-    const startUrl = root.dataset.startUrl;
-    const stopUrl = root.dataset.stopUrl;
+    const initialNode = document.getElementById("microstructure-initial-data");
+    const canvases = [...root.querySelectorAll("canvas[data-chart]")];
     const startForm = root.querySelector('[data-collector-action="start"]');
     const stopForm = root.querySelector('[data-collector-action="stop"]');
     const startButton = root.querySelector("[data-start-button]");
     const stopButton = root.querySelector("[data-stop-button]");
-    const message = root.querySelector("[data-collector-message]");
     const csrfToken = startForm?.querySelector("input[name='csrfmiddlewaretoken']")?.value;
-    let requestInFlight = false;
+    const state = { data: initialNode ? JSON.parse(initialNode.textContent) : null, minutes: [], selected: -1, busy: false };
 
-    const numberFormatter = new Intl.NumberFormat("zh-CN");
-    const priceFormatter = new Intl.NumberFormat("zh-CN", {
-        minimumFractionDigits: 2,
-        maximumFractionDigits: 3,
-    });
-    const compactFormatter = new Intl.NumberFormat("zh-CN", {
-        notation: "compact",
-        maximumFractionDigits: 2,
-    });
-    const quantityFormatter = new Intl.NumberFormat("zh-CN", {
-        minimumFractionDigits: 3,
-        maximumFractionDigits: 6,
-    });
-    const quoteFormatter = new Intl.NumberFormat("zh-CN", {
-        minimumFractionDigits: 2,
-        maximumFractionDigits: 2,
-    });
-    const timeFormatter = new Intl.DateTimeFormat("zh-CN", {
-        timeZone: "Asia/Shanghai",
-        month: "2-digit",
-        day: "2-digit",
-        hour: "2-digit",
-        minute: "2-digit",
-        second: "2-digit",
-        hour12: false,
-    });
-
-    function setText(selector, value) {
-        const target = root.querySelector(selector);
-        if (target) target.textContent = value;
-    }
-
-    function numberValue(value) {
+    const COLORS = {
+        grid: "rgba(139, 158, 175, .13)", text: "#8fa0ac", green: "#24cd78",
+        red: "#ff5252", cyan: "#39d5dd", purple: "#b16be0", yellow: "#f0b90b",
+        white: "#e7edf0", selection: "rgba(62, 130, 177, .10)", selectionLine: "rgba(128, 177, 210, .55)",
+    };
+    const minuteMs = 60_000;
+    const number = (value) => {
+        if (value === null || value === undefined || value === "") return null;
         const parsed = Number(value);
         return Number.isFinite(parsed) ? parsed : null;
-    }
+    };
+    const setText = (selector, value) => {
+        const node = root.querySelector(selector);
+        if (node) node.textContent = value;
+    };
+    const compact = (value, digits = 2) => {
+        const parsed = number(value);
+        if (parsed === null) return "—";
+        const absolute = Math.abs(parsed);
+        if (absolute >= 1e9) return `${(parsed / 1e9).toFixed(digits)}B`;
+        if (absolute >= 1e6) return `${(parsed / 1e6).toFixed(digits)}M`;
+        if (absolute >= 1e3) return `${(parsed / 1e3).toFixed(digits)}K`;
+        return parsed.toFixed(digits);
+    };
+    const price = (value) => {
+        const parsed = number(value);
+        return parsed === null ? "—" : parsed.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    };
+    const signedCompact = (value) => {
+        const parsed = number(value);
+        if (parsed === null) return "—";
+        return `${parsed >= 0 ? "+" : ""}${compact(parsed)}`;
+    };
+    const percent = (value) => {
+        const parsed = number(value);
+        if (parsed === null) return "—";
+        return `${parsed >= 0 ? "+" : ""}${parsed.toFixed(2)}%`;
+    };
+    const time = (date) => date.toLocaleTimeString("zh-CN", { timeZone: "Asia/Shanghai", hour: "2-digit", minute: "2-digit", hour12: false });
+    const dateLabel = (date) => date.toLocaleDateString("zh-CN", { timeZone: "Asia/Shanghai", year: "numeric", month: "2-digit", day: "2-digit" }).replaceAll("/", "-");
 
-    function price(value) {
-        const parsed = numberValue(value);
-        return parsed === null ? "—" : priceFormatter.format(parsed);
-    }
-
-    function compact(value) {
-        const parsed = numberValue(value);
-        return parsed === null ? "—" : `${compactFormatter.format(parsed)} USDT`;
-    }
-
-    function decimal(value, places = 4) {
-        const parsed = numberValue(value);
-        return parsed === null ? "—" : parsed.toFixed(places);
-    }
-
-    function localTime(value) {
-        if (!value) return "—";
-        const parsed = new Date(value);
-        return Number.isNaN(parsed.getTime()) ? "—" : timeFormatter.format(parsed);
-    }
-
-    function showMessage(text, isError = false) {
-        if (!message) return;
-        message.hidden = !text;
-        message.textContent = text || "";
-        message.classList.toggle("is-error", isError);
-    }
-
-    function renderOrderBook(book) {
-        const body = root.querySelector("[data-orderbook-body]");
-        if (!body) return;
-        body.replaceChildren();
-
-        const bids = Array.isArray(book?.bids) ? book.bids : [];
-        const asks = Array.isArray(book?.asks) ? book.asks : [];
-        setText(
-            "[data-orderbook-time]",
-            book?.event_time ? `${localTime(book.event_time)} 北京时间` : "等待盘口数据"
-        );
-        setText(
-            "[data-orderbook-update]",
-            book?.update_id ? ` · 更新 ${book.update_id}` : ""
-        );
-
-        if (!bids.length || !asks.length) {
-            const row = document.createElement("tr");
-            const cell = document.createElement("td");
-            cell.colSpan = 7;
-            cell.className = "empty-state";
-            cell.textContent = "启动采集后，这里会显示 Binance 最新买卖各 20 档订单簿。";
-            row.appendChild(cell);
-            body.appendChild(row);
-            return;
+    function normalizeMinutes(rows) {
+        if (!Array.isArray(rows) || !rows.length) return [];
+        const byTime = new Map();
+        rows.forEach((row) => {
+            const stamp = new Date(row.minute_start).getTime();
+            if (Number.isFinite(stamp)) byTime.set(stamp, { ...row, stamp });
+        });
+        const stamps = [...byTime.keys()].sort((a, b) => a - b);
+        if (!stamps.length) return [];
+        const end = stamps.at(-1);
+        const start = Math.max(stamps[0], end - 119 * minuteMs);
+        const result = [];
+        for (let stamp = start; stamp <= end; stamp += minuteMs) {
+            result.push(byTime.get(stamp) || { minute_start: new Date(stamp).toISOString(), stamp, missing: true });
         }
+        return result;
+    }
 
-        const quoteValue = (level) => {
-            const levelPrice = numberValue(level?.price);
-            const quantity = numberValue(level?.quantity);
-            return levelPrice === null || quantity === null ? 0 : levelPrice * quantity;
+    function setupCanvas(canvas) {
+        const rect = canvas.getBoundingClientRect();
+        const ratio = Math.max(1, window.devicePixelRatio || 1);
+        const width = Math.max(1, Math.round(rect.width));
+        const height = Math.max(1, Math.round(rect.height));
+        if (canvas.width !== Math.round(width * ratio) || canvas.height !== Math.round(height * ratio)) {
+            canvas.width = Math.round(width * ratio);
+            canvas.height = Math.round(height * ratio);
+        }
+        const context = canvas.getContext("2d");
+        context.setTransform(ratio, 0, 0, ratio, 0, 0);
+        context.clearRect(0, 0, width, height);
+        return { context, width, height, left: 50, right: 56, top: 8, bottom: 10 };
+    }
+
+    function plotGeometry(frame) {
+        const plotWidth = Math.max(1, frame.width - frame.left - frame.right);
+        const plotHeight = Math.max(1, frame.height - frame.top - frame.bottom);
+        const count = Math.max(1, state.minutes.length);
+        return {
+            ...frame, plotWidth, plotHeight,
+            x: (index) => frame.left + (index + .5) * plotWidth / count,
+            slotWidth: plotWidth / count,
         };
-        const maxQuote = Math.max(1, ...bids.map(quoteValue), ...asks.map(quoteValue));
-        const rowCount = Math.max(bids.length, asks.length);
+    }
 
-        for (let index = 0; index < rowCount; index += 1) {
-            const bid = bids[index];
-            const ask = asks[index];
-            const bidQuote = quoteValue(bid);
-            const askQuote = quoteValue(ask);
-            const row = document.createElement("tr");
-            const values = [
-                [price(bid?.price), "book-price book-bid"],
-                [bid ? quantityFormatter.format(numberValue(bid.quantity) ?? 0) : "—", "book-number"],
-                [bid ? quoteFormatter.format(bidQuote) : "—", "book-number book-depth book-depth-bid"],
-                [String(index + 1), "book-level"],
-                [price(ask?.price), "book-price book-ask"],
-                [ask ? quantityFormatter.format(numberValue(ask.quantity) ?? 0) : "—", "book-number"],
-                [ask ? quoteFormatter.format(askQuote) : "—", "book-number book-depth book-depth-ask"],
-            ];
-            values.forEach(([value, className], cellIndex) => {
-                const cell = document.createElement("td");
-                cell.textContent = value;
-                cell.className = className;
-                if (cellIndex === 2) {
-                    cell.style.setProperty("--depth-share", `${bidQuote / maxQuote * 100}%`);
-                } else if (cellIndex === 6) {
-                    cell.style.setProperty("--depth-share", `${askQuote / maxQuote * 100}%`);
-                }
-                row.appendChild(cell);
-            });
-            body.appendChild(row);
+    function drawGrid(plot, horizontal = 4) {
+        const { context: ctx } = plot;
+        ctx.save();
+        ctx.strokeStyle = COLORS.grid;
+        ctx.lineWidth = 1;
+        ctx.setLineDash([2, 3]);
+        for (let row = 0; row <= horizontal; row += 1) {
+            const y = plot.top + row * plot.plotHeight / horizontal;
+            ctx.beginPath(); ctx.moveTo(plot.left, y); ctx.lineTo(plot.width - plot.right, y); ctx.stroke();
+        }
+        const every = state.minutes.length > 80 ? 15 : state.minutes.length > 35 ? 10 : 5;
+        state.minutes.forEach((_, index) => {
+            if (index % every !== 0) return;
+            const x = plot.x(index);
+            ctx.beginPath(); ctx.moveTo(x, plot.top); ctx.lineTo(x, plot.height - plot.bottom); ctx.stroke();
+        });
+        ctx.restore();
+    }
+
+    function drawSelection(plot) {
+        if (state.selected < 0) return;
+        const selected = state.minutes[state.selected];
+        const groupStart = Math.floor(selected.stamp / minuteMs / 5) * 5 * minuteMs;
+        const indices = state.minutes.map((row, index) => row.stamp >= groupStart && row.stamp < groupStart + 5 * minuteMs ? index : -1).filter((index) => index >= 0);
+        const { context: ctx } = plot;
+        ctx.save();
+        if (indices.length) {
+            const startX = plot.x(indices[0]) - plot.slotWidth / 2;
+            const endX = plot.x(indices.at(-1)) + plot.slotWidth / 2;
+            ctx.fillStyle = COLORS.selection;
+            ctx.fillRect(startX, plot.top, endX - startX, plot.plotHeight);
+        }
+        const x = plot.x(state.selected);
+        ctx.strokeStyle = COLORS.selectionLine;
+        ctx.setLineDash([3, 3]);
+        ctx.beginPath(); ctx.moveTo(x, plot.top); ctx.lineTo(x, plot.height - plot.bottom); ctx.stroke();
+        ctx.restore();
+    }
+
+    function drawAxisLabels(plot, min, max, formatter = compact) {
+        const { context: ctx } = plot;
+        ctx.save();
+        ctx.fillStyle = COLORS.text;
+        ctx.font = "10px ui-sans-serif, system-ui";
+        ctx.textAlign = "right";
+        ctx.textBaseline = "middle";
+        for (let row = 0; row <= 4; row += 1) {
+            const value = max - (max - min) * row / 4;
+            const y = plot.top + plot.plotHeight * row / 4;
+            ctx.fillText(formatter(value), plot.left - 7, y);
+        }
+        ctx.restore();
+    }
+
+    function drawPrice(canvas) {
+        const plot = plotGeometry(setupCanvas(canvas));
+        drawGrid(plot); drawSelection(plot);
+        const values = state.minutes.flatMap((row) => [number(row.low), number(row.high)]).filter((value) => value !== null);
+        if (!values.length) return;
+        let min = Math.min(...values), max = Math.max(...values);
+        const padding = Math.max((max - min) * .08, max * .0003);
+        min -= padding; max += padding;
+        const y = (value) => plot.top + (max - value) / (max - min) * plot.plotHeight;
+        drawAxisLabels(plot, min, max, price);
+        const ctx = plot.context;
+        state.minutes.forEach((row, index) => {
+            const open = number(row.open), high = number(row.high), low = number(row.low), close = number(row.close);
+            if ([open, high, low, close].some((value) => value === null)) return;
+            const rising = close >= open;
+            const color = rising ? COLORS.green : COLORS.red;
+            const x = plot.x(index);
+            const bodyWidth = Math.max(2, Math.min(8, plot.slotWidth * .66));
+            ctx.strokeStyle = color; ctx.fillStyle = color; ctx.lineWidth = 1;
+            ctx.beginPath(); ctx.moveTo(x, y(high)); ctx.lineTo(x, y(low)); ctx.stroke();
+            const top = Math.min(y(open), y(close));
+            const height = Math.max(1, Math.abs(y(open) - y(close)));
+            ctx.fillRect(x - bodyWidth / 2, top, bodyWidth, height);
+        });
+        const selected = state.minutes[state.selected];
+        const close = number(selected?.close);
+        if (close !== null) {
+            ctx.fillStyle = close >= number(selected.open) ? COLORS.green : COLORS.red;
+            ctx.fillRect(plot.width - plot.right + 5, y(close) - 9, 49, 18);
+            ctx.fillStyle = "#fff"; ctx.font = "10px ui-sans-serif"; ctx.textAlign = "center"; ctx.textBaseline = "middle";
+            ctx.fillText(price(close), plot.width - 26, y(close));
         }
     }
 
-    function renderSummaries(rows) {
-        const body = root.querySelector("[data-summary-body]");
-        if (!body) return;
-        body.replaceChildren();
-        if (!rows.length) {
-            const row = document.createElement("tr");
-            const cell = document.createElement("td");
-            cell.colSpan = 10;
-            cell.className = "empty-state";
-            cell.textContent = "运行满一个 UTC 5分钟区间后，这里会出现汇总记录。";
-            row.appendChild(cell);
-            body.appendChild(row);
-            return;
-        }
-        rows.forEach((item) => {
-            const values = [
-                localTime(item.interval_start),
-                numberFormatter.format(item.snapshot_count),
-                price(item.mid_open),
-                price(item.mid_high),
-                price(item.mid_low),
-                price(item.mid_close),
-                decimal(item.spread_bps_mean, 4),
-                compact(item.bid_depth_top20_quote_mean),
-                compact(item.ask_depth_top20_quote_mean),
-                decimal(item.imbalance_top20_mean, 4),
-            ];
-            const row = document.createElement("tr");
-            values.forEach((value) => {
-                const cell = document.createElement("td");
-                cell.textContent = value;
-                row.appendChild(cell);
+    function drawFlow(canvas) {
+        const plot = plotGeometry(setupCanvas(canvas));
+        drawGrid(plot); drawSelection(plot);
+        const max = Math.max(1, ...state.minutes.flatMap((row) => [number(row.taker_buy_quote) || 0, number(row.taker_sell_quote) || 0, Math.abs(number(row.delta_quote) || 0)]));
+        const center = plot.top + plot.plotHeight / 2;
+        const scale = plot.plotHeight * .45 / max;
+        const ctx = plot.context;
+        ctx.strokeStyle = "rgba(205, 217, 225, .25)"; ctx.beginPath(); ctx.moveTo(plot.left, center); ctx.lineTo(plot.width - plot.right, center); ctx.stroke();
+        drawAxisLabels(plot, -max, max);
+        state.minutes.forEach((row, index) => {
+            const buy = number(row.taker_buy_quote), sell = number(row.taker_sell_quote);
+            const x = plot.x(index), width = Math.max(1, Math.min(7, plot.slotWidth * .62));
+            if (buy !== null) { ctx.fillStyle = "rgba(36, 205, 120, .72)"; ctx.fillRect(x - width / 2, center - buy * scale, width, buy * scale); }
+            if (sell !== null) { ctx.fillStyle = "rgba(255, 82, 82, .78)"; ctx.fillRect(x - width / 2, center, width, sell * scale); }
+        });
+        ctx.strokeStyle = COLORS.white; ctx.lineWidth = 1.35; ctx.beginPath();
+        let started = false;
+        state.minutes.forEach((row, index) => {
+            const delta = number(row.delta_quote);
+            if (delta === null) { started = false; return; }
+            const x = plot.x(index), y = center - delta * scale;
+            if (!started) { ctx.moveTo(x, y); started = true; } else ctx.lineTo(x, y);
+        });
+        ctx.stroke();
+    }
+
+    function drawDepth(canvas) {
+        const plot = plotGeometry(setupCanvas(canvas));
+        drawGrid(plot); drawSelection(plot);
+        const depths = state.minutes.flatMap((row) => [number(row.bid_depth_mean), number(row.ask_depth_mean)]).filter((value) => value !== null);
+        if (!depths.length) return;
+        const max = Math.max(1, ...depths) * 1.08;
+        const y = (value) => plot.top + (max - value) / max * plot.plotHeight;
+        drawAxisLabels(plot, 0, max);
+        const ctx = plot.context;
+        [["bid_depth_mean", COLORS.cyan], ["ask_depth_mean", COLORS.purple]].forEach(([field, color]) => {
+            ctx.strokeStyle = color; ctx.lineWidth = 1.4; ctx.beginPath();
+            let started = false;
+            state.minutes.forEach((row, index) => {
+                const value = number(row[field]);
+                if (value === null) { started = false; return; }
+                if (!started) { ctx.moveTo(plot.x(index), y(value)); started = true; } else ctx.lineTo(plot.x(index), y(value));
             });
-            body.appendChild(row);
+            ctx.stroke();
+        });
+        const spreads = state.minutes.map((row) => number(row.spread_bps_p95) || 0);
+        const spreadMax = Math.max(1, ...spreads);
+        spreads.forEach((value, index) => {
+            const height = value / spreadMax * Math.min(22, plot.plotHeight * .15);
+            ctx.fillStyle = "rgba(240, 185, 11, .9)";
+            ctx.fillRect(plot.x(index) - Math.max(1, plot.slotWidth * .2), plot.height - plot.bottom - height, Math.max(1, plot.slotWidth * .4), height);
         });
     }
 
-    function render(data) {
-        const run = data.run;
-        const snapshot = data.latest_snapshot;
-        const status = root.querySelector("[data-run-status]");
-        if (status) {
-            status.textContent = run.status_label;
-            status.className = `collector-status status-${run.status}`;
-        }
-        const indicator = root.querySelector("[data-connection-indicator]");
-        if (indicator) {
-            indicator.className = `connection-indicator connection-${run.connection_state}`;
-        }
-        setText("[data-connection-label]", run.connection_label);
-        setText(
-            "[data-heartbeat-label]",
-            run.heartbeat_at ? `最近心跳 ${localTime(run.heartbeat_at)} 北京时间` : "尚未启动页面采集"
-        );
-        setText("[data-received-count]", numberFormatter.format(run.received_messages));
-        setText("[data-saved-count]", numberFormatter.format(run.saved_snapshots));
-        setText("[data-total-snapshots]", numberFormatter.format(data.total_snapshot_count));
-        setText("[data-total-summaries]", numberFormatter.format(data.total_summary_count));
-        setText("[data-current-count]", numberFormatter.format(data.current_snapshot_count));
-        setText("[data-interval-start]", `${localTime(data.current_interval_start)} 北京时间`);
+    function drawCharts() {
+        canvases.forEach((canvas) => {
+            if (canvas.dataset.chart === "price") drawPrice(canvas);
+            if (canvas.dataset.chart === "flow") drawFlow(canvas);
+            if (canvas.dataset.chart === "depth") drawDepth(canvas);
+        });
+    }
 
-        const progressTrack = root.querySelector("[data-progress-track]");
-        const progressBar = root.querySelector("[data-progress-bar]");
-        const progress = Math.max(0, Math.min(100, Number(data.current_interval_progress) || 0));
-        if (progressTrack) progressTrack.setAttribute("aria-valuenow", String(Math.round(progress)));
-        if (progressBar) progressBar.style.width = `${progress}%`;
+    function colorMetric(node, value) {
+        if (!node) return;
+        node.classList.toggle("positive", value > 0);
+        node.classList.toggle("negative", value < 0);
+    }
 
-        startButton.disabled = requestInFlight || !data.can_start;
-        stopButton.disabled = requestInFlight || !data.can_stop;
-
-        setText("[data-latest-time]", snapshot ? `${localTime(snapshot.sampled_at)} 北京时间` : "暂无快照");
-        setText("[data-latest-mid]", snapshot ? price(snapshot.mid_price) : "—");
-        setText("[data-latest-bid]", snapshot ? price(snapshot.best_bid) : "—");
-        setText("[data-latest-ask]", snapshot ? price(snapshot.best_ask) : "—");
-        setText("[data-latest-spread]", snapshot ? decimal(snapshot.spread_bps, 4) : "—");
-        setText("[data-latest-bid-depth]", snapshot ? compact(snapshot.bid_depth_top20_quote) : "—");
-        setText("[data-latest-ask-depth]", snapshot ? compact(snapshot.ask_depth_top20_quote) : "—");
-        setText("[data-latest-imbalance]", snapshot ? decimal(snapshot.imbalance_top20, 4) : "—");
-        renderOrderBook(data.latest_order_book);
-        renderSummaries(data.recent_summaries);
-
-        if (run.error_message && run.status === "failed") {
-            showMessage(run.error_message, true);
+    function renderGroup(selected) {
+        const container = root.querySelector("[data-minute-group]");
+        if (!container || !selected) return;
+        container.replaceChildren();
+        const groupStart = Math.floor(selected.stamp / minuteMs / 5) * 5 * minuteMs;
+        const byTime = new Map(state.minutes.map((row, index) => [row.stamp, { row, index }]));
+        for (let position = 0; position < 5; position += 1) {
+            const stamp = groupStart + position * minuteMs;
+            const found = byTime.get(stamp);
+            const row = found?.row;
+            const change = row && number(row.open) && number(row.close) !== null ? (number(row.close) / number(row.open) - 1) * 100 : null;
+            const button = document.createElement("button");
+            button.type = "button"; button.className = "group-minute";
+            if (found?.index === state.selected) button.classList.add("is-selected");
+            if (change > 0) button.classList.add("is-up");
+            if (change < 0) button.classList.add("is-down");
+            button.disabled = !found || row.missing;
+            button.innerHTML = `<span>${time(new Date(stamp))}</span><strong>${position + 1}</strong><small>${change === null ? "—" : percent(change)}</small>`;
+            if (found) button.addEventListener("click", () => select(found.index));
+            container.appendChild(button);
         }
     }
 
-    async function refresh() {
+    function renderSelected() {
+        const row = state.minutes[state.selected];
+        if (!row) return;
+        const start = new Date(row.stamp), end = new Date(row.stamp + minuteMs);
+        setText("[data-selected-range]", `${time(start)}–${time(end)}`);
+        const open = number(row.open), close = number(row.close), high = number(row.high), low = number(row.low);
+        const change = open && close !== null ? (close / open - 1) * 100 : null;
+        const range = open && high !== null && low !== null ? (high - low) / open * 100 : null;
+        const delta = number(row.delta_quote);
+        const changeNode = root.querySelector("[data-price-change]");
+        const deltaNode = root.querySelector("[data-delta]");
+        setText("[data-price-change]", percent(change)); colorMetric(changeNode, change);
+        setText("[data-price-range]", range === null ? "—" : `${range.toFixed(2)}%`);
+        setText("[data-quote-volume]", compact(row.quote_volume));
+        setText("[data-buy-volume]", compact(row.taker_buy_quote));
+        setText("[data-sell-volume]", compact(row.taker_sell_quote));
+        setText("[data-delta]", signedCompact(delta)); colorMetric(deltaNode, delta);
+        setText("[data-bid-depth]", `${compact(row.bid_depth_open)} → ${compact(row.bid_depth_close)}`);
+        setText("[data-ask-depth]", `${compact(row.ask_depth_open)} → ${compact(row.ask_depth_close)}`);
+        setText("[data-spread]", number(row.spread_bps_p95) === null ? "—" : `${number(row.spread_bps_p95).toFixed(2)} bps`);
+        setText("[data-coverage]", number(row.coverage_ratio) === null ? "—" : `${(number(row.coverage_ratio) * 100).toFixed(1)}%`);
+        setText("[data-ohlc]", `O ${price(row.open)}  H ${price(row.high)}  L ${price(row.low)}  C ${price(row.close)}  ${percent(change)}`);
+        renderGroup(row);
+    }
+
+    function select(index) {
+        if (index < 0 || index >= state.minutes.length || state.minutes[index].missing) return;
+        state.selected = index;
+        renderSelected(); drawCharts();
+    }
+
+    function renderStatus(data, preserveSelection = true) {
+        const previousStamp = preserveSelection ? state.minutes[state.selected]?.stamp : null;
+        state.data = data;
+        state.minutes = normalizeMinutes(data.minutes);
+        const previousIndex = previousStamp === null ? -1 : state.minutes.findIndex((row) => row.stamp === previousStamp);
+        state.selected = previousIndex >= 0 ? previousIndex : state.minutes.map((row, index) => row.missing ? -1 : index).filter((index) => index >= 0).at(-1) ?? -1;
+        const live = root.querySelector("[data-live-state]");
+        if (live) live.className = `live-state state-${data.run.connection_state}`;
+        setText("[data-live-label]", data.run.connection_label);
+        startButton.disabled = state.busy || !data.can_start;
+        stopButton.disabled = state.busy || !data.can_stop;
+        const empty = root.querySelector("[data-empty-chart]");
+        if (empty) empty.hidden = state.minutes.length > 0;
+        if (state.minutes.length) {
+            const first = new Date(state.minutes[0].stamp), last = new Date(state.minutes.at(-1).stamp);
+            setText("[data-range-start]", time(first)); setText("[data-range-end]", time(last)); setText("[data-range-date]", dateLabel(last));
+            setText("[data-last-update]", `最新 ${time(last)} · ${data.run.saved_minute_updates.toLocaleString("zh-CN")} 次落库`);
+            renderSelected();
+        }
+        if (data.run.status === "failed" && data.run.error_message) showMessage(data.run.error_message, true);
+        drawCharts();
+    }
+
+    function showMessage(text, error = false) {
+        const node = root.querySelector("[data-message]");
+        if (!node) return;
+        node.hidden = !text; node.textContent = text || ""; node.classList.toggle("is-error", error);
+    }
+
+    async function refresh(preserveSelection = true) {
         try {
-            const response = await fetch(statusUrl, {
-                headers: { Accept: "application/json" },
-                credentials: "same-origin",
-            });
-            if (!response.ok) throw new Error("无法读取采集状态");
-            render(await response.json());
+            const response = await fetch(`${root.dataset.statusUrl}?minutes=120`, { headers: { Accept: "application/json" }, credentials: "same-origin" });
+            if (!response.ok) throw new Error("无法读取分钟数据");
+            renderStatus(await response.json(), preserveSelection);
         } catch (error) {
-            showMessage(error.message || "无法读取采集状态", true);
+            showMessage(error.message || "无法读取分钟数据", true);
         }
     }
 
     async function submitAction(event, action) {
         event.preventDefault();
-        if (requestInFlight) return;
-        requestInFlight = true;
-        startButton.disabled = true;
-        stopButton.disabled = true;
-        showMessage(action === "start" ? "正在启动采集…" : "正在停止采集…");
+        if (state.busy) return;
+        state.busy = true; startButton.disabled = true; stopButton.disabled = true;
+        showMessage(action === "start" ? "正在启动实时采集…" : "正在停止采集…");
         try {
-            const response = await fetch(action === "start" ? startUrl : stopUrl, {
-                method: "POST",
-                credentials: "same-origin",
-                headers: {
-                    Accept: "application/json",
-                    "X-CSRFToken": csrfToken,
-                },
+            const response = await fetch(action === "start" ? root.dataset.startUrl : root.dataset.stopUrl, {
+                method: "POST", credentials: "same-origin", headers: { Accept: "application/json", "X-CSRFToken": csrfToken },
             });
             const payload = await response.json();
             showMessage(payload.message || (response.ok ? "操作已提交。" : "操作失败。"), !response.ok);
         } catch (error) {
             showMessage(error.message || "操作失败。", true);
         } finally {
-            requestInFlight = false;
-            window.setTimeout(refresh, 350);
+            state.busy = false;
+            window.setTimeout(() => refresh(false), 500);
         }
     }
 
+    canvases.forEach((canvas) => canvas.addEventListener("click", (event) => {
+        if (!state.minutes.length) return;
+        const rect = canvas.getBoundingClientRect();
+        const plotWidth = rect.width - 50 - 56;
+        const index = Math.floor((event.clientX - rect.left - 50) / plotWidth * state.minutes.length);
+        select(Math.max(0, Math.min(state.minutes.length - 1, index)));
+    }));
     startForm?.addEventListener("submit", (event) => submitAction(event, "start"));
     stopForm?.addEventListener("submit", (event) => submitAction(event, "stop"));
-    refresh();
-    window.setInterval(refresh, 2000);
+    new ResizeObserver(() => drawCharts()).observe(root.querySelector(".chart-stack"));
+    if (state.data) renderStatus(state.data, false); else refresh(false);
+    window.setInterval(() => refresh(true), 60_000);
 })();

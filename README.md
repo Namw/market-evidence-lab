@@ -99,36 +99,37 @@ uv run --env-file .env python manage.py collect_market_funds addresses
 
 `addresses` 命令只记录来源策略阻止状态，不会向 Etherscan 发出自动采集请求。
 
-## ETHUSDT Top20 盘口 MVP
+## ETHUSDT 分钟盘口观察
 
-当前阶段实现盘口数据接入、每秒特征快照和 UTC 5分钟汇总，并提供采集控制与
-汇总查看页面，暂不包含复杂趋势图。
-先执行迁移。可以从侧边栏进入“微观结构 → 盘口采集”，在页面启动、停止并查看
-实时进度、最新 Top20 订单簿和最近5分钟汇总；也可以使用常驻采集命令：
+微观结构页通过一个常驻采集进程同时接入 Binance USD-M Futures 的 1分钟 Kline
+和 Top20 partial depth。Kline 提供真实成交价 OHLC、成交额和 taker buy quote
+volume；主动卖出额由总成交额减主动买入额得到，Delta 为两者之差。Top20 盘口在
+内存中实时更新，每秒抽样一次买卖深度和 spread。
+
+数据库只保留可以直接展示的 `MarketMinute` 分钟事实，不保存逐笔成交或每秒盘口
+历史。每分钟包含价格 OHLC、主动买卖额、Delta、Top20 买卖深度开/收/均值、
+Spread 均值/P95 和盘口抽样覆盖率。迁移 `microstructure.0004` 会删除旧的
+`OrderBookSnapshot` 与 `OrderBookFiveMinuteSummary` 表及其数据。
+
+先执行迁移。可以从侧边栏进入“微观结构 → 盘口采集”，在页面启动或停止采集；
+也可以使用常驻命令：
 
 ```bash
 uv run --env-file .env python manage.py migrate
 uv run --env-file .env python manage.py collect_orderbook
 ```
 
-页面地址：<http://127.0.0.1:8001/microstructure/>。页面启动的采集是当前本地
-单机 MVP 使用的独立子进程；关闭浏览器不会停止采集，应在页面点击“停止采集”。
+页面地址：<http://127.0.0.1:8001/microstructure/>。页面展示最近2小时的 1分钟
+K线、主动成交与 Delta、盘口深度与价差，点击任意分钟会联动右侧事实卡和所属
+5分钟观察组；页面数据每60秒刷新一次，采集端仍持续实时处理。
+
+页面启动的采集是当前本地单机使用的独立子进程；关闭浏览器不会停止采集，应在
+页面点击“停止采集”。
 若已经从终端运行采集命令，页面会拒绝重复启动。
 
-命令使用 Binance USD-M Futures 官方 Top20 partial depth WebSocket，默认接收
-500ms 更新，并在内存中保留最新盘口；每秒最多写入一条
-`OrderBookSnapshot`，跨过5分钟边界后自动汇总上一完整区间到
-`OrderBookFiveMinuteSummary`。页面采集任务会额外覆盖保存最新一份买卖各 20 档，
-用于页面实时展示；历史每秒快照不保存完整档位。按 `Ctrl+C` 可停止采集。
-
-也可以手工重算最近一个完整区间，或指定 UTC 对齐的时间范围：
-
-```bash
-uv run --env-file .env python manage.py aggregate_orderbook_5m
-uv run --env-file .env python manage.py aggregate_orderbook_5m \
-  --start 2026-08-17T00:00:00Z \
-  --end 2026-08-17T01:00:00Z
-```
+采集优先接收 WebSocket 1m Kline；同时每5秒从官方 REST Kline 拉取最近两根作为
+容灾与分钟收盘校准，因此网络环境只放行 depth WebSocket 时，价格和主动成交仍会
+持续更新。相同分钟采用幂等覆盖，重连不会重复累加成交额。按 `Ctrl+C` 可停止命令。
 
 可通过环境变量覆盖以下采集参数：
 
@@ -137,6 +138,7 @@ MICROSTRUCTURE_SYMBOL=ETHUSDT
 MICROSTRUCTURE_WS_BASE_URL=wss://fstream.binance.com/public/ws
 MICROSTRUCTURE_WS_UPDATE_SPEED=500ms
 MICROSTRUCTURE_SAMPLE_INTERVAL_SECONDS=1
+MICROSTRUCTURE_KLINE_POLL_SECONDS=5
 MICROSTRUCTURE_RECONNECT_INITIAL_SECONDS=1
 MICROSTRUCTURE_RECONNECT_MAX_SECONDS=30
 MICROSTRUCTURE_WS_OPEN_TIMEOUT_SECONDS=10
@@ -144,10 +146,9 @@ MICROSTRUCTURE_WS_OPEN_TIMEOUT_SECONDS=10
 # MICROSTRUCTURE_WS_PROXY_URL=
 ```
 
-这是快速体验版本：数据直接写入 PostgreSQL，没有 WAL、Parquet、历史补洞、
-连续性保证或质量告警。5分钟 OHLC 来自每秒盘口中间价，而不是实际成交价；
-Top20 快照也无法把深度下降解释为真实撤单。后续确认数据有价值后，再决定是否
-补充成交数据、可靠存储和展示页面。
+当前版本的数据直接写入 PostgreSQL，没有 WAL、Parquet 或历史缺口回补；覆盖率
+明确反映每分钟成功获得的盘口秒级样本。Top20 深度下降只能说明挂单量变化，不能
+单独解释为成交或撤单，因此页面只呈现事实，不给出方向结论。
 
 ## 检查
 

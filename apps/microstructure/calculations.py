@@ -13,6 +13,10 @@ class DepthPayloadError(ValueError):
     """Raised when a Binance depth message cannot form a usable snapshot."""
 
 
+class KlinePayloadError(ValueError):
+    """Raised when a Binance one-minute kline message is unusable."""
+
+
 @dataclass(frozen=True, slots=True)
 class DepthLevel:
     price: Decimal
@@ -41,6 +45,26 @@ class OrderBookFeatures:
     imbalance_top20: Decimal | None
     bids: tuple[DepthLevel, ...] = ()
     asks: tuple[DepthLevel, ...] = ()
+
+
+@dataclass(frozen=True, slots=True)
+class MinuteKline:
+    symbol: str
+    event_time: datetime
+    minute_start: datetime
+    minute_end: datetime
+    open_price: Decimal
+    high_price: Decimal
+    low_price: Decimal
+    close_price: Decimal
+    quote_volume: Decimal
+    taker_buy_quote: Decimal
+    taker_sell_quote: Decimal
+    delta_quote: Decimal
+    trade_count: int
+    first_trade_id: int | None
+    last_trade_id: int | None
+    closed: bool
 
 
 def decimal_18(value: Decimal) -> Decimal:
@@ -153,6 +177,104 @@ def parse_depth_message(
         imbalance_top20=imbalances[20],
         bids=tuple(bids),
         asks=tuple(asks),
+    )
+
+
+def parse_kline_message(payload: Mapping[str, Any]) -> MinuteKline:
+    if not isinstance(payload, Mapping):
+        raise KlinePayloadError("Binance returned an invalid kline payload.")
+    data = payload.get("data", payload)
+    if not isinstance(data, Mapping) or data.get("e") != "kline":
+        raise KlinePayloadError("Binance returned an invalid kline payload.")
+    kline = data.get("k")
+    if not isinstance(kline, Mapping) or kline.get("i") != "1m":
+        raise KlinePayloadError("Binance payload is not a one-minute kline.")
+    try:
+        symbol = str(data["s"]).upper()
+        event_time = datetime.fromtimestamp(int(data["E"]) / 1_000, tz=UTC)
+        minute_start = datetime.fromtimestamp(int(kline["t"]) / 1_000, tz=UTC)
+        minute_end = datetime.fromtimestamp((int(kline["T"]) + 1) / 1_000, tz=UTC)
+        open_price = decimal_18(Decimal(str(kline["o"])))
+        high_price = decimal_18(Decimal(str(kline["h"])))
+        low_price = decimal_18(Decimal(str(kline["l"])))
+        close_price = decimal_18(Decimal(str(kline["c"])))
+        quote_volume = decimal_18(Decimal(str(kline["q"])))
+        taker_buy_quote = decimal_18(Decimal(str(kline["Q"])))
+        trade_count = int(kline["n"])
+        first_trade_id = int(kline["f"]) if trade_count else None
+        last_trade_id = int(kline["L"]) if trade_count else None
+        closed = bool(kline["x"])
+    except (KeyError, InvalidOperation, TypeError, ValueError) as exc:
+        raise KlinePayloadError("Binance kline payload is missing data.") from exc
+    if min(open_price, high_price, low_price, close_price) <= 0:
+        raise KlinePayloadError("Binance returned an invalid kline price.")
+    if quote_volume < 0 or taker_buy_quote < 0 or taker_buy_quote > quote_volume:
+        raise KlinePayloadError("Binance returned an invalid kline volume.")
+    taker_sell_quote = decimal_18(quote_volume - taker_buy_quote)
+    return MinuteKline(
+        symbol=symbol,
+        event_time=event_time,
+        minute_start=minute_start,
+        minute_end=minute_end,
+        open_price=open_price,
+        high_price=high_price,
+        low_price=low_price,
+        close_price=close_price,
+        quote_volume=quote_volume,
+        taker_buy_quote=taker_buy_quote,
+        taker_sell_quote=taker_sell_quote,
+        delta_quote=decimal_18(taker_buy_quote - taker_sell_quote),
+        trade_count=trade_count,
+        first_trade_id=first_trade_id,
+        last_trade_id=last_trade_id,
+        closed=closed,
+    )
+
+
+def parse_rest_kline(
+    row: Sequence[Any],
+    *,
+    symbol: str,
+    observed_at: datetime,
+) -> MinuteKline:
+    if observed_at.tzinfo is None:
+        raise ValueError("observed_at must be timezone-aware")
+    if not isinstance(row, (list, tuple)) or len(row) < 11:
+        raise KlinePayloadError("Binance returned an invalid REST kline.")
+    try:
+        minute_start = datetime.fromtimestamp(int(row[0]) / 1_000, tz=UTC)
+        minute_end = datetime.fromtimestamp((int(row[6]) + 1) / 1_000, tz=UTC)
+        open_price = decimal_18(Decimal(str(row[1])))
+        high_price = decimal_18(Decimal(str(row[2])))
+        low_price = decimal_18(Decimal(str(row[3])))
+        close_price = decimal_18(Decimal(str(row[4])))
+        quote_volume = decimal_18(Decimal(str(row[7])))
+        trade_count = int(row[8])
+        taker_buy_quote = decimal_18(Decimal(str(row[10])))
+    except (InvalidOperation, TypeError, ValueError) as exc:
+        raise KlinePayloadError("Binance REST kline is missing data.") from exc
+    if min(open_price, high_price, low_price, close_price) <= 0:
+        raise KlinePayloadError("Binance returned an invalid REST kline price.")
+    if quote_volume < 0 or taker_buy_quote < 0 or taker_buy_quote > quote_volume:
+        raise KlinePayloadError("Binance returned an invalid REST kline volume.")
+    taker_sell_quote = decimal_18(quote_volume - taker_buy_quote)
+    return MinuteKline(
+        symbol=symbol.upper(),
+        event_time=observed_at.astimezone(UTC),
+        minute_start=minute_start,
+        minute_end=minute_end,
+        open_price=open_price,
+        high_price=high_price,
+        low_price=low_price,
+        close_price=close_price,
+        quote_volume=quote_volume,
+        taker_buy_quote=taker_buy_quote,
+        taker_sell_quote=taker_sell_quote,
+        delta_quote=decimal_18(taker_buy_quote - taker_sell_quote),
+        trade_count=trade_count,
+        first_trade_id=None,
+        last_trade_id=None,
+        closed=minute_end <= observed_at.astimezone(UTC),
     )
 
 

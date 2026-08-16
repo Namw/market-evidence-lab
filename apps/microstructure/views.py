@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime
 from decimal import Decimal
 
 from django.conf import settings
@@ -9,15 +9,11 @@ from django.shortcuts import render
 from django.utils import timezone
 from django.views.decorators.http import require_GET, require_POST
 
-from .calculations import floor_time
-from .models import (
-    MicrostructureCollectorRun,
-    OrderBookFiveMinuteSummary,
-    OrderBookSnapshot,
-)
+from .models import MarketMinute, MicrostructureCollectorRun
 from .process_control import CollectorControlError, launch_collector, stop_collector
 
-RECENT_SUMMARY_LIMIT = 10
+DEFAULT_MINUTE_LIMIT = 120
+MAX_MINUTE_LIMIT = 1_440
 
 
 def _utc_iso(value: datetime | None) -> str | None:
@@ -39,7 +35,7 @@ def _run_payload(run: MicrostructureCollectorRun | None) -> dict[str, object]:
             "connection_state": "disconnected",
             "connection_label": "未连接",
             "received_messages": 0,
-            "saved_snapshots": 0,
+            "saved_minute_updates": 0,
             "reconnect_count": 0,
             "heartbeat_at": None,
             "started_at": None,
@@ -53,7 +49,7 @@ def _run_payload(run: MicrostructureCollectorRun | None) -> dict[str, object]:
         "connection_state": run.connection_state,
         "connection_label": run.get_connection_state_display(),
         "received_messages": run.received_messages,
-        "saved_snapshots": run.saved_snapshots,
+        "saved_minute_updates": run.saved_minute_updates,
         "reconnect_count": run.reconnect_count,
         "heartbeat_at": _utc_iso(run.heartbeat_at),
         "started_at": _utc_iso(run.started_at),
@@ -62,19 +58,30 @@ def _run_payload(run: MicrostructureCollectorRun | None) -> dict[str, object]:
     }
 
 
-def _snapshot_payload(snapshot: OrderBookSnapshot | None) -> dict[str, object] | None:
-    if snapshot is None:
-        return None
+def _minute_payload(row: MarketMinute) -> dict[str, object]:
     return {
-        "sampled_at": _utc_iso(snapshot.sampled_at),
-        "event_time": _utc_iso(snapshot.event_time),
-        "best_bid": _decimal(snapshot.best_bid),
-        "best_ask": _decimal(snapshot.best_ask),
-        "mid_price": _decimal(snapshot.mid_price),
-        "spread_bps": _decimal(snapshot.spread_bps),
-        "bid_depth_top20_quote": _decimal(snapshot.bid_depth_top20_quote),
-        "ask_depth_top20_quote": _decimal(snapshot.ask_depth_top20_quote),
-        "imbalance_top20": _decimal(snapshot.imbalance_top20),
+        "minute_start": _utc_iso(row.minute_start),
+        "minute_end": _utc_iso(row.minute_end),
+        "open": _decimal(row.open_price),
+        "high": _decimal(row.high_price),
+        "low": _decimal(row.low_price),
+        "close": _decimal(row.close_price),
+        "quote_volume": _decimal(row.quote_volume),
+        "taker_buy_quote": _decimal(row.taker_buy_quote),
+        "taker_sell_quote": _decimal(row.taker_sell_quote),
+        "delta_quote": _decimal(row.delta_quote),
+        "trade_count": row.trade_count,
+        "bid_depth_open": _decimal(row.bid_depth_open),
+        "bid_depth_close": _decimal(row.bid_depth_close),
+        "bid_depth_mean": _decimal(row.bid_depth_mean),
+        "ask_depth_open": _decimal(row.ask_depth_open),
+        "ask_depth_close": _decimal(row.ask_depth_close),
+        "ask_depth_mean": _decimal(row.ask_depth_mean),
+        "spread_bps_mean": _decimal(row.spread_bps_mean),
+        "spread_bps_p95": _decimal(row.spread_bps_p95),
+        "book_sample_count": row.book_sample_count,
+        "coverage_ratio": _decimal(row.coverage_ratio),
+        "closed": row.kline_closed,
     }
 
 
@@ -91,29 +98,9 @@ def _order_book_payload(
     }
 
 
-def _summary_payload(summary: OrderBookFiveMinuteSummary) -> dict[str, object]:
-    return {
-        "interval_start": _utc_iso(summary.interval_start),
-        "mid_open": _decimal(summary.mid_open),
-        "mid_high": _decimal(summary.mid_high),
-        "mid_low": _decimal(summary.mid_low),
-        "mid_close": _decimal(summary.mid_close),
-        "spread_bps_mean": _decimal(summary.spread_bps_mean),
-        "bid_depth_top20_quote_mean": _decimal(
-            summary.bid_depth_top20_quote_mean
-        ),
-        "ask_depth_top20_quote_mean": _decimal(
-            summary.ask_depth_top20_quote_mean
-        ),
-        "imbalance_top20_mean": _decimal(summary.imbalance_top20_mean),
-        "snapshot_count": summary.snapshot_count,
-    }
-
-
-def _status_payload() -> dict[str, object]:
+def _status_payload(*, minute_limit: int = DEFAULT_MINUTE_LIMIT) -> dict[str, object]:
     symbol = settings.MICROSTRUCTURE_SYMBOL
     now = timezone.now().astimezone(UTC)
-    interval_start = floor_time(now, seconds=300)
     active_statuses = {
         MicrostructureCollectorRun.Status.STARTING,
         MicrostructureCollectorRun.Status.RUNNING,
@@ -125,43 +112,32 @@ def _status_payload() -> dict[str, object]:
         .first()
         or MicrostructureCollectorRun.objects.order_by("-created_at").first()
     )
-    latest_snapshot = (
-        OrderBookSnapshot.objects.filter(symbol=symbol)
-        .order_by("-sampled_at")
-        .first()
+    rows = list(
+        reversed(
+            MarketMinute.objects.filter(symbol=symbol).order_by("-minute_start")[
+                :minute_limit
+            ]
+        )
     )
-    summaries = list(
-        OrderBookFiveMinuteSummary.objects.filter(symbol=symbol)
-        .order_by("-interval_start")[:RECENT_SUMMARY_LIMIT]
+    active = bool(latest_run and latest_run.status in active_statuses)
+    stoppable = bool(
+        latest_run
+        and latest_run.status
+        in {
+            MicrostructureCollectorRun.Status.STARTING,
+            MicrostructureCollectorRun.Status.RUNNING,
+        }
     )
-    current_snapshot_count = OrderBookSnapshot.objects.filter(
-        symbol=symbol,
-        sampled_at__gte=interval_start,
-        sampled_at__lt=interval_start + timedelta(minutes=5),
-    ).count()
-    elapsed_seconds = int((now - interval_start).total_seconds())
-    active = latest_run and latest_run.status in active_statuses
-    stoppable = latest_run and latest_run.status in {
-        MicrostructureCollectorRun.Status.STARTING,
-        MicrostructureCollectorRun.Status.RUNNING,
-    }
     return {
         "symbol": symbol,
         "server_time": _utc_iso(now),
+        "refresh_seconds": 60,
         "run": _run_payload(latest_run),
         "can_start": not active,
-        "can_stop": bool(stoppable),
-        "current_interval_start": _utc_iso(interval_start),
-        "current_interval_elapsed_seconds": elapsed_seconds,
-        "current_interval_progress": min(elapsed_seconds / 300 * 100, 100),
-        "current_snapshot_count": current_snapshot_count,
-        "total_snapshot_count": OrderBookSnapshot.objects.filter(symbol=symbol).count(),
-        "total_summary_count": OrderBookFiveMinuteSummary.objects.filter(
-            symbol=symbol
-        ).count(),
-        "latest_snapshot": _snapshot_payload(latest_snapshot),
+        "can_stop": stoppable,
+        "minute_count": MarketMinute.objects.filter(symbol=symbol).count(),
+        "minutes": [_minute_payload(row) for row in rows],
         "latest_order_book": _order_book_payload(latest_run),
-        "recent_summaries": [_summary_payload(item) for item in summaries],
     }
 
 
@@ -179,7 +155,12 @@ def index(request):
 
 @require_GET
 def status(request):
-    return JsonResponse(_status_payload())
+    try:
+        minute_limit = int(request.GET.get("minutes", DEFAULT_MINUTE_LIMIT))
+    except (TypeError, ValueError):
+        minute_limit = DEFAULT_MINUTE_LIMIT
+    minute_limit = max(10, min(MAX_MINUTE_LIMIT, minute_limit))
+    return JsonResponse(_status_payload(minute_limit=minute_limit))
 
 
 @require_POST
@@ -189,7 +170,7 @@ def start(request):
     except CollectorControlError as exc:
         return JsonResponse({"ok": False, "message": str(exc)}, status=409)
     return JsonResponse(
-        {"ok": True, "message": "盘口采集正在启动。", "run_id": run.pk},
+        {"ok": True, "message": "实时分钟数据采集正在启动。", "run_id": run.pk},
         status=202,
     )
 
