@@ -47,6 +47,7 @@ class ProductSurfaceTests(TestCase):
         "market_data:deribit_options",
         "market_funds:index",
         "market_funds:addresses",
+        "microstructure:index",
         "news_data:index",
         "news_analysis:index",
         "news_analysis:objective_fact_list",
@@ -65,7 +66,10 @@ class ProductSurfaceTests(TestCase):
         parser = NavigationParser()
         parser.feed(response.content.decode())
 
-        self.assertEqual(parser.groups, ["market-data", "market-funds", "news", "collection"])
+        self.assertEqual(
+            parser.groups,
+            ["market-data", "market-funds", "microstructure", "news", "collection"],
+        )
         self.assertEqual(
             parser.labels,
             [
@@ -75,6 +79,8 @@ class ProductSurfaceTests(TestCase):
                 "ETH 资金观察",
                 "资金与流动性",
                 "地址变化",
+                "微观结构",
+                "盘口采集",
                 "新闻观察",
                 "数据采集",
                 "每日分析结果",

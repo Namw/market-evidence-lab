@@ -76,6 +76,9 @@ class OrderBookCollector:
         self.received_messages = 0
         self.saved_snapshots = 0
         self.reconnect_count = 0
+        self.latest_sampled_at: datetime | None = None
+        self.connection_state = "connecting"
+        self.last_error = ""
 
     @classmethod
     def from_settings(cls, *, symbol: str | None = None) -> OrderBookCollector:
@@ -125,6 +128,8 @@ class OrderBookCollector:
                     ping_timeout=20,
                     proxy=self.proxy_url or None,
                 ) as websocket:
+                    self.connection_state = "connected"
+                    self.last_error = ""
                     async for raw_message in websocket:
                         if stop_event.is_set():
                             break
@@ -137,6 +142,8 @@ class OrderBookCollector:
                 if stop_event.is_set():
                     break
                 self.reconnect_count += 1
+                self.connection_state = "reconnecting"
+                self.last_error = exc.__class__.__name__
                 logger.warning(
                     "Binance depth WebSocket disconnected (%s); reconnecting in %.1fs.",
                     exc.__class__.__name__,
@@ -152,6 +159,7 @@ class OrderBookCollector:
                 if stop_event.is_set():
                     break
                 self.reconnect_count += 1
+                self.connection_state = "reconnecting"
                 delay = (
                     self.reconnect_initial_seconds
                     if received_on_connection
@@ -160,6 +168,7 @@ class OrderBookCollector:
                 if await self.wait_for_stop_fn(stop_event, delay):
                     break
                 reconnect_delay = next_reconnect_delay(delay, self.reconnect_max_seconds)
+        self.connection_state = "disconnected"
 
     async def sample_latest(self, *, sampled_at: datetime) -> bool:
         latest = self.latest
@@ -168,6 +177,7 @@ class OrderBookCollector:
         await asyncio.to_thread(save_snapshot, latest, sampled_at=sampled_at)
         self.last_saved_update_id = latest.update_id
         self.saved_snapshots += 1
+        self.latest_sampled_at = sampled_at
 
         boundary = floor_time(sampled_at, seconds=300)
         if boundary != self.last_aggregation_boundary:

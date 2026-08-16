@@ -46,6 +46,12 @@
                         <a class="nav-subitem{% if request.resolver_match.namespace == 'market_funds' and request.resolver_match.url_name == 'addresses' %} is-active{% endif %}" href="{% url 'market_funds:addresses' %}"{% if request.resolver_match.namespace == 'market_funds' and request.resolver_match.url_name == 'addresses' %} aria-current="page"{% endif %}>地址变化</a>
                     </div>
                 </details>
+                <details class="nav-group{% if request.resolver_match.namespace == 'microstructure' %} is-active{% endif %}" data-nav-group="microstructure"{% if request.resolver_match.namespace == 'microstructure' %} open{% endif %}>
+                    <summary class="nav-item"><span>微观结构</span><span class="nav-chevron" aria-hidden="true"></span></summary>
+                    <div class="nav-submenu" aria-label="微观结构">
+                        <a class="nav-subitem{% if request.resolver_match.namespace == 'microstructure' %} is-active{% endif %}" href="{% url 'microstructure:index' %}"{% if request.resolver_match.namespace == 'microstructure' %} aria-current="page"{% endif %}>盘口采集</a>
+                    </div>
+                </details>
                 <details class="nav-group{% if request.resolver_match.namespace == 'news_analysis' or request.resolver_match.namespace == 'news_data' %} is-active{% endif %}" data-nav-group="news"{% if request.resolver_match.namespace == 'news_analysis' or request.resolver_match.namespace == 'news_data' %} open{% endif %}>
                     <summary class="nav-item"><span>新闻观察</span><span class="nav-chevron" aria-hidden="true"></span></summary>
                     <div class="nav-submenu" aria-label="新闻观察">

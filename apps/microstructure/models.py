@@ -160,3 +160,52 @@ class OrderBookFiveMinuteSummary(models.Model):
 
     def __str__(self) -> str:
         return f"{self.symbol}:5m:{self.interval_start.isoformat()}"
+
+
+class MicrostructureCollectorRun(models.Model):
+    class Status(models.TextChoices):
+        STARTING = "starting", "启动中"
+        RUNNING = "running", "运行中"
+        STOPPING = "stopping", "停止中"
+        STOPPED = "stopped", "已停止"
+        FAILED = "failed", "异常"
+
+    class ConnectionState(models.TextChoices):
+        CONNECTING = "connecting", "连接中"
+        CONNECTED = "connected", "已连接"
+        RECONNECTING = "reconnecting", "重连中"
+        DISCONNECTED = "disconnected", "未连接"
+
+    symbol = models.CharField(max_length=20)
+    status = models.CharField(
+        max_length=20,
+        choices=Status.choices,
+        default=Status.STARTING,
+    )
+    connection_state = models.CharField(
+        max_length=20,
+        choices=ConnectionState.choices,
+        default=ConnectionState.CONNECTING,
+    )
+    process_id = models.PositiveIntegerField(null=True, blank=True)
+    received_messages = models.PositiveBigIntegerField(default=0)
+    saved_snapshots = models.PositiveBigIntegerField(default=0)
+    reconnect_count = models.PositiveIntegerField(default=0)
+    latest_event_time = models.DateTimeField(null=True, blank=True)
+    latest_sampled_at = models.DateTimeField(null=True, blank=True)
+    heartbeat_at = models.DateTimeField(null=True, blank=True)
+    started_at = models.DateTimeField(null=True, blank=True)
+    stopped_at = models.DateTimeField(null=True, blank=True)
+    error_message = models.CharField(max_length=1_000, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["-created_at"]
+        indexes = [
+            models.Index(fields=["-created_at"], name="micro_run_created_idx"),
+            models.Index(fields=["status"], name="micro_run_status_idx"),
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.symbol}:{self.status}:#{self.pk}"

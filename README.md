@@ -101,13 +101,19 @@ uv run --env-file .env python manage.py collect_market_funds addresses
 
 ## ETHUSDT Top20 盘口 MVP
 
-当前阶段只实现盘口数据接入、每秒特征快照和 UTC 5分钟汇总，暂不提供页面展示。
-先执行迁移，再启动常驻采集命令：
+当前阶段实现盘口数据接入、每秒特征快照和 UTC 5分钟汇总，并提供采集控制与
+汇总查看页面，暂不包含复杂趋势图。
+先执行迁移。可以从侧边栏进入“微观结构 → 盘口采集”，在页面启动、停止并查看
+实时进度和最近5分钟汇总；也可以使用常驻采集命令：
 
 ```bash
 uv run --env-file .env python manage.py migrate
 uv run --env-file .env python manage.py collect_orderbook
 ```
+
+页面地址：<http://127.0.0.1:8001/microstructure/>。页面启动的采集是当前本地
+单机 MVP 使用的独立子进程；关闭浏览器不会停止采集，应在页面点击“停止采集”。
+若已经从终端运行采集命令，页面会拒绝重复启动。
 
 命令使用 Binance USD-M Futures 官方 Top20 partial depth WebSocket，默认接收
 500ms 更新，并在内存中保留最新盘口；每秒最多写入一条
