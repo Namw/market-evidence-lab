@@ -4,7 +4,12 @@ from django.test import TestCase, override_settings
 from django.utils import timezone
 
 from apps.news_analysis.ai import AIItem, BatchAnalysis, BatchAnalysisError, TokenUsage
-from apps.news_analysis.models import NewsAnalysisResult, NewsAnalysisRun
+from apps.news_analysis.models import (
+    NewsAnalysisResult,
+    NewsAnalysisRun,
+    ObjectiveFactExtractionResult,
+    ObjectiveFactExtractionRun,
+)
 from apps.news_analysis.services import prune_expired_news, run_news_analysis
 from apps.news_data.models import NewsRawRecord
 from apps.news_data.sources import (
@@ -276,6 +281,61 @@ class AnalysisServiceTests(TestCase):
         )
         prune_expired_news(now=timezone.now())
         self.assertTrue(NewsRawRecord.objects.filter(pk=record.pk).exists())
+
+    def test_cleanup_retains_news_referenced_by_objective_facts(self):
+        protected_record = make_record(title="Material ETH event")
+        run_news_analysis(
+            client=ScriptedClient(title="bullish"),
+            article_loader=self.article_loader,
+        )
+        analysis_result = NewsAnalysisResult.objects.get(news_record=protected_record)
+        analysis_result.conclusion = NewsAnalysisResult.Conclusion.IRRELEVANT
+        analysis_result.save(update_fields=["conclusion"])
+        extraction_run = ObjectiveFactExtractionRun.objects.create(
+            trigger=ObjectiveFactExtractionRun.Trigger.COMMAND,
+            mode=ObjectiveFactExtractionRun.Mode.INCREMENTAL,
+            status=ObjectiveFactExtractionRun.Status.SUCCESS,
+            provider="DeepSeek",
+            model="deepseek-test",
+            prompt_version="objective-news-facts-test",
+            started_at=timezone.now(),
+            finished_at=timezone.now(),
+        )
+        ObjectiveFactExtractionResult.objects.create(
+            news_record=protected_record,
+            extraction_run=extraction_run,
+            extraction_status=ObjectiveFactExtractionResult.ExtractionStatus.SUCCESS,
+            validation_status=ObjectiveFactExtractionResult.ValidationStatus.PASSED,
+            provider="DeepSeek",
+            model="deepseek-test",
+            prompt_version="objective-news-facts-test",
+            system_prompt="system",
+            user_prompt="user",
+            extracted_at=timezone.now(),
+        )
+
+        deletable_record = make_record(title="Ambiguous general-source item")
+        deletable_record.source.authority_level = "general"
+        deletable_record.source.save(update_fields=["authority_level"])
+        run_news_analysis(
+            client=ScriptedClient(title="unclear", content="unclear"),
+            article_loader=self.article_loader,
+        )
+        deletable_result = NewsAnalysisResult.objects.get(news_record=deletable_record)
+        deletable_result.analyzed_at = timezone.now() - timedelta(days=3, seconds=1)
+        deletable_result.save(update_fields=["analyzed_at"])
+
+        prune_expired_news(now=timezone.now())
+
+        self.assertTrue(
+            NewsRawRecord.objects.filter(pk=protected_record.pk).exists()
+        )
+        self.assertTrue(
+            NewsAnalysisResult.objects.filter(pk=analysis_result.pk).exists()
+        )
+        self.assertFalse(
+            NewsRawRecord.objects.filter(pk=deletable_record.pk).exists()
+        )
 
     def test_incremental_does_not_overwrite_successful_result(self):
         record = make_record(title="Material ETH event")

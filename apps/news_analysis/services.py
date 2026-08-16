@@ -14,7 +14,12 @@ from apps.news_data.sources import SUMMARY_ONLY_SOURCE_CODES
 
 from .ai import AIItem, BatchAnalysisError, DeepSeekNewsClient, TokenUsage
 from .content import ArticleContent, fetch_source_article, summarize_article_text
-from .models import NewsAnalysisResult, NewsAnalysisRun
+from .models import (
+    EventMembership,
+    NewsAnalysisResult,
+    NewsAnalysisRun,
+    ObjectiveFactExtractionResult,
+)
 from .rules import RuleDecision, match_fixed_rule
 
 
@@ -71,7 +76,7 @@ def prune_expired_news(*, now=None) -> int:
     ) & ~Q(
         news_record__source__authority_level__in=PROTECTED_UNCLEAR_AUTHORITY_LEVELS
     )
-    removable_ids = list(
+    candidate_ids = list(
         NewsAnalysisResult.objects.filter(status=NewsAnalysisResult.Status.SUCCESS)
         .filter(
             Q(conclusion=NewsAnalysisResult.Conclusion.IRRELEVANT)
@@ -80,9 +85,27 @@ def prune_expired_news(*, now=None) -> int:
         .values_list("news_record_id", flat=True)
         .distinct()
     )
-    if not removable_ids:
+    if not candidate_ids:
         return 0
     with transaction.atomic():
+        objective_facts = ObjectiveFactExtractionResult.objects.filter(
+            news_record_id=OuterRef("pk")
+        )
+        event_memberships = EventMembership.objects.filter(
+            news_record_id=OuterRef("pk")
+        )
+        removable_ids = list(
+            NewsRawRecord.objects.select_for_update()
+            .filter(id__in=candidate_ids)
+            .annotate(
+                has_objective_facts=Exists(objective_facts),
+                has_event_memberships=Exists(event_memberships),
+            )
+            .filter(has_objective_facts=False, has_event_memberships=False)
+            .values_list("id", flat=True)
+        )
+        if not removable_ids:
+            return 0
         NewsAnalysisResult.objects.filter(news_record_id__in=removable_ids).delete()
         deleted, _ = NewsRawRecord.objects.filter(id__in=removable_ids).delete()
     return deleted

@@ -52,6 +52,7 @@
             <div><dt>低</dt><dd>{{ selected_detail.low }}</dd></div>
             <div><dt>收</dt><dd>{{ selected_detail.close }}</dd></div>
             <div><dt>涨跌</dt><dd class="{{ selected_detail.change_class }}">{{ selected_detail.change }}</dd></div>
+            <div><dt>振幅</dt><dd>{{ selected_detail.amplitude }}</dd></div>
             <div><dt>成交量</dt><dd>{{ selected_detail.volume }}</dd></div>
         </dl>
         <div class="data-canvas-wrap">
@@ -70,6 +71,15 @@
                 <div class="focus-day-key"><span></span>关注 UTC 日 K {{ selected_date|date:'m/d' }}</div>
             </div>
         </div>
+        <dl class="interactive-kline-strip" data-hourly-readout aria-label="小时 K 读数">
+            <div class="interactive-kline-time"><dt>小时（北京）</dt><dd data-kline-time>—</dd></div>
+            <div><dt>开</dt><dd data-kline-open>—</dd></div>
+            <div><dt>高</dt><dd data-kline-high>—</dd></div>
+            <div><dt>低</dt><dd data-kline-low>—</dd></div>
+            <div><dt>收</dt><dd data-kline-close>—</dd></div>
+            <div><dt>涨跌</dt><dd data-kline-change>—</dd></div>
+            <div><dt>振幅</dt><dd data-kline-amplitude>—</dd></div>
+        </dl>
         <div class="data-canvas-wrap hourly-canvas-wrap">
             <canvas data-chart="hourly" aria-label="{{ symbol }} 小时 K 蜡烛图，浅蓝背景为关注日"></canvas>
         </div>
@@ -86,6 +96,15 @@
                 <span>北京时间</span>
             </div>
         </div>
+        <dl class="interactive-kline-strip five-minute-readout" data-five-minute-readout aria-label="5分钟 K 读数">
+            <div class="interactive-kline-time"><dt>5分钟（北京）</dt><dd data-kline-time>—</dd></div>
+            <div><dt>开</dt><dd data-kline-open>—</dd></div>
+            <div><dt>高</dt><dd data-kline-high>—</dd></div>
+            <div><dt>低</dt><dd data-kline-low>—</dd></div>
+            <div><dt>收</dt><dd data-kline-close>—</dd></div>
+            <div><dt>涨跌</dt><dd data-kline-change>—</dd></div>
+            <div><dt>振幅</dt><dd data-kline-amplitude>—</dd></div>
+        </dl>
         <div class="five-minute-grid">
             <div class="five-minute-panel">
                 <strong>5m K线</strong>
@@ -135,5 +154,5 @@
 {% endblock %}
 
 {% block extra_js %}
-<script src="{% static 'market_data/js/data_view.js' %}?v=7" defer></script>
+<script src="{% static 'market_data/js/data_view.js' %}?v=8" defer></script>
 {% endblock %}

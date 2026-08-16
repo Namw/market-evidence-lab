@@ -9,6 +9,7 @@ dependencies = [
     "httpx>=0.28,<1",
     "psycopg[binary]>=3.2,<4",
     "python-dotenv>=1,<2",
+    "websockets>=15,<16",
 ]
 
 [tool.uv]

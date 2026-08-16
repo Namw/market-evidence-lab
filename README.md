@@ -99,6 +99,49 @@ uv run --env-file .env python manage.py collect_market_funds addresses
 
 `addresses` 命令只记录来源策略阻止状态，不会向 Etherscan 发出自动采集请求。
 
+## ETHUSDT Top20 盘口 MVP
+
+当前阶段只实现盘口数据接入、每秒特征快照和 UTC 5分钟汇总，暂不提供页面展示。
+先执行迁移，再启动常驻采集命令：
+
+```bash
+uv run --env-file .env python manage.py migrate
+uv run --env-file .env python manage.py collect_orderbook
+```
+
+命令使用 Binance USD-M Futures 官方 Top20 partial depth WebSocket，默认接收
+500ms 更新，并在内存中保留最新盘口；每秒最多写入一条
+`OrderBookSnapshot`，跨过5分钟边界后自动汇总上一完整区间到
+`OrderBookFiveMinuteSummary`。按 `Ctrl+C` 可停止采集。
+
+也可以手工重算最近一个完整区间，或指定 UTC 对齐的时间范围：
+
+```bash
+uv run --env-file .env python manage.py aggregate_orderbook_5m
+uv run --env-file .env python manage.py aggregate_orderbook_5m \
+  --start 2026-08-17T00:00:00Z \
+  --end 2026-08-17T01:00:00Z
+```
+
+可通过环境变量覆盖以下采集参数：
+
+```dotenv
+MICROSTRUCTURE_SYMBOL=ETHUSDT
+MICROSTRUCTURE_WS_BASE_URL=wss://fstream.binance.com/public/ws
+MICROSTRUCTURE_WS_UPDATE_SPEED=500ms
+MICROSTRUCTURE_SAMPLE_INTERVAL_SECONDS=1
+MICROSTRUCTURE_RECONNECT_INITIAL_SECONDS=1
+MICROSTRUCTURE_RECONNECT_MAX_SECONDS=30
+MICROSTRUCTURE_WS_OPEN_TIMEOUT_SECONDS=10
+# 未设置时继承 SOURCE_PROXY_URL；显式留空可强制直连
+# MICROSTRUCTURE_WS_PROXY_URL=
+```
+
+这是快速体验版本：数据直接写入 PostgreSQL，没有 WAL、Parquet、历史补洞、
+连续性保证或质量告警。5分钟 OHLC 来自每秒盘口中间价，而不是实际成交价；
+Top20 快照也无法把深度下降解释为真实撤单。后续确认数据有价值后，再决定是否
+补充成交数据、可靠存储和展示页面。
+
 ## 检查
 
 ```bash

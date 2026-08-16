@@ -5,7 +5,6 @@ from pathlib import Path
 
 from dotenv import load_dotenv
 
-
 BASE_DIR = Path(__file__).resolve().parent.parent
 load_dotenv(BASE_DIR / ".env", override=False)
 
@@ -37,6 +36,7 @@ INSTALLED_APPS = [
     "django.contrib.staticfiles",
     "apps.core.apps.CoreConfig",
     "apps.market_data.apps.MarketDataConfig",
+    "apps.microstructure.apps.MicrostructureConfig",
     "apps.market_funds.apps.MarketFundsConfig",
     "apps.collection.apps.CollectionConfig",
     "apps.inspection.apps.InspectionConfig",
@@ -116,6 +116,28 @@ BINANCE_FUTURES_BASE_URL = os.getenv(
     "https://fapi.binance.com",
 ).rstrip("/")
 
+MICROSTRUCTURE_SYMBOL = os.getenv("MICROSTRUCTURE_SYMBOL", "ETHUSDT").upper()
+MICROSTRUCTURE_WS_BASE_URL = os.getenv(
+    "MICROSTRUCTURE_WS_BASE_URL",
+    "wss://fstream.binance.com/public/ws",
+).rstrip("/")
+MICROSTRUCTURE_WS_UPDATE_SPEED = os.getenv(
+    "MICROSTRUCTURE_WS_UPDATE_SPEED",
+    "500ms",
+)
+MICROSTRUCTURE_SAMPLE_INTERVAL_SECONDS = float(
+    os.getenv("MICROSTRUCTURE_SAMPLE_INTERVAL_SECONDS", "1")
+)
+MICROSTRUCTURE_RECONNECT_INITIAL_SECONDS = float(
+    os.getenv("MICROSTRUCTURE_RECONNECT_INITIAL_SECONDS", "1")
+)
+MICROSTRUCTURE_RECONNECT_MAX_SECONDS = float(
+    os.getenv("MICROSTRUCTURE_RECONNECT_MAX_SECONDS", "30")
+)
+MICROSTRUCTURE_WS_OPEN_TIMEOUT_SECONDS = float(
+    os.getenv("MICROSTRUCTURE_WS_OPEN_TIMEOUT_SECONDS", "10")
+)
+
 DERIBIT_BASE_URL = os.getenv(
     "DERIBIT_BASE_URL",
     "https://www.deribit.com/api/v2",
@@ -178,6 +200,10 @@ SOURCE_PROXY_URL = os.getenv(
         "NEWS_SOURCE_PROXY_URL",
         os.getenv("BLS_NEWS_PROXY_URL", ""),
     ),
+).strip()
+MICROSTRUCTURE_WS_PROXY_URL = os.getenv(
+    "MICROSTRUCTURE_WS_PROXY_URL",
+    SOURCE_PROXY_URL,
 ).strip()
 # Backwards-compatible alias for existing deployments.
 NEWS_SOURCE_PROXY_URL = SOURCE_PROXY_URL

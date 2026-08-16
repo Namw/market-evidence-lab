@@ -63,6 +63,11 @@ def _daily_detail(kline: Kline | None) -> dict[str, str]:
         if kline.open
         else Decimal("0")
     )
+    amplitude = (
+        (kline.high - kline.low) / kline.open * Decimal("100")
+        if kline.open
+        else Decimal("0")
+    )
     return {
         "date": kline.open_time.astimezone(UTC).date().isoformat(),
         "open": _format_decimal(kline.open),
@@ -70,6 +75,7 @@ def _daily_detail(kline: Kline | None) -> dict[str, str]:
         "low": _format_decimal(kline.low),
         "close": _format_decimal(kline.close),
         "change": f"{change:+.2f}%",
+        "amplitude": f"{amplitude:.2f}%",
         "change_class": "is-up" if change > 0 else "is-down" if change < 0 else "",
         "volume": _format_compact(kline.volume),
     }

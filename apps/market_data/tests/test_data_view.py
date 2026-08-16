@@ -121,6 +121,7 @@ class MarketDataViewTests(TestCase):
 
         self.assertEqual(response.context["selected_date"], selected.date())
         self.assertEqual(response.context["selected_detail"]["date"], selected.date().isoformat())
+        self.assertEqual(response.context["selected_detail"]["amplitude"], "1.02%")
         self.assertEqual(len(response.context["hourly_chart_data"]), 72)
         self.assertEqual(response.context["range_start"], selected - timedelta(days=1))
         self.assertEqual(response.context["range_end"], selected + timedelta(days=2))
@@ -146,6 +147,9 @@ class MarketDataViewTests(TestCase):
         self.assertContains(response, 'data-chart="derivatives"')
         self.assertContains(response, 'data-chart="five-minute"')
         self.assertContains(response, 'data-chart="five-minute-oi"')
+        self.assertContains(response, "振幅")
+        self.assertContains(response, "data-hourly-readout")
+        self.assertContains(response, "data-five-minute-readout")
         self.assertContains(response, 'id="market-data-five-minute"')
         self.assertContains(response, 'id="market-data-five-minute-oi"')
         self.assertContains(response, "北京时间")

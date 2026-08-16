@@ -57,7 +57,10 @@
     const selectedFont = '600 11px Inter, ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif';
     let dailyGeometry = null;
     let hourlyGeometry = null;
+    let fiveMinuteGeometry = null;
     let selectedHourStart = null;
+    let hoveredHourStart = null;
+    let hoveredFiveMinuteStart = null;
 
     function availableCanvasHeight(canvas, fallback) {
         const wrapHeight = canvas.parentElement?.getBoundingClientRect().height || 0;
@@ -100,6 +103,25 @@
         return value.toFixed(0);
     }
 
+    function percentage(open, close) {
+        return open ? ((close - open) / open) * 100 : 0;
+    }
+
+    function amplitude(row) {
+        return row.open ? ((row.high - row.low) / row.open) * 100 : 0;
+    }
+
+    function formatChange(value) {
+        return `${value >= 0 ? "+" : ""}${value.toFixed(2)}%`;
+    }
+
+    function setDirectionalValue(element, value) {
+        if (!element) return;
+        element.textContent = formatChange(value);
+        element.classList.toggle("is-up", value > 0);
+        element.classList.toggle("is-down", value < 0);
+    }
+
     const BEIJING_OFFSET_MS = 8 * 60 * 60 * 1000;
     const SIX_HOURS_MS = 6 * 60 * 60 * 1000;
     const DAY_MS = 24 * 60 * 60 * 1000;
@@ -129,6 +151,43 @@
     function beijingDateHourLabel(value) {
         const local = beijingValue(value);
         return `${local.getUTCFullYear()}-${String(local.getUTCMonth() + 1).padStart(2, "0")}-${String(local.getUTCDate()).padStart(2, "0")} ${String(local.getUTCHours()).padStart(2, "0")}`;
+    }
+
+    function beijingDateMinuteLabel(value) {
+        return `${beijingDateHourLabel(value)}:${String(beijingValue(value).getUTCMinutes()).padStart(2, "0")}`;
+    }
+
+    function updateKlineReadout(selector, row, timeLabel) {
+        const readout = root.querySelector(selector);
+        if (!readout || !row) return;
+        const values = {
+            time: timeLabel(row.time),
+            open: formatPrice(row.open),
+            high: formatPrice(row.high),
+            low: formatPrice(row.low),
+            close: formatPrice(row.close),
+            amplitude: `${amplitude(row).toFixed(2)}%`,
+        };
+        Object.entries(values).forEach(([key, value]) => {
+            const target = readout.querySelector(`[data-kline-${key}]`);
+            if (target) target.textContent = value;
+        });
+        setDirectionalValue(
+            readout.querySelector("[data-kline-change]"),
+            percentage(row.open, row.close)
+        );
+    }
+
+    function selectedRangeSummary(rows) {
+        if (!rows.length) return null;
+        const first = rows[0];
+        const last = rows[rows.length - 1];
+        const high = Math.max(...rows.map((row) => row.high));
+        const low = Math.min(...rows.map((row) => row.low));
+        return {
+            change: percentage(first.open, last.close),
+            amplitude: first.open ? ((high - low) / first.open) * 100 : 0,
+        };
     }
 
     function drawEmpty(context, width, height, message) {
@@ -312,7 +371,7 @@
         if (!canvas) return;
         const { context, width, height } = setupCanvas(
             canvas,
-            availableCanvasHeight(canvas, 125)
+            availableCanvasHeight(canvas, 190)
         );
         const rows = finiteKlines(hourlyRows);
         if (!rows.length || !Number.isFinite(rangeStart.getTime()) || !Number.isFinite(rangeEnd.getTime())) {
@@ -347,6 +406,21 @@
                 candleWidth + 4,
                 bounds.height
             );
+        }
+        if (hoveredHourStart && hoveredHourStart.getTime() !== selectedHourStart?.getTime()) {
+            const hoveredX = timeX(
+                new Date(hoveredHourStart.getTime() + 30 * 60 * 1000),
+                bounds.left,
+                bounds.width
+            );
+            context.strokeStyle = colors.axis;
+            context.lineWidth = 1;
+            context.setLineDash([3, 3]);
+            context.beginPath();
+            context.moveTo(hoveredX, bounds.top);
+            context.lineTo(hoveredX, bounds.top + bounds.height);
+            context.stroke();
+            context.setLineDash([]);
         }
         hourlyGeometry = { bounds, rows };
     }
@@ -416,6 +490,24 @@
                 scale.y
             );
         });
+        if (hoveredFiveMinuteStart) {
+            const hovered = rows.find(
+                (row) => row.time.getTime() === hoveredFiveMinuteStart.getTime()
+            );
+            if (hovered) {
+                const center = new Date(hovered.time.getTime() + 2.5 * 60 * 1000);
+                const x = detailX(center, bounds.left, bounds.width, start, end);
+                context.strokeStyle = colors.blue;
+                context.lineWidth = 1.25;
+                context.strokeRect(
+                    x - candleWidth / 2 - 2,
+                    bounds.top,
+                    candleWidth + 4,
+                    bounds.height
+                );
+            }
+        }
+        fiveMinuteGeometry = { bounds, rows, start, end };
     }
 
     function drawFiveMinuteOi() {
@@ -585,35 +677,125 @@
         drawDerivatives();
     }
 
+    function nearestHourlyRow(event) {
+        if (!hourlyGeometry?.rows.length) return null;
+        const rect = event.currentTarget.getBoundingClientRect();
+        const x = event.clientX - rect.left;
+        const { bounds, rows } = hourlyGeometry;
+        if (x < bounds.left || x > bounds.left + bounds.width) return null;
+        const targetTime = rangeStart.getTime()
+            + ((x - bounds.left) / bounds.width)
+                * (rangeEnd.getTime() - rangeStart.getTime());
+        return rows.reduce((closest, row) => (
+            Math.abs(row.time.getTime() + 30 * 60 * 1000 - targetTime)
+                < Math.abs(closest.time.getTime() + 30 * 60 * 1000 - targetTime)
+                ? row
+                : closest
+        ));
+    }
+
+    function fallbackHourlyRow() {
+        if (selectedHourStart) {
+            const selected = hourlyRows.find(
+                (row) => row.time.getTime() === selectedHourStart.getTime()
+            );
+            if (selected) return selected;
+        }
+        const focusedRows = hourlyRows.filter(
+            (row) => row.time >= selectedStart && row.time < selectedEnd
+        );
+        return focusedRows[focusedRows.length - 1] || hourlyRows[hourlyRows.length - 1];
+    }
+
     const hourlyCanvas = root.querySelector('[data-chart="hourly"]');
     if (hourlyCanvas) {
+        hourlyCanvas.addEventListener("mousemove", (event) => {
+            const hovered = nearestHourlyRow(event);
+            if (!hovered) return;
+            hoveredHourStart = new Date(hovered.time);
+            updateKlineReadout(
+                "[data-hourly-readout]",
+                hovered,
+                (value) => `${beijingDateHourLabel(value)}:00`
+            );
+            drawHourly();
+        });
+        hourlyCanvas.addEventListener("mouseleave", () => {
+            hoveredHourStart = null;
+            const fallback = fallbackHourlyRow();
+            if (fallback) {
+                updateKlineReadout(
+                    "[data-hourly-readout]",
+                    fallback,
+                    (value) => `${beijingDateHourLabel(value)}:00`
+                );
+            }
+            drawHourly();
+        });
         hourlyCanvas.addEventListener("click", (event) => {
-            if (!hourlyGeometry?.rows.length) return;
-            const rect = hourlyCanvas.getBoundingClientRect();
-            const x = event.clientX - rect.left;
-            const { bounds, rows } = hourlyGeometry;
-            if (x < bounds.left || x > bounds.left + bounds.width) return;
-            const targetTime = rangeStart.getTime()
-                + ((x - bounds.left) / bounds.width) * (rangeEnd.getTime() - rangeStart.getTime());
-            const selected = rows.reduce((closest, row) => (
-                Math.abs(row.time.getTime() + 30 * 60 * 1000 - targetTime)
-                    < Math.abs(closest.time.getTime() + 30 * 60 * 1000 - targetTime)
-                    ? row
-                    : closest
-            ));
+            const selected = nearestHourlyRow(event);
+            if (!selected) return;
             selectedHourStart = new Date(selected.time);
+            hoveredHourStart = new Date(selected.time);
+            updateKlineReadout(
+                "[data-hourly-readout]",
+                selected,
+                (value) => `${beijingDateHourLabel(value)}:00`
+            );
             const detail = root.querySelector("[data-five-minute-detail]");
             const label = root.querySelector("[data-five-minute-label]");
             if (detail) detail.hidden = false;
             root.classList.add("has-five-minute-detail");
+            const selectedKlines = selectedFiveMinuteRows(fiveMinuteRows);
+            const defaultFiveMinute = selectedKlines[selectedKlines.length - 1];
+            hoveredFiveMinuteStart = defaultFiveMinute
+                ? new Date(defaultFiveMinute.time)
+                : null;
+            if (defaultFiveMinute) {
+                updateKlineReadout(
+                    "[data-five-minute-readout]",
+                    defaultFiveMinute,
+                    beijingDateMinuteLabel
+                );
+            }
             if (label) {
-                const klineCount = selectedFiveMinuteRows(fiveMinuteRows).length;
+                const klineCount = selectedKlines.length;
                 const oiCount = selectedFiveMinuteRows(fiveMinuteOiRows).length;
                 const dateHour = beijingDateHourLabel(selectedHourStart);
                 const finalMinute = new Date(selectedHourStart.getTime() + 59 * 60 * 1000);
-                label.textContent = `${dateHour}:00–${beijingTimeLabel(finalMinute)} 北京时间 · ${klineCount}根K线 · ${oiCount}条OI`;
+                const summary = selectedRangeSummary(selectedKlines);
+                const rangeText = summary
+                    ? ` · 区间涨跌 ${formatChange(summary.change)} · 振幅 ${summary.amplitude.toFixed(2)}%`
+                    : "";
+                label.textContent = `${dateHour}:00–${beijingTimeLabel(finalMinute)} 北京时间 · ${klineCount}根K线 · ${oiCount}条OI${rangeText}`;
             }
             drawAll();
+        });
+    }
+
+    const fiveMinuteCanvas = root.querySelector('[data-chart="five-minute"]');
+    if (fiveMinuteCanvas) {
+        fiveMinuteCanvas.addEventListener("mousemove", (event) => {
+            if (!fiveMinuteGeometry?.rows.length) return;
+            const rect = fiveMinuteCanvas.getBoundingClientRect();
+            const x = event.clientX - rect.left;
+            const { bounds, rows, start, end } = fiveMinuteGeometry;
+            if (x < bounds.left || x > bounds.left + bounds.width) return;
+            const targetTime = start.getTime()
+                + ((x - bounds.left) / bounds.width) * (end.getTime() - start.getTime());
+            const hovered = rows.reduce((closest, row) => (
+                Math.abs(row.time.getTime() + 2.5 * 60 * 1000 - targetTime)
+                    < Math.abs(closest.time.getTime() + 2.5 * 60 * 1000 - targetTime)
+                    ? row
+                    : closest
+            ));
+            hoveredFiveMinuteStart = new Date(hovered.time);
+            updateKlineReadout(
+                "[data-five-minute-readout]",
+                hovered,
+                beijingDateMinuteLabel
+            );
+            drawFiveMinute();
         });
     }
 
@@ -635,6 +817,14 @@
         });
     }
 
+    const initialHourlyRow = fallbackHourlyRow();
+    if (initialHourlyRow) {
+        updateKlineReadout(
+            "[data-hourly-readout]",
+            initialHourlyRow,
+            (value) => `${beijingDateHourLabel(value)}:00`
+        );
+    }
     drawAll();
     if ("ResizeObserver" in window) {
         const observer = new ResizeObserver(drawAll);
