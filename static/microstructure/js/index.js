@@ -23,8 +23,14 @@
         selected: -1,
         selectedRunId: initialData?.selected_run_id ?? null,
         followLatest: true,
+        viewEndStamp: null,
+        hoverCanvas: null,
+        hoverY: null,
         busy: false,
     };
+
+    const WINDOW_SIZE = 120;
+    const PREFETCH_MARGIN = 30;
 
     const COLORS = {
         grid: "rgba(139, 158, 175, .13)", text: "#8fa0ac", green: "#24cd78",
@@ -106,7 +112,7 @@
         if (data.selected_run_id !== null) runSelect.value = String(data.selected_run_id);
     }
 
-    function normalizeMinutes(rows, slotLimit = 1440) {
+    function normalizeMinutes(rows, slotLimit = 10080) {
         if (!Array.isArray(rows) || !rows.length) return [];
         const byTime = new Map();
         rows.forEach((row) => {
@@ -147,19 +153,49 @@
         return { context, width, height, left: 50, right: 56, top: 8, bottom: 10 };
     }
 
-    function plotGeometry(frame) {
+    function plotGeometry(frame, count) {
         const plotWidth = Math.max(1, frame.width - frame.left - frame.right);
         const plotHeight = Math.max(1, frame.height - frame.top - frame.bottom);
-        const count = Math.max(1, state.minutes.length);
+        const n = Math.max(1, count);
         return {
             ...frame, plotWidth, plotHeight,
-            x: (index) => frame.left + (index + .5) * plotWidth / count,
-            slotWidth: plotWidth / count,
+            x: (index) => frame.left + (index + .5) * plotWidth / n,
+            slotWidth: plotWidth / n,
         };
+    }
+
+    function viewRange() {
+        const total = state.minutes.length;
+        let end = total - 1;
+        if (!state.followLatest && state.viewEndStamp !== null) {
+            const index = state.minutes.findIndex((row) => row.stamp === state.viewEndStamp);
+            if (index >= 0) end = index;
+            else state.followLatest = true;
+        }
+        const start = Math.max(0, end - WINDOW_SIZE + 1);
+        return { start, end, count: end - start + 1 };
+    }
+
+    function panTo(endIndex) {
+        const total = state.minutes.length;
+        if (!total) return;
+        const clamped = Math.max(0, Math.min(total - 1, endIndex));
+        const row = state.minutes[clamped];
+        if (!row) return;
+        state.viewEndStamp = row.stamp;
+        state.followLatest = clamped >= total - 1;
+        drawCharts();
+    }
+
+    function maybePrefetch() {
+        if (state.loadingOlder || !state.hasMore) return;
+        const view = viewRange();
+        if (view.start <= PREFETCH_MARGIN) loadOlder();
     }
 
     function drawGrid(plot, horizontal = 4) {
         const { context: ctx } = plot;
+        const view = viewRange();
         ctx.save();
         ctx.strokeStyle = COLORS.grid;
         ctx.lineWidth = 1;
@@ -168,32 +204,38 @@
             const y = plot.top + row * plot.plotHeight / horizontal;
             ctx.beginPath(); ctx.moveTo(plot.left, y); ctx.lineTo(plot.width - plot.right, y); ctx.stroke();
         }
-        const every = state.minutes.length > 80 ? 15 : state.minutes.length > 35 ? 10 : 5;
-        state.minutes.forEach((_, index) => {
-            if (index % every !== 0) return;
-            const x = plot.x(index);
+        const every = view.count > 80 ? 15 : view.count > 35 ? 10 : 5;
+        for (let local = 0; local < view.count; local += 1) {
+            if (local % every !== 0) continue;
+            const x = plot.x(local);
             ctx.beginPath(); ctx.moveTo(x, plot.top); ctx.lineTo(x, plot.height - plot.bottom); ctx.stroke();
-        });
+        }
         ctx.restore();
     }
 
     function drawSelection(plot) {
         if (state.selected < 0) return;
+        const view = viewRange();
         const selected = state.minutes[state.selected];
         const groupStart = Math.floor(selected.stamp / minuteMs / 5) * 5 * minuteMs;
-        const indices = state.minutes.map((row, index) => row.stamp >= groupStart && row.stamp < groupStart + 5 * minuteMs ? index : -1).filter((index) => index >= 0);
+        const indices = state.minutes
+            .map((row, index) => row.stamp >= groupStart && row.stamp < groupStart + 5 * minuteMs ? index : -1)
+            .filter((index) => index >= 0)
+            .filter((index) => index >= view.start && index <= view.end);
         const { context: ctx } = plot;
         ctx.save();
         if (indices.length) {
-            const startX = plot.x(indices[0]) - plot.slotWidth / 2;
-            const endX = plot.x(indices.at(-1)) + plot.slotWidth / 2;
+            const startX = plot.x(indices[0] - view.start) - plot.slotWidth / 2;
+            const endX = plot.x(indices.at(-1) - view.start) + plot.slotWidth / 2;
             ctx.fillStyle = COLORS.selection;
             ctx.fillRect(startX, plot.top, endX - startX, plot.plotHeight);
         }
-        const x = plot.x(state.selected);
-        ctx.strokeStyle = COLORS.selectionLine;
-        ctx.setLineDash([3, 3]);
-        ctx.beginPath(); ctx.moveTo(x, plot.top); ctx.lineTo(x, plot.height - plot.bottom); ctx.stroke();
+        if (state.selected >= view.start && state.selected <= view.end) {
+            const x = plot.x(state.selected - view.start);
+            ctx.strokeStyle = COLORS.selectionLine;
+            ctx.setLineDash([3, 3]);
+            ctx.beginPath(); ctx.moveTo(x, plot.top); ctx.lineTo(x, plot.height - plot.bottom); ctx.stroke();
+        }
         ctx.restore();
     }
 
@@ -213,7 +255,9 @@
     }
 
     function trailingAverage(field, count = 60) {
-        const values = state.minutes.slice(-count)
+        const view = viewRange();
+        const values = state.minutes
+            .slice(Math.max(0, view.end - count + 1), view.end + 1)
             .map((row) => number(row[field]))
             .filter((value) => value !== null);
         if (!values.length) return null;
@@ -221,7 +265,9 @@
     }
 
     function trailingCombinedAverage(fields, count = 60) {
-        const values = state.minutes.slice(-count)
+        const view = viewRange();
+        const values = state.minutes
+            .slice(Math.max(0, view.end - count + 1), view.end + 1)
             .flatMap((row) => fields.map((field) => number(row[field])))
             .filter((value) => value !== null);
         if (!values.length) return null;
@@ -245,8 +291,35 @@
         setText("[data-avg-depth]", fmt(trailingCombinedAverage(["bid_depth_mean", "ask_depth_mean"])));
     }
 
+    function drawHoverAxis(plot, min, max, formatter = compact) {
+        if (state.hoverCanvas !== plot.context.canvas || state.hoverY === null) return;
+        const { context: ctx } = plot;
+        const y = state.hoverY;
+        if (y < plot.top || y > plot.height - plot.bottom) return;
+        const value = max - (y - plot.top) / plot.plotHeight * (max - min);
+        ctx.save();
+        ctx.strokeStyle = "rgba(128, 177, 210, .5)";
+        ctx.lineWidth = 1;
+        ctx.setLineDash([4, 3]);
+        ctx.beginPath(); ctx.moveTo(plot.left, y); ctx.lineTo(plot.width - plot.right, y); ctx.stroke();
+        ctx.setLineDash([]);
+        const label = formatter(value);
+        ctx.font = "10px ui-sans-serif, system-ui";
+        ctx.textAlign = "right";
+        ctx.textBaseline = "middle";
+        const width = ctx.measureText(label).width + 12;
+        ctx.fillStyle = "#16324a";
+        ctx.fillRect(plot.left - width, y - 8, width, 16);
+        ctx.strokeStyle = "rgba(128, 177, 210, .8)";
+        ctx.strokeRect(plot.left - width, y - 8, width, 16);
+        ctx.fillStyle = "#eaf0f4";
+        ctx.fillText(label, plot.left - 6, y);
+        ctx.restore();
+    }
+
     function drawPrice(canvas) {
-        const plot = plotGeometry(setupCanvas(canvas));
+        const view = viewRange();
+        const plot = plotGeometry(setupCanvas(canvas), view.count);
         drawGrid(plot); drawSelection(plot);
         const values = state.minutes.flatMap((row) => [number(row.low), number(row.high)]).filter((value) => value !== null);
         if (!values.length) return;
@@ -256,31 +329,34 @@
         const y = (value) => plot.top + (max - value) / (max - min) * plot.plotHeight;
         drawAxisLabels(plot, min, max, price);
         const ctx = plot.context;
-        state.minutes.forEach((row, index) => {
+        for (let local = 0; local < view.count; local += 1) {
+            const row = state.minutes[view.start + local];
             const open = number(row.open), high = number(row.high), low = number(row.low), close = number(row.close);
-            if ([open, high, low, close].some((value) => value === null)) return;
+            if ([open, high, low, close].some((value) => value === null)) continue;
             const rising = close >= open;
             const color = rising ? COLORS.red : COLORS.green;
-            const x = plot.x(index);
+            const x = plot.x(local);
             const bodyWidth = Math.max(2, Math.min(8, plot.slotWidth * .66));
             ctx.strokeStyle = color; ctx.fillStyle = color; ctx.lineWidth = 1;
             ctx.beginPath(); ctx.moveTo(x, y(high)); ctx.lineTo(x, y(low)); ctx.stroke();
             const top = Math.min(y(open), y(close));
             const height = Math.max(1, Math.abs(y(open) - y(close)));
             ctx.fillRect(x - bodyWidth / 2, top, bodyWidth, height);
-        });
+        }
         const selected = state.minutes[state.selected];
         const close = number(selected?.close);
-        if (close !== null) {
+        if (close !== null && state.selected >= view.start && state.selected <= view.end) {
             ctx.fillStyle = close >= number(selected.open) ? COLORS.red : COLORS.green;
             ctx.fillRect(plot.width - plot.right + 5, y(close) - 9, 49, 18);
             ctx.fillStyle = "#fff"; ctx.font = "10px ui-sans-serif"; ctx.textAlign = "center"; ctx.textBaseline = "middle";
             ctx.fillText(price(close), plot.width - 26, y(close));
         }
+        drawHoverAxis(plot, min, max, price);
     }
 
     function drawFlow(canvas) {
-        const plot = plotGeometry(setupCanvas(canvas));
+        const view = viewRange();
+        const plot = plotGeometry(setupCanvas(canvas), view.count);
         drawGrid(plot); drawSelection(plot);
         const max = Math.max(1, ...state.minutes.flatMap((row) => [number(row.taker_buy_quote) || 0, number(row.taker_sell_quote) || 0, Math.abs(number(row.delta_quote) || 0)]));
         const center = plot.top + plot.plotHeight / 2;
@@ -288,29 +364,32 @@
         const ctx = plot.context;
         ctx.strokeStyle = "rgba(205, 217, 225, .25)"; ctx.beginPath(); ctx.moveTo(plot.left, center); ctx.lineTo(plot.width - plot.right, center); ctx.stroke();
         drawAxisLabels(plot, -max, max);
-        state.minutes.forEach((row, index) => {
+        for (let local = 0; local < view.count; local += 1) {
+            const row = state.minutes[view.start + local];
             const buy = number(row.taker_buy_quote), sell = number(row.taker_sell_quote);
-            const x = plot.x(index), width = Math.max(1, Math.min(7, plot.slotWidth * .62));
+            const x = plot.x(local), width = Math.max(1, Math.min(7, plot.slotWidth * .62));
             if (buy !== null) { ctx.fillStyle = "rgba(255, 82, 82, .78)"; ctx.fillRect(x - width / 2, center - buy * scale, width, buy * scale); }
             if (sell !== null) { ctx.fillStyle = "rgba(36, 205, 120, .72)"; ctx.fillRect(x - width / 2, center, width, sell * scale); }
-        });
+        }
         ctx.strokeStyle = COLORS.white; ctx.lineWidth = 1.35; ctx.beginPath();
         let started = false;
-        state.minutes.forEach((row, index) => {
-            const delta = number(row.delta_quote);
-            if (delta === null) { started = false; return; }
-            const x = plot.x(index), y = center - delta * scale;
+        for (let local = 0; local < view.count; local += 1) {
+            const delta = number(state.minutes[view.start + local].delta_quote);
+            if (delta === null) { started = false; continue; }
+            const x = plot.x(local), y = center - delta * scale;
             if (!started) { ctx.moveTo(x, y); started = true; } else ctx.lineTo(x, y);
-        });
+        }
         ctx.stroke();
         const avgBuy = trailingAverage("taker_buy_quote");
         const avgSell = trailingAverage("taker_sell_quote");
         if (avgBuy !== null) drawAverageLine(plot, center - avgBuy * 2 * scale, "rgba(255, 82, 82, .95)");
         if (avgSell !== null) drawAverageLine(plot, center + avgSell * 2 * scale, "rgba(36, 205, 120, .95)");
+        drawHoverAxis(plot, -max, max);
     }
 
     function drawDepth(canvas) {
-        const plot = plotGeometry(setupCanvas(canvas));
+        const view = viewRange();
+        const plot = plotGeometry(setupCanvas(canvas), view.count);
         drawGrid(plot); drawSelection(plot);
         const depths = state.minutes.flatMap((row) => [number(row.bid_depth_mean), number(row.ask_depth_mean)]).filter((value) => value !== null);
         if (!depths.length) return;
@@ -321,30 +400,33 @@
         [["bid_depth_mean", COLORS.cyan], ["ask_depth_mean", COLORS.purple]].forEach(([field, color]) => {
             ctx.strokeStyle = color; ctx.lineWidth = 1.4; ctx.beginPath();
             let started = false;
-            state.minutes.forEach((row, index) => {
-                const value = number(row[field]);
-                if (value === null) { started = false; return; }
-                if (!started) { ctx.moveTo(plot.x(index), y(value)); started = true; } else ctx.lineTo(plot.x(index), y(value));
-            });
+            for (let local = 0; local < view.count; local += 1) {
+                const value = number(state.minutes[view.start + local][field]);
+                if (value === null) { started = false; continue; }
+                if (!started) { ctx.moveTo(plot.x(local), y(value)); started = true; } else ctx.lineTo(plot.x(local), y(value));
+            }
             ctx.stroke();
         });
-        const spreads = state.minutes.map((row) => number(row.spread_bps_p95) || 0);
+        const spreads = state.minutes.slice(view.start, view.end + 1).map((row) => number(row.spread_bps_p95) || 0);
         const spreadMax = Math.max(1, ...spreads);
-        spreads.forEach((value, index) => {
+        spreads.forEach((value, local) => {
             const height = value / spreadMax * Math.min(22, plot.plotHeight * .15);
             ctx.fillStyle = "rgba(240, 185, 11, .9)";
-            ctx.fillRect(plot.x(index) - Math.max(1, plot.slotWidth * .2), plot.height - plot.bottom - height, Math.max(1, plot.slotWidth * .4), height);
+            ctx.fillRect(plot.x(local) - Math.max(1, plot.slotWidth * .2), plot.height - plot.bottom - height, Math.max(1, plot.slotWidth * .4), height);
         });
         const avgDepth = trailingCombinedAverage(["bid_depth_mean", "ask_depth_mean"]);
         if (avgDepth !== null) drawAverageLine(plot, y(avgDepth * 2), COLORS.white);
+        drawHoverAxis(plot, 0, max);
+    }
+
+    function drawOne(canvas) {
+        if (canvas.dataset.chart === "price") drawPrice(canvas);
+        if (canvas.dataset.chart === "flow") drawFlow(canvas);
+        if (canvas.dataset.chart === "depth") drawDepth(canvas);
     }
 
     function drawCharts() {
-        canvases.forEach((canvas) => {
-            if (canvas.dataset.chart === "price") drawPrice(canvas);
-            if (canvas.dataset.chart === "flow") drawFlow(canvas);
-            if (canvas.dataset.chart === "depth") drawDepth(canvas);
-        });
+        canvases.forEach(drawOne);
     }
 
     function colorMetric(node, value) {
@@ -437,11 +519,13 @@
         const empty = root.querySelector("[data-empty-chart]");
         if (empty) empty.hidden = state.minutes.length > 0;
         if (state.minutes.length) {
-            const first = new Date(state.minutes[0].stamp), last = new Date(state.minutes.at(-1).stamp);
+            const view = viewRange();
+            const first = new Date(state.minutes[view.start].stamp), last = new Date(state.minutes[view.end].stamp);
             setText("[data-range-start]", time(first)); setText("[data-range-end]", time(last)); setText("[data-range-date]", dateLabel(last));
             const shown = state.cache.size;
             const countLabel = shown < data.minute_count ? `显示 ${shown} / ${data.minute_count}` : `${shown}`;
-            setText("[data-last-update]", `最新 ${time(last)} · ${countLabel} 分钟`);
+            const timeLabel = state.followLatest ? `最新 ${time(last)}` : `窗口 ${time(first)}–${time(last)}`;
+            setText("[data-last-update]", `${timeLabel} · ${countLabel} 分钟`);
             renderSelected();
         } else {
             setText("[data-selected-range]", "—");
@@ -510,22 +594,80 @@
             if (action === "start") {
                 state.selectedRunId = null;
                 state.followLatest = true;
+                state.viewEndStamp = null;
             }
             window.setTimeout(() => refresh(false), 500);
         }
     }
 
+    let drag = null;
+    let suppressClick = false;
+    canvases.forEach((canvas) => {
+        canvas.addEventListener("pointerdown", (event) => {
+            if (!state.minutes.length) return;
+            canvas.setPointerCapture(event.pointerId);
+            const endRow = state.minutes[viewRange().end];
+            drag = { pointerId: event.pointerId, startX: event.clientX, startStamp: endRow.stamp, moved: false };
+        });
+        canvas.addEventListener("pointermove", (event) => {
+            if (drag && drag.pointerId === event.pointerId) {
+                const dx = event.clientX - drag.startX;
+                if (Math.abs(dx) < 4) return;
+                drag.moved = true;
+                const rect = canvas.getBoundingClientRect();
+                const plotWidth = rect.width - 50 - 56;
+                const bars = Math.round(dx / (plotWidth / WINDOW_SIZE));
+                const startIndex = state.minutes.findIndex((row) => row.stamp === drag.startStamp);
+                if (startIndex < 0) return;
+                panTo(startIndex - bars);
+                maybePrefetch();
+                return;
+            }
+            if (!state.minutes.length) return;
+            if (state.hoverCanvas !== canvas) {
+                if (state.hoverCanvas && state.hoverCanvas !== canvas) {
+                    state.hoverY = null;
+                    drawOne(state.hoverCanvas);
+                }
+                state.hoverCanvas = canvas;
+                state.hoverY = null;
+            }
+            const rect = canvas.getBoundingClientRect();
+            const y = event.clientY - rect.top;
+            if (state.hoverY === y) return;
+            state.hoverY = y;
+            drawOne(canvas);
+        });
+        canvas.addEventListener("pointerleave", () => {
+            if (state.hoverCanvas !== canvas) return;
+            state.hoverCanvas = null;
+            state.hoverY = null;
+            drawOne(canvas);
+        });
+        const endDrag = (event) => {
+            if (!drag || drag.pointerId !== event.pointerId) return;
+            const wasDrag = drag.moved;
+            drag = null;
+            suppressClick = wasDrag;
+            if (wasDrag) event.preventDefault();
+        };
+        canvas.addEventListener("pointerup", endDrag);
+        canvas.addEventListener("pointercancel", endDrag);
+    });
     canvases.forEach((canvas) => canvas.addEventListener("click", (event) => {
-        if (!state.minutes.length) return;
+        if (suppressClick) { suppressClick = false; return; }
+        if (!state.minutes.length || drag) return;
         const rect = canvas.getBoundingClientRect();
         const plotWidth = rect.width - 50 - 56;
-        const index = Math.floor((event.clientX - rect.left - 50) / plotWidth * state.minutes.length);
-        select(Math.max(0, Math.min(state.minutes.length - 1, index)), true);
+        const view = viewRange();
+        const local = Math.floor((event.clientX - rect.left - 50) / plotWidth * view.count);
+        select(view.start + Math.max(0, Math.min(view.count - 1, local)), true);
     }));
     runSelect?.addEventListener("change", () => {
         const selected = Number(runSelect.value);
         state.selectedRunId = Number.isInteger(selected) && selected > 0 ? selected : null;
         state.followLatest = true;
+        state.viewEndStamp = null;
         refresh(false);
     });
     loadOlderButton?.addEventListener("click", () => loadOlder());
