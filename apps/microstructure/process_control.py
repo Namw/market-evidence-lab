@@ -108,9 +108,28 @@ def launch_collector(*, symbol: str) -> MicrostructureCollectorRun:
         "--run-id",
         str(run.pk),
     ]
+    oi_command = [
+        sys.executable,
+        str(settings.BASE_DIR / "manage.py"),
+        "collect_oi_5m",
+        "--symbol",
+        symbol,
+        "--run-id",
+        str(run.pk),
+    ]
     try:
         process = subprocess.Popen(
             command,
+            cwd=settings.BASE_DIR,
+            env=os.environ.copy(),
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            close_fds=True,
+            start_new_session=True,
+        )
+        oi_process = subprocess.Popen(
+            oi_command,
             cwd=settings.BASE_DIR,
             env=os.environ.copy(),
             stdin=subprocess.DEVNULL,
@@ -135,8 +154,18 @@ def launch_collector(*, symbol: str) -> MicrostructureCollectorRun:
         )
         raise CollectorControlError("无法启动盘口采集进程。") from exc
     run.process_id = process.pid
-    run.save(update_fields=["process_id", "updated_at"])
+    run.oi_process_id = oi_process.pid
+    run.save(update_fields=["process_id", "oi_process_id", "updated_at"])
     return run
+
+
+def _terminate_process(process_id: int | None) -> None:
+    if not process_id or process_id <= 0:
+        return
+    try:
+        os.kill(process_id, signal.SIGTERM)
+    except ProcessLookupError:
+        pass
 
 
 def stop_collector() -> MicrostructureCollectorRun:
@@ -182,4 +211,5 @@ def stop_collector() -> MicrostructureCollectorRun:
             error_message=f"{exc.__class__.__name__}: 无法停止采集进程",
         )
         raise CollectorControlError("无法停止盘口采集进程。") from exc
+    _terminate_process(run.oi_process_id)
     return run

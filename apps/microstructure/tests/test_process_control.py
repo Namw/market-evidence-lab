@@ -28,9 +28,12 @@ class CollectorProcessControlTests(TestCase):
 
         self.assertEqual(run.status, MicrostructureCollectorRun.Status.STARTING)
         self.assertEqual(run.process_id, 4321)
-        command = popen.call_args.args[0]
-        self.assertIn("collect_orderbook", command)
-        self.assertEqual(command[-2:], ["--run-id", str(run.pk)])
+        self.assertEqual(run.oi_process_id, 4321)
+        commands = [call.args[0] for call in popen.call_args_list]
+        self.assertEqual(len(commands), 2)
+        self.assertIn("collect_orderbook", commands[0])
+        self.assertIn("collect_oi_5m", commands[1])
+        self.assertEqual(commands[1][-2:], ["--run-id", str(run.pk)])
 
     @patch(
         "apps.microstructure.process_control._unmanaged_collector_exists",
@@ -52,13 +55,15 @@ class CollectorProcessControlTests(TestCase):
             symbol="ETHUSDT",
             status=MicrostructureCollectorRun.Status.RUNNING,
             process_id=9876,
+            oi_process_id=6543,
         )
 
         stopped = stop_collector()
 
         stopped.refresh_from_db()
         self.assertEqual(stopped.status, MicrostructureCollectorRun.Status.STOPPING)
-        kill.assert_called_once_with(9876, signal.SIGTERM)
+        kill.assert_any_call(9876, signal.SIGTERM)
+        kill.assert_any_call(6543, signal.SIGTERM)
 
     @patch("apps.microstructure.process_control.os.kill")
     @patch(

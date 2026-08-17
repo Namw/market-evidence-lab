@@ -13,6 +13,8 @@ from .calculations import floor_time
 from .models import MarketMinute, MicrostructureCollectorRun
 from .process_control import CollectorControlError, launch_collector, stop_collector
 
+from apps.market_data.models import Kline, OpenInterest
+
 DEFAULT_MINUTE_LIMIT = 120
 MAX_MINUTE_LIMIT = 1_440
 RECENT_RUN_LIMIT = 8
@@ -43,6 +45,7 @@ def _run_payload(run: MicrostructureCollectorRun | None) -> dict[str, object]:
             "started_at": None,
             "stopped_at": None,
             "error_message": "",
+            "oi_process_id": None,
         }
     return {
         "id": run.pk,
@@ -57,6 +60,7 @@ def _run_payload(run: MicrostructureCollectorRun | None) -> dict[str, object]:
         "started_at": _utc_iso(run.started_at),
         "stopped_at": _utc_iso(run.stopped_at),
         "error_message": run.error_message,
+        "oi_process_id": run.oi_process_id,
     }
 
 
@@ -98,6 +102,26 @@ def _order_book_payload(
         "bids": run.latest_bids,
         "asks": run.latest_asks,
     }
+
+
+def _oi_5m_payload(symbol: str, limit: int = 288) -> list[dict[str, object]]:
+    rows = list(
+        OpenInterest.objects.filter(
+            exchange=Kline.Exchange.BINANCE,
+            market_type=Kline.MarketType.USD_M_FUTURES,
+            symbol=symbol,
+            period=OpenInterest.Period.FIVE_MINUTES,
+        )
+        .order_by("-timestamp")[:limit]
+    )
+    return [
+        {
+            "timestamp": _utc_iso(row.timestamp),
+            "value": _decimal(row.sum_open_interest),
+            "value_usdt": _decimal(row.sum_open_interest_value),
+        }
+        for row in reversed(rows)
+    ]
 
 
 def _run_bounds(
@@ -227,6 +251,7 @@ def _status_payload(
         "available_runs": available_runs,
         "range_start": _utc_iso(range_start),
         "range_end": _utc_iso(range_end),
+        "oi_5m": _oi_5m_payload(symbol),
         "latest_order_book": _order_book_payload(latest_run),
     }
 

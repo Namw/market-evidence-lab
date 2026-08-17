@@ -4,7 +4,7 @@
 {% block title %}分钟盘口观察 · Market Evidence Lab{% endblock %}
 {% block body_class %}microstructure-body{% endblock %}
 
-{% block extra_css %}<link rel="stylesheet" href="{% static 'microstructure/css/index.css' %}?v=11">{% endblock %}
+{% block extra_css %}<link rel="stylesheet" href="{% static 'microstructure/css/index.css' %}?v=13">{% endblock %}
 
 {% block content %}
 {{ initial_status|json_script:"microstructure-initial-data" }}
@@ -31,6 +31,7 @@
             <span class="live-state state-{{ initial_status.run.connection_state }}" data-live-state>
                 <i aria-hidden="true"></i><span data-live-label>{{ initial_status.run.connection_label }}</span>
             </span>
+            <span class="oi-live-state" data-oi-live hidden>5m OI 采集中</span>
             <span class="refresh-copy">界面每1分钟更新</span>
             <form data-collector-action="start">{% csrf_token %}<button type="submit" data-start-button{% if not initial_status.can_start %} disabled{% endif %}>启动采集</button></form>
             <form data-collector-action="stop">{% csrf_token %}<button type="submit" data-stop-button{% if not initial_status.can_stop %} disabled{% endif %}>停止</button></form>
@@ -62,6 +63,13 @@
                 </div>
                 <div class="canvas-wrap"><canvas data-chart="depth" aria-label="盘口深度与价差图"></canvas></div>
                 <div class="chart-axis-footer"><span data-range-start>—</span><span data-range-date>—</span><span data-range-end>—</span></div>
+            </section>
+
+            <section class="chart-panel oi-panel">
+                <div class="chart-heading">
+                    <div><strong>5m OI</strong><span class="legend oi">持仓量</span></div>
+                </div>
+                <div class="canvas-wrap"><canvas data-chart="oi" aria-label="5分钟未平仓合约量条形图"></canvas></div>
             </section>
             <div class="empty-chart" data-empty-chart hidden>启动采集后，首个一分钟数据会显示在这里。</div>
         </main>
@@ -130,4 +138,4 @@
 </div>
 {% endblock %}
 
-{% block extra_js %}<script src="{% static 'microstructure/js/index.js' %}?v=14" defer></script>{% endblock %}
+{% block extra_js %}<script src="{% static 'microstructure/js/index.js' %}?v=17" defer></script>{% endblock %}

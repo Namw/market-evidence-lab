@@ -109,6 +109,7 @@ class MicrostructureCollectorRun(models.Model):
         default=ConnectionState.CONNECTING,
     )
     process_id = models.PositiveIntegerField(null=True, blank=True)
+    oi_process_id = models.PositiveIntegerField(null=True, blank=True)
     received_messages = models.PositiveBigIntegerField(default=0)
     saved_minute_updates = models.PositiveBigIntegerField(default=0)
     reconnect_count = models.PositiveIntegerField(default=0)

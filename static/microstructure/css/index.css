@@ -119,6 +119,28 @@
     font-size: 11px;
 }
 
+.oi-live-state {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    color: #7fb1ff;
+    font-size: 11px;
+}
+
+.oi-live-state::before {
+    width: 7px;
+    height: 7px;
+    border: 1px solid #5b9bff;
+    border-radius: 50%;
+    background: rgba(91, 155, 255, .3);
+    box-shadow: 0 0 7px rgba(91, 155, 255, .5);
+    content: "";
+}
+
+.oi-live-state[hidden] {
+    display: none;
+}
+
 .collector-tools form {
     margin: 0;
 }
@@ -246,6 +268,7 @@
 .legend.bid-depth { color: var(--terminal-cyan); }
 .legend.ask-depth { color: var(--terminal-purple); }
 .legend.spread { color: var(--terminal-yellow); }
+.legend.oi { color: #5b9bff; }
 
 .canvas-wrap {
     position: relative;
@@ -253,6 +276,7 @@
 }
 
 .price-panel .canvas-wrap { height: clamp(260px, 39vh, 410px); }
+.oi-panel .canvas-wrap { height: clamp(90px, 14vh, 150px); }
 .flow-panel .canvas-wrap { height: clamp(170px, 24vh, 245px); }
 .depth-panel .canvas-wrap { height: clamp(165px, 23vh, 235px); }
 
@@ -509,6 +533,7 @@
     .chart-heading { overflow: hidden; }
     .chart-heading .legend { display: none; }
     .price-panel .canvas-wrap { height: 280px; }
+    .oi-panel .canvas-wrap { height: 110px; }
     .flow-panel .canvas-wrap,
     .depth-panel .canvas-wrap { height: 180px; }
 }

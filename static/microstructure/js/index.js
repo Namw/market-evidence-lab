@@ -17,6 +17,7 @@
         minutes: [],
         cache: new Map(),
         cacheRunId: null,
+        oiCache: new Map(),
         hasMore: false,
         oldestLoaded: null,
         loadingOlder: false,
@@ -135,6 +136,14 @@
         rows.forEach((row) => {
             const stamp = new Date(row.minute_start).getTime();
             if (Number.isFinite(stamp)) state.cache.set(stamp, { ...row, stamp });
+        });
+    }
+
+    function mergeOiCache(rows) {
+        if (!Array.isArray(rows)) return;
+        rows.forEach((row) => {
+            const stamp = new Date(row.timestamp).getTime();
+            if (Number.isFinite(stamp)) state.oiCache.set(stamp, { ...row, stamp });
         });
     }
 
@@ -419,8 +428,39 @@
         drawHoverAxis(plot, 0, max);
     }
 
+    function drawOi(canvas) {
+        const view = viewRange();
+        const plot = plotGeometry(setupCanvas(canvas), view.count);
+        drawGrid(plot); drawSelection(plot);
+        const ctx = plot.context;
+        const viewStart = state.minutes[view.start]?.stamp;
+        const viewEnd = state.minutes[view.end]?.stamp + minuteMs;
+        if (!Number.isFinite(viewStart) || !Number.isFinite(viewEnd)) return;
+        const bars = [...state.oiCache.values()]
+            .filter((row) => row.stamp >= viewStart && row.stamp <= viewEnd)
+            .sort((a, b) => a.stamp - b.stamp);
+        if (!bars.length) return;
+        const values = bars.map((row) => number(row.value)).filter((value) => value !== null);
+        if (!values.length) return;
+        const max = Math.max(...values) * 1.08;
+        const y = (value) => plot.top + (max - value) / max * plot.plotHeight;
+        drawAxisLabels(plot, 0, max);
+        // OI timestamp 为 5 分钟周期结束时刻，条形画在该周期中心（timestamp - 2.5min）
+        bars.forEach((row) => {
+            const value = number(row.value);
+            if (value === null) return;
+            const centerStamp = row.stamp - 2.5 * minuteMs;
+            const x = plot.left + ((centerStamp - viewStart) / (viewEnd - viewStart)) * plot.plotWidth;
+            const width = Math.max(2, Math.min(9, plot.slotWidth * 5 * .62));
+            const top = y(value);
+            ctx.fillStyle = "rgba(91, 155, 255, .82)";
+            ctx.fillRect(x - width / 2, top, width, plot.height - plot.bottom - top);
+        });
+    }
+
     function drawOne(canvas) {
         if (canvas.dataset.chart === "price") drawPrice(canvas);
+        if (canvas.dataset.chart === "oi") drawOi(canvas);
         if (canvas.dataset.chart === "flow") drawFlow(canvas);
         if (canvas.dataset.chart === "depth") drawDepth(canvas);
     }
@@ -499,6 +539,7 @@
             state.cacheRunId = data.selected_run_id;
         }
         mergeIntoCache(data.minutes);
+        mergeOiCache(data.oi_5m);
         state.selectedRunId = data.selected_run_id;
         state.hasMore = data.has_more;
         state.oldestLoaded = data.oldest_loaded_stamp;
@@ -510,6 +551,8 @@
         const live = root.querySelector("[data-live-state]");
         if (live) live.className = `live-state state-${data.run.connection_state}`;
         setText("[data-live-label]", data.run.connection_label);
+        const oiLive = root.querySelector("[data-oi-live]");
+        if (oiLive) oiLive.hidden = !(data.run.oi_process_id && data.run.status === "running");
         startButton.disabled = state.busy || !data.can_start;
         stopButton.disabled = state.busy || !data.can_stop;
         if (loadOlderButton) {

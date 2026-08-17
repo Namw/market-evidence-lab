@@ -6,6 +6,7 @@ from django.test import Client, TestCase
 from django.urls import reverse
 from django.utils import timezone
 
+from apps.market_data.models import OpenInterest
 from apps.microstructure.management.commands.collect_orderbook import Command
 from apps.microstructure.models import MarketMinute, MicrostructureCollectorRun
 
@@ -165,6 +166,33 @@ class MicrostructureViewTests(TestCase):
         ).json()
         self.assertEqual(len(tail["minutes"]), 10)
         self.assertFalse(tail["has_more"])
+
+    def test_status_returns_five_minute_open_interest(self):
+        for minute in (0, 5, 10):
+            timestamp = datetime(2026, 8, 17, 1, minute, tzinfo=UTC)
+            OpenInterest.objects.create(
+                exchange="binance",
+                market_type="usd_m_futures",
+                symbol="ETHUSDT",
+                period=OpenInterest.Period.FIVE_MINUTES,
+                timestamp=timestamp,
+                sum_open_interest=f"{1000 + minute}",
+                sum_open_interest_value=f"{3_000_000 + minute}",
+            )
+
+        payload = self.client.get(reverse("microstructure:status")).json()
+
+        rows = payload["oi_5m"]
+        self.assertEqual(
+            [row["timestamp"] for row in rows],
+            [
+                "2026-08-17T01:00:00Z",
+                "2026-08-17T01:05:00Z",
+                "2026-08-17T01:10:00Z",
+            ],
+        )
+        self.assertEqual(rows[-1]["value"], "1010.000000000000000000")
+        self.assertEqual(rows[-1]["value_usdt"], "3000010.000000000000000000")
 
     def test_stopping_run_cannot_receive_duplicate_stop(self):
         MicrostructureCollectorRun.objects.create(
