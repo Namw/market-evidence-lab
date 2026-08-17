@@ -8,8 +8,17 @@
     const stopForm = root.querySelector('[data-collector-action="stop"]');
     const startButton = root.querySelector("[data-start-button]");
     const stopButton = root.querySelector("[data-stop-button]");
+    const runSelect = root.querySelector("[data-run-select]");
     const csrfToken = startForm?.querySelector("input[name='csrfmiddlewaretoken']")?.value;
-    const state = { data: initialNode ? JSON.parse(initialNode.textContent) : null, minutes: [], selected: -1, busy: false };
+    const initialData = initialNode ? JSON.parse(initialNode.textContent) : null;
+    const state = {
+        data: initialData,
+        minutes: [],
+        selected: -1,
+        selectedRunId: initialData?.selected_run_id ?? null,
+        followLatest: true,
+        busy: false,
+    };
 
     const COLORS = {
         grid: "rgba(139, 158, 175, .13)", text: "#8fa0ac", green: "#24cd78",
@@ -51,6 +60,39 @@
     };
     const time = (date) => date.toLocaleTimeString("zh-CN", { timeZone: "Asia/Shanghai", hour: "2-digit", minute: "2-digit", hour12: false });
     const dateLabel = (date) => date.toLocaleDateString("zh-CN", { timeZone: "Asia/Shanghai", year: "numeric", month: "2-digit", day: "2-digit" }).replaceAll("/", "-");
+
+    function latestAvailableIndex() {
+        return state.minutes.map((row, index) => row.missing ? -1 : index).filter((index) => index >= 0).at(-1) ?? -1;
+    }
+
+    function defaultSelectedIndex() {
+        const latest = latestAvailableIndex();
+        if (state.data?.selected_run_active) return latest;
+        return state.minutes.map((row, index) => !row.missing && row.closed ? index : -1).filter((index) => index >= 0).at(-1) ?? latest;
+    }
+
+    function renderRunOptions(data) {
+        if (!runSelect) return;
+        runSelect.replaceChildren();
+        const runs = Array.isArray(data.available_runs) ? data.available_runs : [];
+        if (!runs.length) {
+            const option = document.createElement("option");
+            option.value = ""; option.textContent = "暂无采集记录";
+            runSelect.appendChild(option); runSelect.disabled = true;
+            return;
+        }
+        runSelect.disabled = false;
+        runs.forEach((run, index) => {
+            const started = new Date(run.started_at);
+            const stopped = run.stopped_at ? new Date(run.stopped_at) : null;
+            const option = document.createElement("option");
+            option.value = String(run.id);
+            const status = run.status === "running" ? "采集中" : run.status_label;
+            option.textContent = `${index === 0 ? "最新 · " : ""}#${run.id} · ${dateLabel(started)} ${time(started)}–${stopped ? time(stopped) : "现在"} · ${status}`;
+            runSelect.appendChild(option);
+        });
+        if (data.selected_run_id !== null) runSelect.value = String(data.selected_run_id);
+    }
 
     function normalizeMinutes(rows) {
         if (!Array.isArray(rows) || !rows.length) return [];
@@ -165,7 +207,7 @@
             const open = number(row.open), high = number(row.high), low = number(row.low), close = number(row.close);
             if ([open, high, low, close].some((value) => value === null)) return;
             const rising = close >= open;
-            const color = rising ? COLORS.green : COLORS.red;
+            const color = rising ? COLORS.red : COLORS.green;
             const x = plot.x(index);
             const bodyWidth = Math.max(2, Math.min(8, plot.slotWidth * .66));
             ctx.strokeStyle = color; ctx.fillStyle = color; ctx.lineWidth = 1;
@@ -177,7 +219,7 @@
         const selected = state.minutes[state.selected];
         const close = number(selected?.close);
         if (close !== null) {
-            ctx.fillStyle = close >= number(selected.open) ? COLORS.green : COLORS.red;
+            ctx.fillStyle = close >= number(selected.open) ? COLORS.red : COLORS.green;
             ctx.fillRect(plot.width - plot.right + 5, y(close) - 9, 49, 18);
             ctx.fillStyle = "#fff"; ctx.font = "10px ui-sans-serif"; ctx.textAlign = "center"; ctx.textBaseline = "middle";
             ctx.fillText(price(close), plot.width - 26, y(close));
@@ -196,8 +238,8 @@
         state.minutes.forEach((row, index) => {
             const buy = number(row.taker_buy_quote), sell = number(row.taker_sell_quote);
             const x = plot.x(index), width = Math.max(1, Math.min(7, plot.slotWidth * .62));
-            if (buy !== null) { ctx.fillStyle = "rgba(36, 205, 120, .72)"; ctx.fillRect(x - width / 2, center - buy * scale, width, buy * scale); }
-            if (sell !== null) { ctx.fillStyle = "rgba(255, 82, 82, .78)"; ctx.fillRect(x - width / 2, center, width, sell * scale); }
+            if (buy !== null) { ctx.fillStyle = "rgba(255, 82, 82, .78)"; ctx.fillRect(x - width / 2, center - buy * scale, width, buy * scale); }
+            if (sell !== null) { ctx.fillStyle = "rgba(36, 205, 120, .72)"; ctx.fillRect(x - width / 2, center, width, sell * scale); }
         });
         ctx.strokeStyle = COLORS.white; ctx.lineWidth = 1.35; ctx.beginPath();
         let started = false;
@@ -270,7 +312,7 @@
             if (change < 0) button.classList.add("is-down");
             button.disabled = !found || row.missing;
             button.innerHTML = `<span>${time(new Date(stamp))}</span><strong>${position + 1}</strong><small>${change === null ? "—" : percent(change)}</small>`;
-            if (found) button.addEventListener("click", () => select(found.index));
+            if (found) button.addEventListener("click", () => select(found.index, true));
             container.appendChild(button);
         }
     }
@@ -300,18 +342,21 @@
         renderGroup(row);
     }
 
-    function select(index) {
+    function select(index, userInitiated = false) {
         if (index < 0 || index >= state.minutes.length || state.minutes[index].missing) return;
         state.selected = index;
+        if (userInitiated) state.followLatest = index === latestAvailableIndex();
         renderSelected(); drawCharts();
     }
 
     function renderStatus(data, preserveSelection = true) {
-        const previousStamp = preserveSelection ? state.minutes[state.selected]?.stamp : null;
+        const previousStamp = preserveSelection && !state.followLatest ? state.minutes[state.selected]?.stamp : null;
         state.data = data;
+        state.selectedRunId = data.selected_run_id;
         state.minutes = normalizeMinutes(data.minutes);
         const previousIndex = previousStamp === null ? -1 : state.minutes.findIndex((row) => row.stamp === previousStamp);
-        state.selected = previousIndex >= 0 ? previousIndex : state.minutes.map((row, index) => row.missing ? -1 : index).filter((index) => index >= 0).at(-1) ?? -1;
+        state.selected = previousIndex >= 0 ? previousIndex : defaultSelectedIndex();
+        renderRunOptions(data);
         const live = root.querySelector("[data-live-state]");
         if (live) live.className = `live-state state-${data.run.connection_state}`;
         setText("[data-live-label]", data.run.connection_label);
@@ -322,8 +367,14 @@
         if (state.minutes.length) {
             const first = new Date(state.minutes[0].stamp), last = new Date(state.minutes.at(-1).stamp);
             setText("[data-range-start]", time(first)); setText("[data-range-end]", time(last)); setText("[data-range-date]", dateLabel(last));
-            setText("[data-last-update]", `最新 ${time(last)} · ${data.run.saved_minute_updates.toLocaleString("zh-CN")} 次落库`);
+            const shown = data.minutes.length;
+            const countLabel = shown < data.minute_count ? `显示 ${shown} / ${data.minute_count}` : `${shown}`;
+            setText("[data-last-update]", `最新 ${time(last)} · ${countLabel} 分钟`);
             renderSelected();
+        } else {
+            setText("[data-selected-range]", "—");
+            setText("[data-last-update]", "该采集记录暂无分钟数据");
+            root.querySelector("[data-minute-group]")?.replaceChildren();
         }
         if (data.run.status === "failed" && data.run.error_message) showMessage(data.run.error_message, true);
         drawCharts();
@@ -337,7 +388,9 @@
 
     async function refresh(preserveSelection = true) {
         try {
-            const response = await fetch(`${root.dataset.statusUrl}?minutes=120`, { headers: { Accept: "application/json" }, credentials: "same-origin" });
+            const params = new URLSearchParams({ minutes: "120" });
+            if (state.selectedRunId !== null) params.set("run_id", String(state.selectedRunId));
+            const response = await fetch(`${root.dataset.statusUrl}?${params}`, { headers: { Accept: "application/json" }, credentials: "same-origin" });
             if (!response.ok) throw new Error("无法读取分钟数据");
             renderStatus(await response.json(), preserveSelection);
         } catch (error) {
@@ -360,6 +413,10 @@
             showMessage(error.message || "操作失败。", true);
         } finally {
             state.busy = false;
+            if (action === "start") {
+                state.selectedRunId = null;
+                state.followLatest = true;
+            }
             window.setTimeout(() => refresh(false), 500);
         }
     }
@@ -369,8 +426,14 @@
         const rect = canvas.getBoundingClientRect();
         const plotWidth = rect.width - 50 - 56;
         const index = Math.floor((event.clientX - rect.left - 50) / plotWidth * state.minutes.length);
-        select(Math.max(0, Math.min(state.minutes.length - 1, index)));
+        select(Math.max(0, Math.min(state.minutes.length - 1, index)), true);
     }));
+    runSelect?.addEventListener("change", () => {
+        const selected = Number(runSelect.value);
+        state.selectedRunId = Number.isInteger(selected) && selected > 0 ? selected : null;
+        state.followLatest = true;
+        refresh(false);
+    });
     startForm?.addEventListener("submit", (event) => submitAction(event, "start"));
     stopForm?.addEventListener("submit", (event) => submitAction(event, "stop"));
     new ResizeObserver(() => drawCharts()).observe(root.querySelector(".chart-stack"));

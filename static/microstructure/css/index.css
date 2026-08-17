@@ -61,6 +61,32 @@
     font-size: 13px;
 }
 
+.run-selector {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    color: #83939f;
+    font-size: 11px;
+}
+
+.run-selector select {
+    min-width: 210px;
+    height: 30px;
+    padding: 0 28px 0 9px;
+    border: 1px solid #33434f;
+    border-radius: 4px;
+    color: #dce5eb;
+    background: #0d1a25;
+    cursor: pointer;
+    font: inherit;
+    font-size: 11px;
+}
+
+.run-selector select:focus {
+    border-color: #527d9b;
+    outline: none;
+}
+
 .toolbar-divider {
     width: 1px;
     height: 30px;
@@ -199,8 +225,8 @@
     content: "";
 }
 
-.legend.buy { color: var(--terminal-green); }
-.legend.sell { color: var(--terminal-red); }
+.legend.buy { color: var(--terminal-red); }
+.legend.sell { color: var(--terminal-green); }
 .legend.delta { color: #e7edf0; }
 .legend.delta::before { top: 6px; height: 1px; }
 .legend.bid-depth { color: var(--terminal-cyan); }
@@ -246,6 +272,10 @@
     color: #7e909c;
     background: rgba(6, 16, 26, .84);
     font-size: 13px;
+}
+
+.empty-chart[hidden] {
+    display: none;
 }
 
 .evidence-sidebar {
@@ -307,8 +337,8 @@
     font-size: 14px;
 }
 
-.positive { color: var(--terminal-green) !important; }
-.negative { color: var(--terminal-red) !important; }
+.positive { color: var(--terminal-red) !important; }
+.negative { color: var(--terminal-green) !important; }
 .cyan { color: var(--terminal-cyan) !important; }
 .purple { color: var(--terminal-purple) !important; }
 
@@ -342,9 +372,9 @@
 .group-minute strong { margin: 7px 0 4px; font-size: 12px; }
 .group-minute small { font-size: 9px; }
 .group-minute.is-up strong,
-.group-minute.is-up small { color: var(--terminal-green); }
+.group-minute.is-up small { color: var(--terminal-red); }
 .group-minute.is-down strong,
-.group-minute.is-down small { color: var(--terminal-red); }
+.group-minute.is-down small { color: var(--terminal-green); }
 
 .fact-note {
     margin: 0;
@@ -371,6 +401,8 @@
     .terminal-symbol { gap: 10px; }
     .terminal-symbol strong { font-size: 17px; }
     .toolbar-divider { height: 22px; }
+    .run-selector { width: 100%; }
+    .run-selector select { min-width: 0; flex: 1; }
     .evidence-sidebar { grid-template-columns: 1fr; }
     .evidence-sidebar > * { grid-column: auto; }
     .chart-heading { overflow: hidden; }

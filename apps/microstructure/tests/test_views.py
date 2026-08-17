@@ -61,6 +61,50 @@ class MicrostructureViewTests(TestCase):
 
         self.assertEqual([row["close"] for row in minutes], ["3200.000000000000000000", "3201.000000000000000000"])
 
+    def test_status_can_switch_between_collector_runs(self):
+        first_start = datetime(2026, 8, 17, 1, 0, tzinfo=UTC)
+        second_start = datetime(2026, 8, 17, 5, 0, tzinfo=UTC)
+        first_run = MicrostructureCollectorRun.objects.create(
+            symbol="ETHUSDT",
+            status=MicrostructureCollectorRun.Status.STOPPED,
+            started_at=first_start,
+            stopped_at=first_start + timedelta(hours=2),
+            saved_minute_updates=120,
+        )
+        second_run = MicrostructureCollectorRun.objects.create(
+            symbol="ETHUSDT",
+            status=MicrostructureCollectorRun.Status.RUNNING,
+            started_at=second_start,
+            saved_minute_updates=2,
+        )
+        for start, close in ((first_start, "3100"), (second_start, "3200")):
+            MarketMinute.objects.create(
+                symbol="ETHUSDT",
+                minute_start=start,
+                minute_end=start + timedelta(minutes=1),
+                open_price=close,
+                high_price=close,
+                low_price=close,
+                close_price=close,
+            )
+
+        latest = self.client.get(reverse("microstructure:status")).json()
+        historical = self.client.get(
+            reverse("microstructure:status"),
+            {"run_id": first_run.pk},
+        ).json()
+
+        self.assertEqual(latest["selected_run_id"], second_run.pk)
+        self.assertTrue(latest["selected_run_active"])
+        self.assertEqual([row["close"] for row in latest["minutes"]], ["3200.000000000000000000"])
+        self.assertEqual(historical["selected_run_id"], first_run.pk)
+        self.assertFalse(historical["selected_run_active"])
+        self.assertEqual([row["close"] for row in historical["minutes"]], ["3100.000000000000000000"])
+        self.assertEqual(
+            [item["id"] for item in historical["available_runs"]],
+            [second_run.pk, first_run.pk],
+        )
+
     def test_stopping_run_cannot_receive_duplicate_stop(self):
         MicrostructureCollectorRun.objects.create(
             symbol="ETHUSDT",

@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 
 from django.conf import settings
@@ -9,11 +9,13 @@ from django.shortcuts import render
 from django.utils import timezone
 from django.views.decorators.http import require_GET, require_POST
 
+from .calculations import floor_time
 from .models import MarketMinute, MicrostructureCollectorRun
 from .process_control import CollectorControlError, launch_collector, stop_collector
 
 DEFAULT_MINUTE_LIMIT = 120
 MAX_MINUTE_LIMIT = 1_440
+RECENT_RUN_LIMIT = 8
 
 
 def _utc_iso(value: datetime | None) -> str | None:
@@ -98,7 +100,58 @@ def _order_book_payload(
     }
 
 
-def _status_payload(*, minute_limit: int = DEFAULT_MINUTE_LIMIT) -> dict[str, object]:
+def _run_bounds(
+    run: MicrostructureCollectorRun,
+    *,
+    now: datetime,
+) -> tuple[datetime, datetime]:
+    started_at = run.started_at or run.created_at
+    ended_at = run.stopped_at or now
+    return (
+        floor_time(started_at, seconds=60),
+        floor_time(ended_at, seconds=60) + timedelta(minutes=1),
+    )
+
+
+def _available_runs(
+    *,
+    symbol: str,
+    now: datetime,
+) -> list[dict[str, object]]:
+    payloads: list[dict[str, object]] = []
+    runs = MicrostructureCollectorRun.objects.filter(
+        symbol=symbol,
+        saved_minute_updates__gt=0,
+    ).order_by("-created_at")[:RECENT_RUN_LIMIT]
+    for run in runs:
+        range_start, range_end = _run_bounds(run, now=now)
+        minute_count = MarketMinute.objects.filter(
+            symbol=symbol,
+            minute_start__gte=range_start,
+            minute_start__lt=range_end,
+        ).count()
+        if minute_count == 0:
+            continue
+        payloads.append(
+            {
+                "id": run.pk,
+                "status": run.status,
+                "status_label": run.get_status_display(),
+                "started_at": _utc_iso(run.started_at or run.created_at),
+                "stopped_at": _utc_iso(run.stopped_at),
+                "range_start": _utc_iso(range_start),
+                "range_end": _utc_iso(range_end),
+                "minute_count": minute_count,
+            }
+        )
+    return payloads
+
+
+def _status_payload(
+    *,
+    minute_limit: int = DEFAULT_MINUTE_LIMIT,
+    selected_run_id: int | None = None,
+) -> dict[str, object]:
     symbol = settings.MICROSTRUCTURE_SYMBOL
     now = timezone.now().astimezone(UTC)
     active_statuses = {
@@ -112,11 +165,30 @@ def _status_payload(*, minute_limit: int = DEFAULT_MINUTE_LIMIT) -> dict[str, ob
         .first()
         or MicrostructureCollectorRun.objects.order_by("-created_at").first()
     )
+    available_runs = _available_runs(symbol=symbol, now=now)
+    available_run_ids = {item["id"] for item in available_runs}
+    selected_run = None
+    if selected_run_id in available_run_ids:
+        selected_run = MicrostructureCollectorRun.objects.filter(
+            pk=selected_run_id,
+            symbol=symbol,
+        ).first()
+    if selected_run is None and available_runs:
+        selected_run = MicrostructureCollectorRun.objects.filter(
+            pk=available_runs[0]["id"]
+        ).first()
+
+    minute_query = MarketMinute.objects.filter(symbol=symbol)
+    range_start = range_end = None
+    if selected_run is not None:
+        range_start, range_end = _run_bounds(selected_run, now=now)
+        minute_query = minute_query.filter(
+            minute_start__gte=range_start,
+            minute_start__lt=range_end,
+        )
     rows = list(
         reversed(
-            MarketMinute.objects.filter(symbol=symbol).order_by("-minute_start")[
-                :minute_limit
-            ]
+            minute_query.order_by("-minute_start")[:minute_limit]
         )
     )
     active = bool(latest_run and latest_run.status in active_statuses)
@@ -135,8 +207,15 @@ def _status_payload(*, minute_limit: int = DEFAULT_MINUTE_LIMIT) -> dict[str, ob
         "run": _run_payload(latest_run),
         "can_start": not active,
         "can_stop": stoppable,
-        "minute_count": MarketMinute.objects.filter(symbol=symbol).count(),
+        "minute_count": minute_query.count(),
         "minutes": [_minute_payload(row) for row in rows],
+        "selected_run_id": selected_run.pk if selected_run else None,
+        "selected_run_active": bool(
+            selected_run and selected_run.status in active_statuses
+        ),
+        "available_runs": available_runs,
+        "range_start": _utc_iso(range_start),
+        "range_end": _utc_iso(range_end),
         "latest_order_book": _order_book_payload(latest_run),
     }
 
@@ -159,8 +238,17 @@ def status(request):
         minute_limit = int(request.GET.get("minutes", DEFAULT_MINUTE_LIMIT))
     except (TypeError, ValueError):
         minute_limit = DEFAULT_MINUTE_LIMIT
+    try:
+        selected_run_id = int(request.GET.get("run_id", ""))
+    except (TypeError, ValueError):
+        selected_run_id = None
     minute_limit = max(10, min(MAX_MINUTE_LIMIT, minute_limit))
-    return JsonResponse(_status_payload(minute_limit=minute_limit))
+    return JsonResponse(
+        _status_payload(
+            minute_limit=minute_limit,
+            selected_run_id=selected_run_id,
+        )
+    )
 
 
 @require_POST
