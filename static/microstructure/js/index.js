@@ -9,11 +9,17 @@
     const startButton = root.querySelector("[data-start-button]");
     const stopButton = root.querySelector("[data-stop-button]");
     const runSelect = root.querySelector("[data-run-select]");
+    const loadOlderButton = root.querySelector("[data-load-older]");
     const csrfToken = startForm?.querySelector("input[name='csrfmiddlewaretoken']")?.value;
     const initialData = initialNode ? JSON.parse(initialNode.textContent) : null;
     const state = {
         data: initialData,
         minutes: [],
+        cache: new Map(),
+        cacheRunId: null,
+        hasMore: false,
+        oldestLoaded: null,
+        loadingOlder: false,
         selected: -1,
         selectedRunId: initialData?.selected_run_id ?? null,
         followLatest: true,
@@ -100,7 +106,7 @@
         if (data.selected_run_id !== null) runSelect.value = String(data.selected_run_id);
     }
 
-    function normalizeMinutes(rows) {
+    function normalizeMinutes(rows, slotLimit = 1440) {
         if (!Array.isArray(rows) || !rows.length) return [];
         const byTime = new Map();
         rows.forEach((row) => {
@@ -110,12 +116,20 @@
         const stamps = [...byTime.keys()].sort((a, b) => a - b);
         if (!stamps.length) return [];
         const end = stamps.at(-1);
-        const start = Math.max(stamps[0], end - 119 * minuteMs);
+        const start = Math.max(stamps[0], end - (slotLimit - 1) * minuteMs);
         const result = [];
         for (let stamp = start; stamp <= end; stamp += minuteMs) {
             result.push(byTime.get(stamp) || { minute_start: new Date(stamp).toISOString(), stamp, missing: true });
         }
         return result;
+    }
+
+    function mergeIntoCache(rows) {
+        if (!Array.isArray(rows)) return;
+        rows.forEach((row) => {
+            const stamp = new Date(row.minute_start).getTime();
+            if (Number.isFinite(stamp)) state.cache.set(stamp, { ...row, stamp });
+        });
     }
 
     function setupCanvas(canvas) {
@@ -198,6 +212,39 @@
         ctx.restore();
     }
 
+    function trailingAverage(field, count = 60) {
+        const values = state.minutes.slice(-count)
+            .map((row) => number(row[field]))
+            .filter((value) => value !== null);
+        if (!values.length) return null;
+        return values.reduce((sum, value) => sum + value, 0) / values.length;
+    }
+
+    function trailingCombinedAverage(fields, count = 60) {
+        const values = state.minutes.slice(-count)
+            .flatMap((row) => fields.map((field) => number(row[field])))
+            .filter((value) => value !== null);
+        if (!values.length) return null;
+        return values.reduce((sum, value) => sum + value, 0) / values.length;
+    }
+
+    function drawAverageLine(plot, y, color) {
+        const { context: ctx } = plot;
+        ctx.save();
+        ctx.strokeStyle = color; ctx.lineWidth = 2; ctx.setLineDash([8, 6]);
+        ctx.beginPath(); ctx.moveTo(plot.left, y); ctx.lineTo(plot.width - plot.right, y); ctx.stroke();
+        ctx.restore();
+    }
+
+    function renderAverages() {
+        const fmt = (value) => value === null ? "—" : compact(value);
+        setText("[data-avg-buy]", fmt(trailingAverage("taker_buy_quote")));
+        setText("[data-avg-sell]", fmt(trailingAverage("taker_sell_quote")));
+        setText("[data-avg-bid-depth]", fmt(trailingAverage("bid_depth_mean")));
+        setText("[data-avg-ask-depth]", fmt(trailingAverage("ask_depth_mean")));
+        setText("[data-avg-depth]", fmt(trailingCombinedAverage(["bid_depth_mean", "ask_depth_mean"])));
+    }
+
     function drawPrice(canvas) {
         const plot = plotGeometry(setupCanvas(canvas));
         drawGrid(plot); drawSelection(plot);
@@ -256,6 +303,10 @@
             if (!started) { ctx.moveTo(x, y); started = true; } else ctx.lineTo(x, y);
         });
         ctx.stroke();
+        const avgBuy = trailingAverage("taker_buy_quote");
+        const avgSell = trailingAverage("taker_sell_quote");
+        if (avgBuy !== null) drawAverageLine(plot, center - avgBuy * 2 * scale, "rgba(255, 82, 82, .95)");
+        if (avgSell !== null) drawAverageLine(plot, center + avgSell * 2 * scale, "rgba(36, 205, 120, .95)");
     }
 
     function drawDepth(canvas) {
@@ -284,6 +335,8 @@
             ctx.fillStyle = "rgba(240, 185, 11, .9)";
             ctx.fillRect(plot.x(index) - Math.max(1, plot.slotWidth * .2), plot.height - plot.bottom - height, Math.max(1, plot.slotWidth * .4), height);
         });
+        const avgDepth = trailingCombinedAverage(["bid_depth_mean", "ask_depth_mean"]);
+        if (avgDepth !== null) drawAverageLine(plot, y(avgDepth * 2), COLORS.white);
     }
 
     function drawCharts() {
@@ -359,8 +412,16 @@
     function renderStatus(data, preserveSelection = true) {
         const previousStamp = preserveSelection && !state.followLatest ? state.minutes[state.selected]?.stamp : null;
         state.data = data;
+        if (data.selected_run_id !== state.cacheRunId) {
+            state.cache.clear();
+            state.cacheRunId = data.selected_run_id;
+        }
+        mergeIntoCache(data.minutes);
         state.selectedRunId = data.selected_run_id;
-        state.minutes = normalizeMinutes(data.minutes);
+        state.hasMore = data.has_more;
+        state.oldestLoaded = data.oldest_loaded_stamp;
+        state.minutes = normalizeMinutes([...state.cache.values()]);
+        renderAverages();
         const previousIndex = previousStamp === null ? -1 : state.minutes.findIndex((row) => row.stamp === previousStamp);
         state.selected = previousIndex >= 0 ? previousIndex : defaultSelectedIndex();
         renderRunOptions(data);
@@ -369,12 +430,16 @@
         setText("[data-live-label]", data.run.connection_label);
         startButton.disabled = state.busy || !data.can_start;
         stopButton.disabled = state.busy || !data.can_stop;
+        if (loadOlderButton) {
+            loadOlderButton.hidden = !data.has_more;
+            loadOlderButton.disabled = state.loadingOlder;
+        }
         const empty = root.querySelector("[data-empty-chart]");
         if (empty) empty.hidden = state.minutes.length > 0;
         if (state.minutes.length) {
             const first = new Date(state.minutes[0].stamp), last = new Date(state.minutes.at(-1).stamp);
             setText("[data-range-start]", time(first)); setText("[data-range-end]", time(last)); setText("[data-range-date]", dateLabel(last));
-            const shown = data.minutes.length;
+            const shown = state.cache.size;
             const countLabel = shown < data.minute_count ? `显示 ${shown} / ${data.minute_count}` : `${shown}`;
             setText("[data-last-update]", `最新 ${time(last)} · ${countLabel} 分钟`);
             renderSelected();
@@ -393,15 +458,37 @@
         node.hidden = !text; node.textContent = text || ""; node.classList.toggle("is-error", error);
     }
 
+    const DEFAULT_LOAD = 360;
+    const OLDER_CHUNK = 720;
+
     async function refresh(preserveSelection = true) {
         try {
-            const params = new URLSearchParams({ minutes: "120" });
+            const params = new URLSearchParams({ minutes: String(DEFAULT_LOAD) });
             if (state.selectedRunId !== null) params.set("run_id", String(state.selectedRunId));
             const response = await fetch(`${root.dataset.statusUrl}?${params}`, { headers: { Accept: "application/json" }, credentials: "same-origin" });
             if (!response.ok) throw new Error("无法读取分钟数据");
             renderStatus(await response.json(), preserveSelection);
         } catch (error) {
             showMessage(error.message || "无法读取分钟数据", true);
+        }
+    }
+
+    async function loadOlder() {
+        if (state.loadingOlder || !state.hasMore || !state.oldestLoaded) return;
+        state.loadingOlder = true;
+        if (loadOlderButton) loadOlderButton.disabled = true;
+        try {
+            const params = new URLSearchParams({ minutes: String(OLDER_CHUNK) });
+            if (state.selectedRunId !== null) params.set("run_id", String(state.selectedRunId));
+            params.set("before", state.oldestLoaded);
+            const response = await fetch(`${root.dataset.statusUrl}?${params}`, { headers: { Accept: "application/json" }, credentials: "same-origin" });
+            if (!response.ok) throw new Error("无法读取更早数据");
+            renderStatus(await response.json(), true);
+        } catch (error) {
+            showMessage(error.message || "无法读取更早数据", true);
+        } finally {
+            state.loadingOlder = false;
+            if (loadOlderButton) loadOlderButton.disabled = false;
         }
     }
 
@@ -441,6 +528,7 @@
         state.followLatest = true;
         refresh(false);
     });
+    loadOlderButton?.addEventListener("click", () => loadOlder());
     startForm?.addEventListener("submit", (event) => submitAction(event, "start"));
     stopForm?.addEventListener("submit", (event) => submitAction(event, "stop"));
     new ResizeObserver(() => drawCharts()).observe(root.querySelector(".chart-stack"));

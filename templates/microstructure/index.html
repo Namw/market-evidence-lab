@@ -4,7 +4,7 @@
 {% block title %}分钟盘口观察 · Market Evidence Lab{% endblock %}
 {% block body_class %}microstructure-body{% endblock %}
 
-{% block extra_css %}<link rel="stylesheet" href="{% static 'microstructure/css/index.css' %}?v=7">{% endblock %}
+{% block extra_css %}<link rel="stylesheet" href="{% static 'microstructure/css/index.css' %}?v=11">{% endblock %}
 
 {% block content %}
 {{ initial_status|json_script:"microstructure-initial-data" }}
@@ -27,6 +27,7 @@
             </label>
         </div>
         <div class="collector-tools">
+            <button type="button" class="load-older-button" data-load-older hidden>加载更早数据</button>
             <span class="live-state state-{{ initial_status.run.connection_state }}" data-live-state>
                 <i aria-hidden="true"></i><span data-live-label>{{ initial_status.run.connection_label }}</span>
             </span>
@@ -93,14 +94,29 @@
                 </table>
             </section>
 
-            <section class="evidence-card">
-                <h2>盘口状态</h2>
-                <dl>
-                    <div><dt>买盘深度</dt><dd class="cyan" data-bid-depth>—</dd></div>
-                    <div><dt>卖盘深度</dt><dd class="purple" data-ask-depth>—</dd></div>
-                    <div><dt>Spread P95</dt><dd data-spread>—</dd></div>
-                    <div><dt>数据覆盖率</dt><dd data-coverage>—</dd></div>
-                </dl>
+            <section class="evidence-card avg-card">
+                <details class="avg-collapse">
+                    <summary>60分钟均值</summary>
+                    <dl>
+                        <div><dt>主动买入均量<span class="avg-multiplier">（2倍）</span></dt><dd data-avg-buy>—</dd></div>
+                        <div><dt>主动卖出均量<span class="avg-multiplier">（2倍）</span></dt><dd data-avg-sell>—</dd></div>
+                        <div><dt>买盘深度均值</dt><dd class="cyan" data-avg-bid-depth>—</dd></div>
+                        <div><dt>卖盘深度均值</dt><dd class="purple" data-avg-ask-depth>—</dd></div>
+                        <div><dt>盘口深度汇总均值<span class="avg-multiplier">（2倍）</span></dt><dd data-avg-depth>—</dd></div>
+                    </dl>
+                </details>
+            </section>
+
+            <section class="evidence-card book-card">
+                <details class="avg-collapse">
+                    <summary>盘口状态</summary>
+                    <dl>
+                        <div><dt>买盘深度</dt><dd class="cyan" data-bid-depth>—</dd></div>
+                        <div><dt>卖盘深度</dt><dd class="purple" data-ask-depth>—</dd></div>
+                        <div><dt>Spread P95</dt><dd data-spread>—</dd></div>
+                        <div><dt>数据覆盖率</dt><dd data-coverage>—</dd></div>
+                    </dl>
+                </details>
             </section>
 
             <section class="evidence-card group-card">
@@ -114,4 +130,4 @@
 </div>
 {% endblock %}
 
-{% block extra_js %}<script src="{% static 'microstructure/js/index.js' %}?v=7" defer></script>{% endblock %}
+{% block extra_js %}<script src="{% static 'microstructure/js/index.js' %}?v=11" defer></script>{% endblock %}

@@ -151,6 +151,7 @@ def _status_payload(
     *,
     minute_limit: int = DEFAULT_MINUTE_LIMIT,
     selected_run_id: int | None = None,
+    before: datetime | None = None,
 ) -> dict[str, object]:
     symbol = settings.MICROSTRUCTURE_SYMBOL
     now = timezone.now().astimezone(UTC)
@@ -186,10 +187,18 @@ def _status_payload(
             minute_start__gte=range_start,
             minute_start__lt=range_end,
         )
+    page_query = minute_query
+    if before is not None:
+        page_query = page_query.filter(minute_start__lt=before)
     rows = list(
         reversed(
-            minute_query.order_by("-minute_start")[:minute_limit]
+            page_query.order_by("-minute_start")[:minute_limit]
         )
+    )
+    oldest_loaded = rows[0].minute_start if rows else None
+    has_more = bool(
+        oldest_loaded is not None
+        and minute_query.filter(minute_start__lt=oldest_loaded).exists()
     )
     active = bool(latest_run and latest_run.status in active_statuses)
     stoppable = bool(
@@ -209,6 +218,8 @@ def _status_payload(
         "can_stop": stoppable,
         "minute_count": minute_query.count(),
         "minutes": [_minute_payload(row) for row in rows],
+        "has_more": has_more,
+        "oldest_loaded_stamp": _utc_iso(oldest_loaded),
         "selected_run_id": selected_run.pk if selected_run else None,
         "selected_run_active": bool(
             selected_run and selected_run.status in active_statuses
@@ -242,11 +253,23 @@ def status(request):
         selected_run_id = int(request.GET.get("run_id", ""))
     except (TypeError, ValueError):
         selected_run_id = None
+    before = None
+    before_raw = request.GET.get("before", "")
+    if before_raw:
+        try:
+            before = datetime.fromisoformat(before_raw.replace("Z", "+00:00"))
+        except ValueError:
+            before = None
+    if before is not None:
+        if before.tzinfo is None:
+            before = before.replace(tzinfo=UTC)
+        before = before.astimezone(UTC)
     minute_limit = max(10, min(MAX_MINUTE_LIMIT, minute_limit))
     return JsonResponse(
         _status_payload(
             minute_limit=minute_limit,
             selected_run_id=selected_run_id,
+            before=before,
         )
     )
 

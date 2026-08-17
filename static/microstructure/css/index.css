@@ -134,6 +134,20 @@
     font-size: 11px;
 }
 
+.load-older-button {
+    border-color: #3d5a4c !important;
+    color: #8fd8b2 !important;
+}
+
+.load-older-button:disabled {
+    opacity: .35;
+    cursor: not-allowed;
+}
+
+.collector-tools button[hidden] {
+    display: none;
+}
+
 .collector-tools button:hover:not(:disabled) {
     border-color: #718591;
     color: #fff;
@@ -314,6 +328,45 @@
     font-weight: 650;
 }
 
+.avg-card,
+.book-card {
+    padding-bottom: 0;
+}
+
+.avg-collapse summary {
+    display: flex;
+    margin: 0 0 8px;
+    padding: 0 0 7px;
+    border-bottom: 1px solid #263540;
+    align-items: center;
+    justify-content: space-between;
+    color: #f1f4f6;
+    cursor: pointer;
+    font-size: 14px;
+    font-weight: 650;
+    list-style: none;
+    user-select: none;
+}
+
+.avg-collapse summary::-webkit-details-marker {
+    display: none;
+}
+
+.avg-collapse summary::after {
+    color: #71828f;
+    content: "▸";
+    font-size: 11px;
+    transition: transform .15s ease;
+}
+
+.avg-collapse[open] summary::after {
+    transform: rotate(90deg);
+}
+
+.avg-collapse[open] summary {
+    margin-bottom: 8px;
+}
+
 .evidence-card dl,
 .evidence-card dd {
     margin: 0;
@@ -330,6 +383,12 @@
 .evidence-card dt {
     color: #b8c2ca;
     font-size: 12px;
+}
+
+.avg-multiplier {
+    margin-left: 4px;
+    color: #71828f;
+    font-size: 10px;
 }
 
 .evidence-card dd {

@@ -105,6 +105,67 @@ class MicrostructureViewTests(TestCase):
             [second_run.pk, first_run.pk],
         )
 
+    def test_status_paginates_older_minutes_with_before_cursor(self):
+        run = MicrostructureCollectorRun.objects.create(
+            symbol="ETHUSDT",
+            status=MicrostructureCollectorRun.Status.STOPPED,
+            started_at=datetime(2026, 8, 17, 1, 0, tzinfo=UTC),
+            stopped_at=datetime(2026, 8, 17, 2, 0, tzinfo=UTC),
+            saved_minute_updates=60,
+        )
+        for minute in range(60):
+            start = datetime(2026, 8, 17, 1, 0, tzinfo=UTC) + timedelta(minutes=minute)
+            MarketMinute.objects.create(
+                symbol="ETHUSDT",
+                minute_start=start,
+                minute_end=start + timedelta(minutes=1),
+                open_price="3200",
+                high_price="3201",
+                low_price="3199",
+                close_price="3200",
+            )
+
+        first = self.client.get(
+            reverse("microstructure:status"),
+            {"run_id": run.pk, "minutes": 25},
+        ).json()
+        older = self.client.get(
+            reverse("microstructure:status"),
+            {
+                "run_id": run.pk,
+                "minutes": 25,
+                "before": first["minutes"][0]["minute_start"],
+            },
+        ).json()
+
+        self.assertEqual(len(first["minutes"]), 25)
+        self.assertTrue(first["has_more"])
+        self.assertEqual(
+            [row["close"] for row in first["minutes"]],
+            ["3200.000000000000000000"] * 25,
+        )
+        self.assertEqual(len(older["minutes"]), 25)
+        self.assertTrue(older["has_more"])
+        self.assertLess(
+            older["minutes"][-1]["minute_start"],
+            first["minutes"][0]["minute_start"],
+        )
+        self.assertEqual(
+            older["oldest_loaded_stamp"],
+            older["minutes"][0]["minute_start"],
+        )
+
+        tail = self.client.get(
+            reverse("microstructure:status"),
+            {
+                "run_id": run.pk,
+                "minutes": 25,
+                "before": older["minutes"][0]["minute_start"],
+            },
+        ).json()
+        self.assertEqual(len(tail["minutes"]), 10)
+        self.assertFalse(tail["has_more"])
+
     def test_stopping_run_cannot_receive_duplicate_stop(self):
         MicrostructureCollectorRun.objects.create(
             symbol="ETHUSDT",
