@@ -4821,6 +4821,10 @@ body.summary-dialog-open {
     gap: 12px;
 }
 
+.five-minute-grid-full {
+    grid-template-columns: 1fr;
+}
+
 .five-minute-panel {
     display: flex;
     min-width: 0;

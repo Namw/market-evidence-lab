@@ -473,7 +473,7 @@
         }
         const start = selectedHourStart;
         const end = new Date(start.getTime() + 60 * 60 * 1000);
-        const bounds = { left: 18, right: 68, top: 14, bottom: 29 };
+        const bounds = { left: 62, right: 68, top: 14, bottom: 29 };
         bounds.width = width - bounds.left - bounds.right;
         bounds.height = height - bounds.top - bounds.bottom;
         const scale = priceScale(rows, bounds.top, bounds.height);
@@ -507,65 +507,56 @@
                 );
             }
         }
+        // 5m OI 叠加：OI timestamp 为周期结束时刻，归属到其对应 K 线
+        // （timestamp - 5min = 该周期 K 线 open_time），最新一根未结束 K 线无 OI。
+        const oiRows = selectedFiveMinuteRows(fiveMinuteOiRows)
+            .filter(
+                (row) =>
+                    row.time.getTime() >= start.getTime() + 5 * 60 * 1000 &&
+                    row.time.getTime() < end.getTime() &&
+                    Number.isFinite(row.time.getTime()) &&
+                    Number.isFinite(row.value)
+            );
+        if (oiRows.length) {
+            const oiDomain = paddedDomain(oiRows.map((row) => row.value));
+            const oiY = (value) =>
+                bounds.top +
+                ((oiDomain.maximum - value) / (oiDomain.maximum - oiDomain.minimum)) *
+                    bounds.height;
+            context.font = font;
+            context.textBaseline = "middle";
+            context.textAlign = "right";
+            for (let index = 0; index <= 4; index += 1) {
+                const gridY = bounds.top + bounds.height * index / 4;
+                const value = oiDomain.maximum - (oiDomain.maximum - oiDomain.minimum) * index / 4;
+                context.fillStyle = colors.axis;
+                context.fillText(
+                    formatCompact(value),
+                    bounds.left - 10,
+                    gridY
+                );
+            }
+            const oiPoints = oiRows.map((row) => ({
+                x: detailX(
+                    new Date(row.time.getTime() - 2.5 * 60 * 1000),
+                    bounds.left,
+                    bounds.width,
+                    start,
+                    end
+                ),
+                y: oiY(row.value),
+            }));
+            context.strokeStyle = colors.blue;
+            context.lineWidth = 2;
+            drawStraightLine(context, oiPoints);
+            oiPoints.forEach((point) => {
+                context.beginPath();
+                context.fillStyle = colors.blue;
+                context.arc(point.x, point.y, 2.5, 0, Math.PI * 2);
+                context.fill();
+            });
+        }
         fiveMinuteGeometry = { bounds, rows, start, end };
-    }
-
-    function drawFiveMinuteOi() {
-        const canvas = root.querySelector('[data-chart="five-minute-oi"]');
-        if (!canvas || !selectedHourStart) return;
-        const { context, width, height } = setupCanvas(
-            canvas,
-            availableCanvasHeight(canvas, 190)
-        );
-        const rows = selectedFiveMinuteRows(fiveMinuteOiRows).filter(
-            (row) => Number.isFinite(row.time.getTime()) && Number.isFinite(row.value)
-        );
-        if (!rows.length) {
-            drawEmpty(context, width, height, "该小时暂无5m OI数据");
-            return;
-        }
-        const start = selectedHourStart;
-        const end = new Date(start.getTime() + 60 * 60 * 1000);
-        const bounds = { left: 72, right: 18, top: 14, bottom: 29 };
-        bounds.width = width - bounds.left - bounds.right;
-        bounds.height = height - bounds.top - bounds.bottom;
-        const domain = paddedDomain(rows.map((row) => row.value));
-        const y = (value) => bounds.top + ((domain.maximum - value) / (domain.maximum - domain.minimum)) * bounds.height;
-
-        context.font = font;
-        context.textBaseline = "middle";
-        context.textAlign = "right";
-        for (let index = 0; index <= 4; index += 1) {
-            const gridY = bounds.top + bounds.height * index / 4;
-            const value = domain.maximum - (domain.maximum - domain.minimum) * index / 4;
-            context.strokeStyle = colors.grid;
-            context.beginPath();
-            context.moveTo(bounds.left, gridY);
-            context.lineTo(bounds.left + bounds.width, gridY);
-            context.stroke();
-            context.fillStyle = colors.axis;
-            context.fillText(formatCompact(value), bounds.left - 9, gridY);
-        }
-        drawFiveMinuteTimeAxis(context, bounds, start, end);
-        const points = rows.map((row) => ({
-            x: detailX(
-                new Date(row.time.getTime() + 2.5 * 60 * 1000),
-                bounds.left,
-                bounds.width,
-                start,
-                end
-            ),
-            y: y(row.value),
-        }));
-        context.strokeStyle = colors.blue;
-        context.lineWidth = 2;
-        drawStraightLine(context, points);
-        points.forEach((point) => {
-            context.beginPath();
-            context.fillStyle = colors.blue;
-            context.arc(point.x, point.y, 2.5, 0, Math.PI * 2);
-            context.fill();
-        });
     }
 
     function paddedDomain(values, includeZero = false) {
@@ -673,7 +664,6 @@
         drawDaily();
         drawHourly();
         drawFiveMinute();
-        drawFiveMinuteOi();
         drawDerivatives();
     }
 

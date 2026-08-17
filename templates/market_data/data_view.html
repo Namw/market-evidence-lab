@@ -105,17 +105,11 @@
             <div><dt>涨跌</dt><dd data-kline-change>—</dd></div>
             <div><dt>振幅</dt><dd data-kline-amplitude>—</dd></div>
         </dl>
-        <div class="five-minute-grid">
+        <div class="five-minute-grid five-minute-grid-full">
             <div class="five-minute-panel">
-                <strong>5m K线</strong>
+                <strong>5m K线 + OI</strong>
                 <div class="data-canvas-wrap five-minute-canvas-wrap">
-                    <canvas data-chart="five-minute" aria-label="选中小时内的5分钟K线"></canvas>
-                </div>
-            </div>
-            <div class="five-minute-panel">
-                <strong>5m OI</strong>
-                <div class="data-canvas-wrap five-minute-oi-canvas-wrap">
-                    <canvas data-chart="five-minute-oi" aria-label="选中小时内的5分钟OI"></canvas>
+                    <canvas data-chart="five-minute" aria-label="选中小时内的5分钟K线与OI叠加图"></canvas>
                 </div>
             </div>
         </div>
@@ -154,5 +148,5 @@
 {% endblock %}
 
 {% block extra_js %}
-<script src="{% static 'market_data/js/data_view.js' %}?v=8" defer></script>
+<script src="{% static 'market_data/js/data_view.js' %}?v=9" defer></script>
 {% endblock %}
