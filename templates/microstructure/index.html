@@ -4,7 +4,7 @@
 {% block title %}分钟盘口观察 · Market Evidence Lab{% endblock %}
 {% block body_class %}microstructure-body{% endblock %}
 
-{% block extra_css %}<link rel="stylesheet" href="{% static 'microstructure/css/index.css' %}?v=6">{% endblock %}
+{% block extra_css %}<link rel="stylesheet" href="{% static 'microstructure/css/index.css' %}?v=7">{% endblock %}
 
 {% block content %}
 {{ initial_status|json_script:"microstructure-initial-data" }}
@@ -68,22 +68,29 @@
         <aside class="evidence-sidebar">
             <div class="selected-minute-title">选中分钟 <strong data-selected-range>—</strong></div>
 
-            <section class="evidence-card">
-                <h2>价格结果</h2>
-                <dl>
-                    <div><dt>涨跌</dt><dd data-price-change>—</dd></div>
-                    <div><dt>振幅</dt><dd data-price-range>—</dd></div>
-                    <div><dt>成交额</dt><dd data-quote-volume>—</dd></div>
-                </dl>
-            </section>
-
-            <section class="evidence-card">
-                <h2>主动成交</h2>
-                <dl>
-                    <div><dt>主动买入</dt><dd class="positive" data-buy-volume>—</dd></div>
-                    <div><dt>主动卖出</dt><dd class="negative" data-sell-volume>—</dd></div>
-                    <div><dt>Delta</dt><dd data-delta>—</dd></div>
-                </dl>
+            <section class="evidence-card combined-card">
+                <table class="metric-table">
+                    <thead>
+                        <tr>
+                            <th colspan="2">价格结果</th>
+                            <th colspan="2">主动成交</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr>
+                            <td>涨跌</td><td data-price-change>—</td>
+                            <td>主动买入</td><td class="positive" data-buy-volume>—</td>
+                        </tr>
+                        <tr>
+                            <td>振幅</td><td data-price-range>—</td>
+                            <td>主动卖出</td><td class="negative" data-sell-volume>—</td>
+                        </tr>
+                        <tr>
+                            <td>成交额</td><td data-quote-volume>—</td>
+                            <td>Delta</td><td data-delta>—</td>
+                        </tr>
+                    </tbody>
+                </table>
             </section>
 
             <section class="evidence-card">
@@ -107,4 +114,4 @@
 </div>
 {% endblock %}
 
-{% block extra_js %}<script src="{% static 'microstructure/js/index.js' %}?v=6" defer></script>{% endblock %}
+{% block extra_js %}<script src="{% static 'microstructure/js/index.js' %}?v=7" defer></script>{% endblock %}

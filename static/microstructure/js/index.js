@@ -53,6 +53,12 @@
         if (parsed === null) return "—";
         return `${parsed >= 0 ? "+" : ""}${compact(parsed)}`;
     };
+    const signedPrice = (value) => {
+        const parsed = number(value);
+        if (parsed === null) return "—";
+        const sign = parsed > 0 ? "+" : parsed < 0 ? "-" : "";
+        return `${sign}${price(Math.abs(parsed))}`;
+    };
     const percent = (value) => {
         const parsed = number(value);
         if (parsed === null) return "—";
@@ -305,13 +311,14 @@
             const found = byTime.get(stamp);
             const row = found?.row;
             const change = row && number(row.open) && number(row.close) !== null ? (number(row.close) / number(row.open) - 1) * 100 : null;
+            const priceChange = row && number(row.open) && number(row.close) !== null ? number(row.close) - number(row.open) : null;
             const button = document.createElement("button");
             button.type = "button"; button.className = "group-minute";
             if (found?.index === state.selected) button.classList.add("is-selected");
             if (change > 0) button.classList.add("is-up");
             if (change < 0) button.classList.add("is-down");
             button.disabled = !found || row.missing;
-            button.innerHTML = `<span>${time(new Date(stamp))}</span><strong>${position + 1}</strong><small>${change === null ? "—" : percent(change)}</small>`;
+            button.innerHTML = `<span>${time(new Date(stamp))}</span><strong>${position + 1}</strong><small>${change === null ? "—" : percent(change)}</small><em>${priceChange === null ? "—" : signedPrice(priceChange)}</em>`;
             if (found) button.addEventListener("click", () => select(found.index, true));
             container.appendChild(button);
         }
