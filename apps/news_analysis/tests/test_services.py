@@ -237,6 +237,49 @@ class AnalysisServiceTests(TestCase):
         )
         self.assertFalse(NewsRawRecord.objects.filter(pk=record.pk).exists())
 
+    def test_referenced_irrelevant_record_is_retained_and_classified(self):
+        record = make_record(title="Join the Trading Competition")
+        extraction_run = ObjectiveFactExtractionRun.objects.create(
+            trigger=ObjectiveFactExtractionRun.Trigger.COMMAND,
+            mode=ObjectiveFactExtractionRun.Mode.INCREMENTAL,
+            status=ObjectiveFactExtractionRun.Status.SUCCESS,
+            provider="DeepSeek",
+            model="deepseek-test",
+            prompt_version="objective-news-facts-test",
+            started_at=timezone.now(),
+            finished_at=timezone.now(),
+        )
+        ObjectiveFactExtractionResult.objects.create(
+            news_record=record,
+            extraction_run=extraction_run,
+            extraction_status=ObjectiveFactExtractionResult.ExtractionStatus.SUCCESS,
+            validation_status=ObjectiveFactExtractionResult.ValidationStatus.PASSED,
+            provider="DeepSeek",
+            model="deepseek-test",
+            prompt_version="objective-news-facts-test",
+            system_prompt="system",
+            user_prompt="user",
+            extracted_at=timezone.now(),
+        )
+
+        class NoAI:
+            def analyze_batch(self, *args, **kwargs):
+                raise AssertionError("AI must not run after a clear program rule")
+
+        run = run_news_analysis(client=NoAI(), article_loader=self.article_loader)
+
+        self.assertEqual(run.status, NewsAnalysisRun.Status.SUCCESS)
+        self.assertEqual(run.rule_processed_count, 1)
+        self.assertTrue(NewsRawRecord.objects.filter(pk=record.pk).exists())
+        result = NewsAnalysisResult.objects.get(news_record=record)
+        self.assertEqual(result.conclusion, NewsAnalysisResult.Conclusion.IRRELEVANT)
+        self.assertEqual(result.method, NewsAnalysisResult.Method.RULE)
+        self.assertTrue(
+            ObjectiveFactExtractionResult.objects.filter(
+                news_record=record
+            ).exists()
+        )
+
     def test_general_source_unclear_is_deleted_after_three_days(self):
         record = make_record(title="Ambiguous Ethereum item")
         record.source.authority_level = "general"

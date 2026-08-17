@@ -181,6 +181,19 @@ def _decision_summary(decision: RuleDecision | AIItem, fallback: str = "") -> st
     return fallback
 
 
+def _news_referenced_ids(news_record_ids: list[int]) -> set[int]:
+    """Return ids referenced by evidence models whose PROTECT keys block deletion."""
+    if not news_record_ids:
+        return set()
+    objective_fact_ids = ObjectiveFactExtractionResult.objects.filter(
+        news_record_id__in=news_record_ids
+    ).values_list("news_record_id", flat=True)
+    event_membership_ids = EventMembership.objects.filter(
+        news_record_id__in=news_record_ids
+    ).values_list("news_record_id", flat=True)
+    return set(objective_fact_ids) | set(event_membership_ids)
+
+
 def _save_success_results(
     *,
     run: NewsAnalysisRun,
@@ -205,13 +218,17 @@ def _save_success_results(
                 analysis_version=run.analysis_version,
             )
         }
+        referenced_ids = _news_referenced_ids([record.id for record in records])
         for index, record in enumerate(records):
             decision = decisions[record.id]
             result = existing.get(record.id)
             if result and result.status == NewsAnalysisResult.Status.SUCCESS:
                 skipped += 1
                 continue
-            if decision.conclusion == NewsAnalysisResult.Conclusion.IRRELEVANT:
+            if (
+                decision.conclusion == NewsAnalysisResult.Conclusion.IRRELEVANT
+                and record.id not in referenced_ids
+            ):
                 NewsAnalysisResult.objects.filter(news_record_id=record.id).delete()
                 record.delete()
                 completed += 1
