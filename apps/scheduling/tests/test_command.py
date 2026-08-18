@@ -17,7 +17,9 @@ class SchedulerCommandTests(TestCase):
 
         claim.assert_called_once_with()
         self.assertIn("Scheduler check complete", stdout.getvalue())
-        self.assertFalse(SchedulerHeartbeat.objects.get().is_running)
+        heartbeat = SchedulerHeartbeat.objects.get()
+        self.assertFalse(heartbeat.is_running)
+        self.assertEqual(heartbeat.poll_interval_seconds, 300)
 
     @patch("apps.scheduling.management.commands.run_scheduler.execute_claimed_workflow")
     @patch("apps.scheduling.management.commands.run_scheduler.claim_due_schedules")

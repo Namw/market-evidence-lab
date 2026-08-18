@@ -44,9 +44,9 @@ class Command(BaseCommand):
         parser.add_argument(
             "--poll-interval",
             type=int,
-            default=30,
+            default=300,
             metavar="SECONDS",
-            help="Seconds between checks (default: 30).",
+            help="Seconds between checks (default: 300).",
         )
 
     def handle(self, *args, **options):
