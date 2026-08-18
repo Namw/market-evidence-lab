@@ -4,7 +4,7 @@
 
 {% block content %}
 <header class="page-header detail-page-header">
-    <div><p class="eyebrow">调度情况 / 运行 #{{ run.id }}</p><h1>{% if run_kind == 'market' %}行情原始数据工作流{% else %}{{ run.get_feed_group_display }}工作流{% endif %}</h1><p class="page-intro">查看本次调度的触发方式、执行结果、异常说明与各环节状态。</p></div>
+    <div><p class="eyebrow">调度情况 / 运行 #{{ run.id }}</p><h1>{% if run_kind == 'market' %}行情原始数据工作流{% elif run_kind == 'news' %}{{ run.get_feed_group_display }}采集工作流{% else %}新闻 DeepSeek 增量分析{% endif %}</h1><p class="page-intro">查看本次调度的触发方式、执行结果、异常说明与各环节状态。</p></div>
     <a class="secondary-button" href="{% url 'scheduling:runs' %}">返回调度情况</a>
 </header>
 
@@ -14,7 +14,7 @@
         <div><dt>开始时间</dt><dd>{{ run.started_at|date:"Y-m-d H:i:s" }} 北京时间</dd></div>
         <div><dt>完成时间</dt><dd>{% if run.finished_at %}{{ run.finished_at|date:"Y-m-d H:i:s" }} 北京时间{% else %}尚未完成{% endif %}</dd></div>
         <div><dt>关联自动任务</dt><dd>{% if run.schedule %}{{ run.schedule.name }}{% else %}手动执行，不关联自动计划{% endif %}</dd></div>
-        {% if run_kind == 'market' %}<div><dt>数据范围</dt><dd>{{ run.range_start|date:"Y-m-d H:i" }} → {{ run.range_end|date:"Y-m-d H:i" }} 北京时间（交易所 UTC 边界）</dd></div>{% else %}<div><dt>网络策略</dt><dd><a href="{% url 'scheduling:sources' %}">按来源配置</a></dd></div><div><dt>质量问题</dt><dd>{{ run.quality_issue_count }} 个</dd></div>{% endif %}
+        {% if run_kind == 'market' %}<div><dt>数据范围</dt><dd>{{ run.range_start|date:"Y-m-d H:i" }} → {{ run.range_end|date:"Y-m-d H:i" }} 北京时间（交易所 UTC 边界）</dd></div>{% elif run_kind == 'news' %}<div><dt>网络策略</dt><dd><a href="{% url 'scheduling:sources' %}">按来源配置</a></dd></div><div><dt>质量问题</dt><dd>{{ run.quality_issue_count }} 个</dd></div>{% else %}<div><dt>模型请求</dt><dd>{{ run.request_count }} 次</dd></div><div><dt>Token 用量</dt><dd>{{ run.input_tokens }} 输入 / {{ run.output_tokens }} 输出</dd></div>{% endif %}
     </dl>
     <div class="run-explanation{% if run.status == 'failed' or run.status == 'partial' %} is-error{% endif %}"><strong>{% if run.status == 'failed' or run.status == 'partial' %}异常说明{% else %}结果说明{% endif %}</strong><p>{{ summary }}</p></div>
 </section>
@@ -37,7 +37,7 @@
         {% endfor %}
     </div>
 </section>
-{% else %}
+{% elif run_kind == 'news' %}
     <section class="panel workflow-details" aria-labelledby="news-details-title">
     <div class="panel-heading"><div><p class="eyebrow">环节明细</p><h2 id="news-details-title">采集、质量与分析</h2></div></div>
     <div class="workflow-step-grid news-workflow-step-grid">
@@ -49,11 +49,19 @@
             {% if step.safe_error_summary %}<p class="step-error"><strong>失败原因：</strong>{{ step.safe_error_summary }}</p>{% elif step.collection_run.error_message %}<p class="step-error"><strong>失败原因：</strong>{{ step.collection_run.error_message }}</p>{% endif %}
         </article>
         {% empty %}<p class="muted">该历史运行没有栏目级步骤记录。</p>{% endfor %}
-        <article class="workflow-step-card"><div class="workflow-step-heading"><h3>增量分析</h3><span class="run-status status-{{ run.analysis_status }}">{{ run.get_analysis_status_display }}</span></div>{% if run.analysis_run %}<p class="child-run-link">NewsAnalysisRun #{{ run.analysis_run_id }}</p><dl><div><dt>候选</dt><dd>{{ run.analysis_candidate_count }}</dd></div><div><dt>成功 / 失败</dt><dd>{{ run.analysis_success_count }} / {{ run.analysis_failure_count }}</dd></div><div><dt>跳过</dt><dd>{{ run.analysis_skipped_count }}</dd></div></dl>{% if run.analysis_run.safe_error_summary %}<p class="step-error"><strong>失败原因：</strong>{{ run.analysis_run.safe_error_summary }}</p>{% endif %}{% else %}<p class="muted">未产生分析子运行。</p>{% endif %}</article>
-        <article class="workflow-step-card"><div class="workflow-step-heading"><h3>客观事实提取</h3><span class="run-status status-{{ run.objective_fact_status }}">{{ run.get_objective_fact_status_display }}</span></div>{% if run.objective_fact_run %}<p class="child-run-link">ObjectiveFactExtractionRun #{{ run.objective_fact_run_id }}</p><dl><div><dt>成功 / 失败</dt><dd>{{ run.objective_fact_success_count }} / {{ run.objective_fact_failure_count }}</dd></div><div><dt>候选</dt><dd>{{ run.objective_fact_run.candidate_count }}</dd></div></dl>{% if run.objective_fact_run.safe_error_summary %}<p class="step-error"><strong>失败原因：</strong>{{ run.objective_fact_run.safe_error_summary }}</p>{% endif %}{% else %}<p class="muted">未产生客观事实提取子运行。</p>{% endif %}</article>
-        <article class="workflow-step-card"><div class="workflow-step-heading"><h3>重建暂定事件库</h3><span class="run-status status-{{ run.event_merge_status }}">{{ run.get_event_merge_status_display }}</span></div>{% if run.event_merge_run %}<p class="child-run-link"><a href="{% url 'news_analysis:event_run_detail' run.event_merge_run_id %}">EventMergeRun #{{ run.event_merge_run_id }}</a></p><dl><div><dt>合格输入</dt><dd>{{ run.event_merge_run.eligible_count }}</dd></div><div><dt>事件 / 失败</dt><dd>{{ run.event_merge_run.final_event_count }} / {{ run.event_merge_run.ai_failure_count }}</dd></div></dl>{% else %}<p class="muted">输入未变化或上游未成功，本次幂等跳过。</p>{% endif %}</article>
+        <article class="workflow-step-card"><div class="workflow-step-heading"><h3>DeepSeek 分析</h3><span class="run-status status-not_run">独立调度</span></div><p class="muted">本次运行仅采集和质检；方向分类、客观事实提取与事件归并由独立的凌晨 AI 任务处理。</p></article>
     </div>
     <p class="boundary-note"><a class="text-link" href="{% url 'news_data:index' %}">查看新闻采集与质量记录 →</a> · <a class="text-link" href="{% url 'news_analysis:index' %}">查看新闻分类结果 →</a></p>
-</section>
+    </section>
+{% else %}
+    <section class="panel workflow-details" aria-labelledby="news-ai-details-title">
+        <div class="panel-heading"><div><p class="eyebrow">AI 环节明细</p><h2 id="news-ai-details-title">增量分类、事实与事件</h2></div></div>
+        <div class="workflow-step-grid news-workflow-step-grid">
+            <article class="workflow-step-card"><div class="workflow-step-heading"><h3>方向分类</h3><span class="run-status status-{{ run.analysis_status }}">{{ run.get_analysis_status_display }}</span></div>{% if run.analysis_run %}<p class="child-run-link">NewsAnalysisRun #{{ run.analysis_run_id }}</p><dl><div><dt>候选</dt><dd>{{ run.analysis_run.candidate_count }}</dd></div><div><dt>成功 / 失败</dt><dd>{{ run.analysis_run.success_count }} / {{ run.analysis_run.failure_count }}</dd></div><div><dt>请求 / Token</dt><dd>{{ run.analysis_run.api_request_count }} / {{ run.analysis_run.total_tokens }}</dd></div></dl>{% else %}<p class="muted">未产生方向分析子运行。</p>{% endif %}</article>
+            <article class="workflow-step-card"><div class="workflow-step-heading"><h3>客观事实提取</h3><span class="run-status status-{{ run.objective_fact_status }}">{{ run.get_objective_fact_status_display }}</span></div>{% if run.objective_fact_run %}<p class="child-run-link">ObjectiveFactExtractionRun #{{ run.objective_fact_run_id }}</p><dl><div><dt>候选</dt><dd>{{ run.objective_fact_run.candidate_count }}</dd></div><div><dt>成功 / 失败</dt><dd>{{ run.objective_fact_run.success_count }} / {{ run.objective_fact_run.failed_count }}</dd></div><div><dt>请求 / Token</dt><dd>{{ run.objective_fact_run.request_count }} / {{ run.objective_fact_run.total_tokens }}</dd></div></dl>{% else %}<p class="muted">未产生客观事实提取子运行。</p>{% endif %}</article>
+            <article class="workflow-step-card"><div class="workflow-step-heading"><h3>事件归并</h3><span class="run-status status-{{ run.event_merge_status }}">{{ run.get_event_merge_status_display }}</span></div>{% if run.event_merge_run %}<p class="child-run-link"><a href="{% url 'news_analysis:event_run_detail' run.event_merge_run_id %}">EventMergeRun #{{ run.event_merge_run_id }}</a></p><dl><div><dt>合格输入</dt><dd>{{ run.event_merge_run.eligible_count }}</dd></div><div><dt>AI 比较</dt><dd>{{ run.event_merge_run.ai_decision_count }}</dd></div><div><dt>事件 / Token</dt><dd>{{ run.event_merge_run.final_event_count }} / {{ run.event_merge_run.total_tokens }}</dd></div></dl>{% else %}<p class="muted">输入未变化、上游未成功，或预计调用量超过本轮费用上限。</p>{% endif %}</article>
+        </div>
+        <p class="boundary-note">本轮上限：方向 {{ run.max_direction_requests }} 请求 · 客观事实 {{ run.max_objective_records }} 篇 · 事件归并 {{ run.max_event_ai_calls }} 次 AI 比较</p>
+    </section>
 {% endif %}
 {% endblock %}

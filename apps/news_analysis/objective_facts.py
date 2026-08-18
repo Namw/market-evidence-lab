@@ -551,6 +551,7 @@ def run_objective_fact_extraction(
     record_ids: list[int] | None = None,
     prompt_version: str | None = None,
     client: DeepSeekObjectiveFactClient | None = None,
+    max_records: int | None = None,
 ) -> ObjectiveFactExtractionRun:
     _validate_mode_scope(mode, record_ids)
     config = get_objective_fact_config(prompt_version=prompt_version)
@@ -566,6 +567,10 @@ def run_objective_fact_extraction(
             prompt_version=config.prompt_version,
             record_ids=record_ids,
         )
+        if max_records is not None and mode in BATCH_MODES:
+            safe_limit = max(1, max_records)
+            skipped += max(0, len(candidates) - safe_limit)
+            candidates = candidates[:safe_limit]
         run.candidate_count = len(candidates)
         run.skipped_count = skipped
         run.save(update_fields=["candidate_count", "skipped_count", "updated_at"])

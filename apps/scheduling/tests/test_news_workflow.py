@@ -553,6 +553,7 @@ class NewsScheduleTests(TestCase):
 
         execute.assert_called_once()
         self.assertEqual(execute.call_args.kwargs["workflow_run"], run)
+        self.assertFalse(execute.call_args.kwargs["run_ai"])
 
     def test_scheduled_running_workflow_blocks_manual_entry(self):
         NewsWorkflowRun.objects.create(
@@ -567,7 +568,7 @@ class NewsScheduleTests(TestCase):
     @patch("apps.scheduling.news_workflow.run_news_analysis")
     @patch("apps.scheduling.news_workflow.inspect_news_collection")
     @patch("apps.scheduling.news_workflow.collect_news_feed")
-    def test_due_scheduled_run_executes_complete_unified_workflow(
+    def test_due_scheduled_run_only_collects_and_does_not_call_ai(
         self,
         collect,
         inspect,
@@ -581,10 +582,6 @@ class NewsScheduleTests(TestCase):
         binance = child_pipeline(BINANCE_ANNOUNCEMENTS_CODE)
         collect.side_effect = [ethereum.collection_run, binance.collection_run]
         inspect.side_effect = [ethereum.inspection_run, binance.inspection_run]
-        analyze.return_value = analysis_run(
-            trigger=NewsAnalysisRun.Trigger.SCHEDULED,
-        )
-
         claimed = claim_due_news_schedules(now=FIXED_NOW)
         run = execute_claimed_news_workflow(claimed[0])
 
@@ -598,10 +595,8 @@ class NewsScheduleTests(TestCase):
         self.assertTrue(
             all("use_source_proxy" not in call.kwargs for call in collect.call_args_list)
         )
-        self.assertEqual(
-            analyze.call_args.kwargs["trigger"],
-            NewsAnalysisRun.Trigger.SCHEDULED,
-        )
+        self.assertEqual(run.analysis_status, NewsWorkflowRun.StepStatus.NOT_RUN)
+        analyze.assert_not_called()
 
 
 class NewsWorkflowPageTests(TestCase):
@@ -612,13 +607,14 @@ class NewsWorkflowPageTests(TestCase):
 
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, "任务列表")
-        self.assertContains(response, "任务列表 <span>7</span>", html=True)
+        self.assertContains(response, "任务列表 <span>8</span>", html=True)
         self.assertContains(response, "官方与监管新闻工作流")
         self.assertContains(response, "CoinDesk 新闻工作流")
         self.assertContains(response, "Ethereum Foundation、Binance")
         self.assertContains(response, "Fed、BLS")
         self.assertContains(response, "SlowMist Hacked 与 Circle Pressroom")
-        self.assertContains(response, "分析 → 事实提取 → 事件归并")
+        self.assertContains(response, "新闻 DeepSeek 增量分析")
+        self.assertContains(response, "不会调用 DeepSeek")
         self.assertContains(response, "只采集 CoinDesk")
         self.assertContains(response, "每天")
         self.assertContains(response, "每 6 小时")
@@ -685,6 +681,7 @@ class NewsWorkflowPageTests(TestCase):
             trigger=NewsWorkflowRun.Trigger.MANUAL,
             schedule=None,
             feed_group=NewsWorkflowSchedule.FeedGroup.CORE,
+            run_ai=False,
         )
         self.assertContains(duplicate, "未重复执行")
 
@@ -764,6 +761,7 @@ class NewsWorkflowPageTests(TestCase):
             trigger=NewsWorkflowRun.Trigger.MANUAL,
             schedule=None,
             feed_group=NewsWorkflowSchedule.FeedGroup.COINDESK,
+            run_ai=False,
         )
 
 

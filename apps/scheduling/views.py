@@ -35,15 +35,22 @@ from .funds_workflow import (
 from .forms import (
     DeribitOptionsScheduleForm,
     KlineScheduleForm,
+    NewsAIScheduleForm,
     NewsWorkflowScheduleForm,
 )
 from .models import (
     DeribitOptionsWorkflowRun,
     FundDataWorkflowRun,
+    NewsAIWorkflowRun,
     NewsWorkflowRun,
     NewsWorkflowSchedule,
     SCHEDULE_TIMEZONE,
     WorkflowRun,
+)
+from .news_ai_workflow import (
+    NewsAIWorkflowAlreadyRunning,
+    execute_news_ai_workflow,
+    get_builtin_news_ai_schedule,
 )
 from .news_workflow import (
     NEWS_FEED_GROUP_CODES,
@@ -63,6 +70,7 @@ from .services import (
 RUN_TOKEN_SESSION_KEY = "scheduling_manual_run_token"
 NEWS_RUN_TOKEN_SESSION_KEY = "scheduling_news_manual_run_token"
 COINDESK_RUN_TOKEN_SESSION_KEY = "scheduling_coindesk_manual_run_token"
+NEWS_AI_RUN_TOKEN_SESSION_KEY = "scheduling_news_ai_manual_run_token"
 DERIBIT_RUN_TOKEN_SESSION_KEY = "scheduling_deribit_manual_run_token"
 FUND_RUN_TOKEN_SESSION_KEY = "scheduling_fund_manual_run_token"
 
@@ -227,13 +235,31 @@ def _news_workflow_summary(run: NewsWorkflowRun) -> str:
     return "执行完成，未发现异常。"
 
 
+def _news_ai_workflow_summary(run: NewsAIWorkflowRun) -> str:
+    if run.safe_error_summary:
+        return run.safe_error_summary
+    if run.status == NewsAIWorkflowRun.Status.FAILED:
+        return "新闻 AI 增量分析失败，请进入详情查看各阶段状态。"
+    if run.status == NewsAIWorkflowRun.Status.PARTIAL:
+        return "部分 AI 阶段未完成，未处理输入会保留到后续增量运行。"
+    return (
+        f"执行完成，共 {run.request_count} 次模型请求，"
+        f"使用 {run.total_tokens} tokens。"
+    )
+
+
 def _run_list_item(run, *, kind: str) -> dict:
     is_market = kind == "market"
-    kind_label = (
-        "行情原始数据"
-        if is_market
-        else f"{run.get_feed_group_display()}工作流"
-    )
+    is_news_ai = kind == "news_ai"
+    if is_market:
+        kind_label = "行情原始数据"
+        summary = _workflow_summary(run)
+    elif is_news_ai:
+        kind_label = "新闻 DeepSeek 分析"
+        summary = _news_ai_workflow_summary(run)
+    else:
+        kind_label = f"{run.get_feed_group_display()}采集工作流"
+        summary = _news_workflow_summary(run)
     return {
         "kind": kind,
         "kind_label": kind_label,
@@ -243,10 +269,10 @@ def _run_list_item(run, *, kind: str) -> dict:
         "status_label": run.get_status_display(),
         "started_at": run.started_at,
         "finished_at": run.finished_at,
-        "summary": _workflow_summary(run) if is_market else _news_workflow_summary(run),
+        "summary": summary,
         "needs_attention": run.status in {"failed", "partial"}
         or (is_market and run.quality_status == WorkflowRun.QualityStatus.ISSUES)
-        or (not is_market and run.quality_issue_count > 0),
+        or (kind == "news" and run.quality_issue_count > 0),
     }
 
 
@@ -322,6 +348,7 @@ def schedule_index(request):
     coindesk_schedule = get_builtin_news_schedule(
         NewsWorkflowSchedule.FeedGroup.COINDESK
     )
+    news_ai_schedule = get_builtin_news_ai_schedule()
     deribit_schedule = get_builtin_deribit_options_schedule()
     fund_schedules = get_builtin_fund_schedules()
     form = KlineScheduleForm(instance=schedule, auto_id="market_%s")
@@ -329,6 +356,10 @@ def schedule_index(request):
     coindesk_form = NewsWorkflowScheduleForm(
         instance=coindesk_schedule,
         auto_id="coindesk_%s",
+    )
+    news_ai_form = NewsAIScheduleForm(
+        instance=news_ai_schedule,
+        auto_id="news_ai_%s",
     )
     deribit_form = DeribitOptionsScheduleForm(
         instance=deribit_schedule,
@@ -385,6 +416,20 @@ def schedule_index(request):
                 messages.success(request, "CoinDesk 新闻工作流配置已保存。")
                 return redirect("scheduling:index")
             open_dialog = "coindesk-config-dialog"
+        elif action == "save_news_ai":
+            news_ai_form = NewsAIScheduleForm(
+                request.POST,
+                instance=news_ai_schedule,
+                auto_id="news_ai_%s",
+            )
+            if news_ai_form.is_valid():
+                updated = news_ai_form.save(commit=False)
+                updated.timezone = SCHEDULE_TIMEZONE
+                updated.next_run_at = calculate_next_run_at(updated.run_time)
+                updated.save()
+                messages.success(request, "新闻 DeepSeek 增量分析配置已保存。")
+                return redirect("scheduling:index")
+            open_dialog = "news-ai-config-dialog"
         elif action == "save_deribit":
             deribit_form = DeribitOptionsScheduleForm(
                 request.POST,
@@ -498,6 +543,7 @@ def schedule_index(request):
                     trigger=NewsWorkflowRun.Trigger.MANUAL,
                     schedule=None,
                     feed_group=NewsWorkflowSchedule.FeedGroup.CORE,
+                    run_ai=False,
                 )
             except NewsWorkflowAlreadyRunning:
                 messages.warning(request, "已有新闻工作流正在运行，未重复启动。")
@@ -529,6 +575,7 @@ def schedule_index(request):
                     trigger=NewsWorkflowRun.Trigger.MANUAL,
                     schedule=None,
                     feed_group=NewsWorkflowSchedule.FeedGroup.COINDESK,
+                    run_ai=False,
                 )
             except NewsWorkflowAlreadyRunning:
                 messages.warning(request, "已有新闻工作流正在运行，未重复启动。")
@@ -543,6 +590,33 @@ def schedule_index(request):
             else:
                 messages.error(request, "CoinDesk 工作流失败，请查看运行详情。")
             return redirect("scheduling:run_detail", run_kind="news", run_id=run.pk)
+        elif action == "run_news_ai":
+            submitted_token = request.POST.get("news_ai_run_token", "")
+            expected_token = request.session.pop(NEWS_AI_RUN_TOKEN_SESSION_KEY, "")
+            if not submitted_token or not secrets.compare_digest(
+                submitted_token,
+                expected_token,
+            ):
+                messages.warning(request, "该新闻 AI 请求已处理或已失效，未重复执行。")
+                return redirect("scheduling:index")
+            try:
+                run = execute_news_ai_workflow(
+                    trigger=NewsAIWorkflowRun.Trigger.MANUAL,
+                    schedule=None,
+                )
+            except NewsAIWorkflowAlreadyRunning:
+                messages.warning(request, "已有新闻 AI 工作流正在运行，未重复启动。")
+                return redirect("scheduling:index")
+            except Exception:
+                messages.error(request, "新闻 AI 工作流发生内部错误，未输出外部响应详情。")
+                return redirect("scheduling:index")
+            if run.status == NewsAIWorkflowRun.Status.SUCCESS:
+                messages.success(request, "新闻 DeepSeek 增量分析执行成功。")
+            elif run.status == NewsAIWorkflowRun.Status.PARTIAL:
+                messages.warning(request, "新闻 DeepSeek 增量分析部分成功，请查看详情。")
+            else:
+                messages.error(request, "新闻 DeepSeek 增量分析失败，请查看详情。")
+            return redirect("scheduling:run_detail", run_kind="news_ai", run_id=run.pk)
         elif action == "run_deribit":
             submitted_token = request.POST.get("deribit_run_token", "")
             expected_token = request.session.pop(DERIBIT_RUN_TOKEN_SESSION_KEY, "")
@@ -610,6 +684,8 @@ def schedule_index(request):
         "news_form": news_form,
         "coindesk_schedule": coindesk_schedule,
         "coindesk_form": coindesk_form,
+        "news_ai_schedule": news_ai_schedule,
+        "news_ai_form": news_ai_form,
         "deribit_schedule": deribit_schedule,
         "deribit_form": deribit_form,
         "deribit_latest_run": DeribitOptionsWorkflowRun.objects.first(),
@@ -620,6 +696,10 @@ def schedule_index(request):
         "coindesk_run_token": _new_run_token(
             request,
             COINDESK_RUN_TOKEN_SESSION_KEY,
+        ),
+        "news_ai_run_token": _new_run_token(
+            request,
+            NEWS_AI_RUN_TOKEN_SESSION_KEY,
         ),
         "deribit_run_token": _new_run_token(
             request,
@@ -646,7 +726,7 @@ def schedule_index(request):
 @require_http_methods(["GET"])
 def schedule_runs(request):
     selected_task = request.GET.get("task", "all")
-    if selected_task not in {"all", "market", "news"}:
+    if selected_task not in {"all", "market", "news", "news_ai"}:
         selected_task = "all"
 
     run_range = _run_date_range(request)
@@ -660,14 +740,20 @@ def schedule_runs(request):
     news_queryset = NewsWorkflowRun.objects.filter(**date_filters).select_related(
         "schedule"
     )
+    news_ai_queryset = NewsAIWorkflowRun.objects.filter(**date_filters).select_related(
+        "schedule"
+    )
     market_count = market_queryset.count()
     news_count = news_queryset.count()
+    news_ai_count = news_ai_queryset.count()
     market_runs = list(market_queryset[:100])
     news_runs = list(news_queryset[:100])
+    news_ai_runs = list(news_ai_queryset[:100])
     all_items = sorted(
         chain(
             (_run_list_item(run, kind="market") for run in market_runs),
             (_run_list_item(run, kind="news") for run in news_runs),
+            (_run_list_item(run, kind="news_ai") for run in news_ai_runs),
         ),
         key=lambda item: (item["started_at"], item["id"]),
         reverse=True,
@@ -683,6 +769,7 @@ def schedule_runs(request):
             "selected_task": selected_task,
             "market_count": market_count,
             "news_count": news_count,
+            "news_ai_count": news_ai_count,
             "attention_count": sum(item["needs_attention"] for item in all_items),
             "filter_start": run_range["start_date"].isoformat(),
             "filter_end": run_range["end_date"].isoformat(),
@@ -731,6 +818,21 @@ def schedule_run_detail(request, run_kind: str, run_id: int):
             "run": run,
             "summary": _news_workflow_summary(run),
             "news_feed_steps": run.feed_steps.all(),
+        }
+    elif run_kind == "news_ai":
+        run = get_object_or_404(
+            NewsAIWorkflowRun.objects.select_related(
+                "schedule",
+                "analysis_run",
+                "objective_fact_run",
+                "event_merge_run",
+            ),
+            pk=run_id,
+        )
+        context = {
+            "run_kind": run_kind,
+            "run": run,
+            "summary": _news_ai_workflow_summary(run),
         }
     else:
         raise Http404("未知的调度任务类型")

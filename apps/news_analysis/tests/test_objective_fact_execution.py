@@ -122,6 +122,22 @@ class ScriptedClient:
 
 @override_settings(NEWS_OBJECTIVE_FACT_PROMPT_VERSION=PROMPT)
 class ObjectiveFactExecutionServiceTests(TestCase):
+    def test_batch_limit_defers_remaining_candidates_without_marking_them_processed(self):
+        records = [make_record(title=f"Deferred {index}") for index in range(3)]
+        client = ScriptedClient()
+
+        run = run_objective_fact_extraction(client=client, max_records=2)
+
+        self.assertEqual(client.calls, [records[0].id, records[1].id])
+        self.assertEqual(run.candidate_count, 2)
+        self.assertEqual(run.skipped_count, 1)
+        self.assertFalse(
+            ObjectiveFactExtractionResult.objects.filter(
+                news_record=records[2],
+                prompt_version=PROMPT,
+            ).exists()
+        )
+
     def test_incremental_is_version_scoped_and_skips_current_success(self):
         unextracted = make_record(title="Unextracted")
         old_only = make_record(title="Old version only")

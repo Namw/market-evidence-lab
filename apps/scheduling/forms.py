@@ -1,6 +1,11 @@
 from django import forms
 
-from .models import DeribitOptionsSchedule, KlineSchedule, NewsWorkflowSchedule
+from .models import (
+    DeribitOptionsSchedule,
+    KlineSchedule,
+    NewsAISchedule,
+    NewsWorkflowSchedule,
+)
 
 
 class KlineScheduleForm(forms.ModelForm):
@@ -76,4 +81,36 @@ class NewsWorkflowScheduleForm(forms.ModelForm):
         widgets = {
             "enabled": forms.CheckboxInput(),
             "run_time": forms.TimeInput(attrs={"type": "time", "step": "60"}),
+        }
+
+
+class NewsAIScheduleForm(forms.ModelForm):
+    class Meta:
+        model = NewsAISchedule
+        fields = [
+            "enabled",
+            "run_time",
+            "max_direction_requests",
+            "max_objective_records",
+            "max_event_ai_calls",
+        ]
+        labels = {
+            "enabled": "启用每日 DeepSeek 增量分析",
+            "run_time": "每日执行时间",
+            "max_direction_requests": "方向分类最多请求数",
+            "max_objective_records": "客观事实最多处理新闻数",
+            "max_event_ai_calls": "事件合并最多 AI 比较数",
+        }
+        help_texts = {
+            "run_time": "北京时间，建议安排在深夜；分时本身不改变 DeepSeek 单价。",
+            "max_direction_requests": "限制方向分类本轮实际 API 请求，重试也计入。",
+            "max_objective_records": "超过上限的新闻保留到下一轮继续增量处理。",
+            "max_event_ai_calls": "预计超过上限时整轮事件合并暂缓，避免不可控费用；填 0 表示禁止 AI 比较。",
+        }
+        widgets = {
+            "enabled": forms.CheckboxInput(),
+            "run_time": forms.TimeInput(attrs={"type": "time", "step": "60"}),
+            "max_direction_requests": forms.NumberInput(attrs={"min": "1", "max": "500"}),
+            "max_objective_records": forms.NumberInput(attrs={"min": "1", "max": "1000"}),
+            "max_event_ai_calls": forms.NumberInput(attrs={"min": "0", "max": "1000"}),
         }

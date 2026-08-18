@@ -464,6 +464,132 @@ class NewsWorkflowFeedRun(models.Model):
         return f"{self.workflow_run_id}:{self.feed.code}:{self.collection_status}"
 
 
+class NewsAISchedule(models.Model):
+    name = models.CharField(max_length=120, unique=True)
+    enabled = models.BooleanField(default=False)
+    run_time = models.TimeField(default=time(3, 30))
+    timezone = models.CharField(max_length=64, default=SCHEDULE_TIMEZONE, editable=False)
+    max_direction_requests = models.PositiveSmallIntegerField(
+        default=50,
+        validators=[MinValueValidator(1), MaxValueValidator(500)],
+    )
+    max_objective_records = models.PositiveSmallIntegerField(
+        default=50,
+        validators=[MinValueValidator(1), MaxValueValidator(1000)],
+    )
+    max_event_ai_calls = models.PositiveSmallIntegerField(
+        default=100,
+        validators=[MinValueValidator(0), MaxValueValidator(1000)],
+    )
+    next_run_at = models.DateTimeField()
+    last_run_at = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["name"]
+
+    def __str__(self) -> str:
+        return self.name
+
+
+class NewsAIWorkflowRun(models.Model):
+    class Trigger(models.TextChoices):
+        SCHEDULED = "scheduled", "定时"
+        MANUAL = "manual", "手工"
+
+    class Status(models.TextChoices):
+        RUNNING = "running", "运行中"
+        SUCCESS = "success", "成功"
+        PARTIAL = "partial", "部分成功"
+        FAILED = "failed", "失败"
+
+    class StepStatus(models.TextChoices):
+        PENDING = "pending", "待执行"
+        SUCCESS = "success", "成功"
+        PARTIAL = "partial", "部分成功"
+        FAILED = "failed", "失败"
+        NOT_RUN = "not_run", "未执行"
+
+    schedule = models.ForeignKey(
+        NewsAISchedule,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="workflow_runs",
+    )
+    trigger = models.CharField(max_length=20, choices=Trigger.choices)
+    status = models.CharField(
+        max_length=20,
+        choices=Status.choices,
+        default=Status.RUNNING,
+    )
+    analysis_run = models.ForeignKey(
+        "news_analysis.NewsAnalysisRun",
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="news_ai_workflows",
+    )
+    analysis_status = models.CharField(
+        max_length=20,
+        choices=StepStatus.choices,
+        default=StepStatus.PENDING,
+    )
+    objective_fact_run = models.ForeignKey(
+        "news_analysis.ObjectiveFactExtractionRun",
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="news_ai_workflows",
+    )
+    objective_fact_status = models.CharField(
+        max_length=20,
+        choices=StepStatus.choices,
+        default=StepStatus.PENDING,
+    )
+    event_merge_run = models.ForeignKey(
+        "news_analysis.EventMergeRun",
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="news_ai_workflows",
+    )
+    event_merge_status = models.CharField(
+        max_length=20,
+        choices=StepStatus.choices,
+        default=StepStatus.PENDING,
+    )
+    max_direction_requests = models.PositiveSmallIntegerField(default=50)
+    max_objective_records = models.PositiveSmallIntegerField(default=50)
+    max_event_ai_calls = models.PositiveSmallIntegerField(default=100)
+    request_count = models.PositiveIntegerField(default=0)
+    input_tokens = models.PositiveIntegerField(default=0)
+    output_tokens = models.PositiveIntegerField(default=0)
+    total_tokens = models.PositiveIntegerField(default=0)
+    safe_error_summary = models.CharField(max_length=1000, blank=True)
+    started_at = models.DateTimeField()
+    finished_at = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["-started_at", "-id"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["status"],
+                condition=models.Q(status="running"),
+                name="news_ai_workflow_one_running",
+            )
+        ]
+        indexes = [
+            models.Index(fields=["-started_at"], name="news_ai_workflow_start_idx"),
+        ]
+
+    def __str__(self) -> str:
+        return f"news-ai:{self.trigger}:{self.status}:{self.started_at.isoformat()}"
+
+
 class FundDataSchedule(models.Model):
     class TaskType(models.TextChoices):
         STABLECOIN = "stablecoin", "稳定币供应"

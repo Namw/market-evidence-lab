@@ -20,6 +20,11 @@ from apps.scheduling.news_workflow import (
     execute_claimed_news_workflow,
     get_builtin_news_schedules,
 )
+from apps.scheduling.news_ai_workflow import (
+    claim_due_news_ai_schedules,
+    execute_claimed_news_ai_workflow,
+    get_builtin_news_ai_schedule,
+)
 from apps.scheduling.funds_workflow import (
     claim_due_fund_schedules,
     execute_claimed_fund_workflow,
@@ -52,6 +57,7 @@ class Command(BaseCommand):
         get_builtin_schedule()
         get_builtin_deribit_options_schedule()
         get_builtin_news_schedules()
+        get_builtin_news_ai_schedule()
         get_builtin_fund_schedules()
         executor_id = str(uuid4())
         stop_event = threading.Event()
@@ -94,6 +100,16 @@ class Command(BaseCommand):
                         )
                     )
                     claimed_news_ids = []
+
+                try:
+                    claimed_news_ai_ids = claim_due_news_ai_schedules()
+                except Exception as exc:
+                    self.stderr.write(
+                        self.style.ERROR(
+                            f"News AI schedule claim failed ({exc.__class__.__name__}); retrying."
+                        )
+                    )
+                    claimed_news_ai_ids = []
 
                 try:
                     claimed_deribit_ids = claim_due_deribit_options_schedules()
@@ -140,6 +156,21 @@ class Command(BaseCommand):
                         self.stderr.write(
                             self.style.ERROR(
                                 f"NewsWorkflowRun #{workflow_run_id} failed unexpectedly "
+                                f"({exc.__class__.__name__}); continuing."
+                            )
+                        )
+                    heartbeat()
+
+                for workflow_run_id in claimed_news_ai_ids:
+                    try:
+                        execute_claimed_news_ai_workflow(
+                            workflow_run_id,
+                            heartbeat_callback=heartbeat,
+                        )
+                    except Exception as exc:
+                        self.stderr.write(
+                            self.style.ERROR(
+                                f"NewsAIWorkflowRun #{workflow_run_id} failed unexpectedly "
                                 f"({exc.__class__.__name__}); continuing."
                             )
                         )

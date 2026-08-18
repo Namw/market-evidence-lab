@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import timedelta
 
 from django.conf import settings
@@ -411,8 +411,11 @@ def run_news_analysis(
     record_ids: list[int] | None = None,
     client: DeepSeekNewsClient | None = None,
     article_loader: Callable[[NewsRawRecord], ArticleContent | str] = fetch_source_article,
+    max_requests: int | None = None,
 ) -> NewsAnalysisRun:
     config = get_analysis_config()
+    if max_requests is not None:
+        config = replace(config, max_requests_per_run=max(1, max_requests))
     prune_expired_news()
     run = _create_run(trigger=trigger, mode=mode, config=config)
     try:

@@ -195,8 +195,9 @@ def execute_news_workflow(
     objective_fact_client=None,
     event_merge_client=None,
     heartbeat_callback: Callable[[], None] | None = None,
+    run_ai: bool = True,
 ) -> NewsWorkflowRun:
-    """Collect, inspect and incrementally analyze news with isolated child runs."""
+    """Collect and inspect news, optionally running the legacy inline AI stages."""
     if workflow_run is None:
         workflow_run = _create_news_workflow_run(
             trigger=trigger,
@@ -341,6 +342,48 @@ def execute_news_workflow(
             inspection_run=inspection_run,
             quality_status=inspection_run.quality_status,
         )
+
+    if not run_ai:
+        workflow_run.analysis_status = NewsWorkflowRun.StepStatus.NOT_RUN
+        workflow_run.objective_fact_status = NewsWorkflowRun.StepStatus.NOT_RUN
+        workflow_run.event_merge_status = NewsWorkflowRun.StepStatus.NOT_RUN
+        collection_statuses = [step.collection_status for step in feed_steps.values()]
+        quality_statuses = [step.quality_status for step in feed_steps.values()]
+        all_normal = (
+            bool(collection_statuses)
+            and all(
+                status == NewsWorkflowRun.StepStatus.SUCCESS
+                for status in collection_statuses
+            )
+            and all(
+                status == NewsWorkflowRun.QualityStatus.PASSED
+                for status in quality_statuses
+            )
+        )
+        all_collections_failed = bool(collection_statuses) and all(
+            status == NewsWorkflowRun.StepStatus.FAILED
+            for status in collection_statuses
+        )
+        if all_normal:
+            workflow_run.status = NewsWorkflowRun.Status.SUCCESS
+        elif all_collections_failed:
+            workflow_run.status = NewsWorkflowRun.Status.FAILED
+        else:
+            workflow_run.status = NewsWorkflowRun.Status.PARTIAL
+        workflow_run.safe_error_summary = " ".join(dict.fromkeys(safe_errors))[:1_000]
+        workflow_run.finished_at = timezone.now()
+        workflow_run.save(
+            update_fields=[
+                "analysis_status",
+                "objective_fact_status",
+                "event_merge_status",
+                "status",
+                "safe_error_summary",
+                "finished_at",
+            ]
+        )
+        beat()
+        return workflow_run
 
     beat()
     analysis_trigger = (
@@ -547,4 +590,5 @@ def execute_claimed_news_workflow(
     return execute_news_workflow(
         workflow_run=workflow_run,
         heartbeat_callback=heartbeat_callback,
+        run_ai=False,
     )

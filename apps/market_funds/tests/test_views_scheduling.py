@@ -141,7 +141,7 @@ class ViewAndSchedulingTests(TestCase):
     def test_schedule_page_unifies_fund_tasks_in_main_task_list(self):
         response = self.client.get(reverse("scheduling:index"))
         self.assertNotContains(response, "独立数据域")
-        self.assertContains(response, "任务列表 <span>7</span>", html=True)
+        self.assertContains(response, "任务列表 <span>8</span>", html=True)
         self.assertContains(response, "Ethereum 稳定币供应")
         self.assertContains(response, "ETH ETF 每日资金流")
         self.assertContains(response, "Ethereum 公开地址余额快照")
