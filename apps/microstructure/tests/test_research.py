@@ -6,12 +6,16 @@ from django.test import TestCase
 from apps.microstructure.models import MarketMinute
 from apps.microstructure.research import (
     build_depth_drop_research,
+    build_spread_expansion_research,
+    build_top5_imbalance_research,
     build_trade_intensity_research,
     build_trade_imbalance_research,
+    calculate_spread_expansion,
     calculate_trade_intensity,
     calculate_future_5m_returns,
     depth_drop_ratio,
     refresh_future_5m_returns,
+    top5_imbalance,
 )
 
 START = datetime(2026, 8, 20, 0, 0, tzinfo=UTC)
@@ -31,6 +35,9 @@ def minute(
     ask_depth_close: str | None = None,
     book_samples: int = 0,
     coverage: str = "0",
+    spread_p95: str | None = None,
+    imbalance_top5_mean: str | None = None,
+    imbalance_top5_samples: int = 0,
 ) -> MarketMinute:
     start = START + timedelta(minutes=offset)
     return MarketMinute.objects.create(
@@ -56,6 +63,9 @@ def minute(
         ask_depth_close=ask_depth_close,
         book_sample_count=book_samples,
         coverage_ratio=coverage,
+        spread_bps_p95=spread_p95,
+        imbalance_top5_mean=imbalance_top5_mean,
+        imbalance_top5_sample_count=imbalance_top5_samples,
     )
 
 
@@ -242,6 +252,183 @@ class DepthDropTests(TestCase):
         result = build_depth_drop_research("ETHUSDT")
 
         self.assertEqual(result["metric"]["key"], "depth_drop")
+        self.assertEqual(result["sample_count"], 100)
+        self.assertEqual(result["discovery_count"], 65)
+        self.assertEqual(result["purged_count"], 5)
+        self.assertEqual(result["validation_count"], 30)
+        self.assertEqual(
+            sum(group["discovery"]["sample_count"] for group in result["groups"]),
+            65,
+        )
+        self.assertEqual(
+            sum(group["validation"]["sample_count"] for group in result["groups"]),
+            30,
+        )
+
+
+class SpreadExpansionTests(TestCase):
+    def test_spread_expansion_uses_only_previous_sixty_minute_median(self):
+        rows = [
+            minute(
+                index,
+                spread_p95=str(index + 1),
+                book_samples=60,
+                coverage="1",
+            )
+            for index in range(61)
+        ]
+
+        values = calculate_spread_expansion(rows)
+
+        self.assertIsNone(values[rows[59].pk])
+        self.assertEqual(values[rows[60].pk], Decimal("2.000000000000000000"))
+
+    def test_spread_expansion_is_empty_when_prior_window_has_a_gap(self):
+        rows = [
+            minute(
+                index,
+                spread_p95="2",
+                book_samples=60,
+                coverage="1",
+            )
+            for index in range(60)
+        ]
+        current = minute(
+            61,
+            spread_p95="4",
+            book_samples=60,
+            coverage="1",
+        )
+        rows.append(current)
+
+        values = calculate_spread_expansion(rows)
+
+        self.assertIsNone(values[current.pk])
+
+    def test_spread_expansion_resets_after_low_coverage_minute(self):
+        rows = [
+            minute(
+                index,
+                spread_p95="2",
+                book_samples=60,
+                coverage="0.70" if index == 30 else "1",
+            )
+            for index in range(61)
+        ]
+
+        values = calculate_spread_expansion(rows)
+
+        self.assertIsNone(values[rows[-1].pk])
+
+    def test_spread_expansion_is_empty_when_baseline_median_is_zero(self):
+        rows = [
+            minute(
+                index,
+                spread_p95="0" if index < 60 else "2",
+                book_samples=60,
+                coverage="1",
+            )
+            for index in range(61)
+        ]
+
+        values = calculate_spread_expansion(rows)
+
+        self.assertIsNone(values[rows[-1].pk])
+
+    def test_spread_research_reuses_time_split_and_training_cutpoints(self):
+        for index in range(160):
+            row = minute(
+                index,
+                spread_p95=str(100 + index),
+                book_samples=60,
+                coverage="1",
+            )
+            row.future_5m_return = Decimal(index - 80) / Decimal("100000")
+            row.save(update_fields=["future_5m_return"])
+
+        result = build_spread_expansion_research("ETHUSDT")
+
+        self.assertEqual(result["metric"]["key"], "spread_expansion")
+        self.assertEqual(result["sample_count"], 100)
+        self.assertEqual(result["discovery_count"], 65)
+        self.assertEqual(result["purged_count"], 5)
+        self.assertEqual(result["validation_count"], 30)
+        self.assertEqual(
+            sum(group["discovery"]["sample_count"] for group in result["groups"]),
+            65,
+        )
+        self.assertEqual(
+            sum(group["validation"]["sample_count"] for group in result["groups"]),
+            30,
+        )
+
+
+class Top5ImbalanceTests(TestCase):
+    def test_top5_imbalance_uses_minute_mean_with_book_quality_gate(self):
+        valid = minute(
+            0,
+            book_samples=60,
+            coverage="1",
+            imbalance_top5_mean="0.25",
+            imbalance_top5_samples=60,
+        )
+        low_coverage = minute(
+            1,
+            book_samples=47,
+            coverage="0.79",
+            imbalance_top5_mean="0.25",
+            imbalance_top5_samples=47,
+        )
+        partial_top5 = minute(
+            2,
+            book_samples=60,
+            coverage="1",
+            imbalance_top5_mean="0.25",
+            imbalance_top5_samples=47,
+        )
+
+        self.assertEqual(
+            top5_imbalance(valid),
+            Decimal("0.25"),
+        )
+        self.assertIsNone(top5_imbalance(low_coverage))
+        self.assertIsNone(top5_imbalance(partial_top5))
+
+    def test_top5_imbalance_rejects_missing_or_out_of_range_mean(self):
+        missing = minute(
+            0,
+            book_samples=60,
+            coverage="1",
+            imbalance_top5_samples=60,
+        )
+        out_of_range = minute(
+            1,
+            book_samples=60,
+            coverage="1",
+            imbalance_top5_mean="1.01",
+            imbalance_top5_samples=60,
+        )
+
+        self.assertIsNone(top5_imbalance(missing))
+        self.assertIsNone(top5_imbalance(out_of_range))
+
+    def test_top5_research_reuses_time_split_and_training_cutpoints(self):
+        for index in range(100):
+            row = minute(
+                index,
+                book_samples=60,
+                coverage="1",
+                imbalance_top5_mean=str(
+                    Decimal(index * 2 - 99) / Decimal(100)
+                ),
+                imbalance_top5_samples=60,
+            )
+            row.future_5m_return = Decimal(index - 50) / Decimal("100000")
+            row.save(update_fields=["future_5m_return"])
+
+        result = build_top5_imbalance_research("ETHUSDT")
+
+        self.assertEqual(result["metric"]["key"], "top5_imbalance")
         self.assertEqual(result["sample_count"], 100)
         self.assertEqual(result["discovery_count"], 65)
         self.assertEqual(result["purged_count"], 5)

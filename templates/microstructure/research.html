@@ -11,7 +11,7 @@
         <div>
             <p class="research-eyebrow">ETHUSDT · 1分钟 · 未来5分钟</p>
             <h1>异常候选联合研究</h1>
-            <p>把三个指标放在同一视图中比较，重点观察发现集与验证集是否呈现一致、可复现的未来收益形态。当前仍不预设异常阈值。</p>
+            <p>把五个指标放在同一视图中比较，重点观察发现集与验证集是否呈现一致、可复现的未来收益形态。当前仍不预设异常阈值。</p>
         </div>
         <a href="{% url 'microstructure:index' %}">返回盘口采集</a>
     </header>
@@ -42,8 +42,8 @@
         <div class="section-heading">
             <div>
                 <p class="research-eyebrow">SIDE-BY-SIDE VALIDATION</p>
-                <h2>三个指标，放在一起比较</h2>
-                <p>三张图使用相同的收益纵轴，不能只比较线条斜率，还要比较真实幅度。</p>
+                <h2>五个指标，放在一起比较</h2>
+                <p>五张图使用相同的收益纵轴，不能只比较线条斜率，还要比较真实幅度。</p>
             </div>
             <div class="chart-legend" aria-label="图例">
                 <span><i class="legend-dot discovery-dot"></i>发现集 70%</span>
@@ -71,7 +71,7 @@
                 <div class="chart-scroll">
                     <svg class="return-chart" viewBox="0 0 720 278" role="img" aria-labelledby="return-chart-title-{{ research.metric.key }} return-chart-desc-{{ research.metric.key }}">
                         <title id="return-chart-title-{{ research.metric.key }}">{{ research.metric.short_name }}十分位与平均未来5分钟收益</title>
-                        <desc id="return-chart-desc-{{ research.metric.key }}">蓝色圆点为发现集，橙色方点为验证集。横轴从D1到D10，纵轴为平均未来5分钟收益百分比，三项指标共用纵轴范围。</desc>
+                        <desc id="return-chart-desc-{{ research.metric.key }}">蓝色圆点为发现集，橙色方点为验证集。横轴从D1到D10，纵轴为平均未来5分钟收益百分比，五项指标共用纵轴范围。</desc>
                         <line class="chart-grid" x1="65" y1="34" x2="686" y2="34"></line>
                         <line class="chart-zero" x1="65" y1="{{ research.return_chart.zero_y|stringformat:'.1f' }}" x2="686" y2="{{ research.return_chart.zero_y|stringformat:'.1f' }}"></line>
                         <line class="chart-grid" x1="65" y1="220" x2="686" y2="220"></line>

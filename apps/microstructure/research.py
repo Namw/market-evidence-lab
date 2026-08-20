@@ -5,6 +5,7 @@ from bisect import bisect_right
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from decimal import Decimal, localcontext
+from typing import Callable
 
 from django.db.models import QuerySet
 
@@ -13,6 +14,7 @@ from .models import MarketMinute
 
 FUTURE_HORIZON_MINUTES = 5
 TRADE_INTENSITY_LOOKBACK_MINUTES = 60
+SPREAD_EXPANSION_LOOKBACK_MINUTES = 60
 MIN_DEPTH_COVERAGE_RATIO = Decimal("0.80")
 TRAIN_RATIO = Decimal("0.70")
 
@@ -58,6 +60,34 @@ RESEARCH_METRICS = {
         "range_places": 2,
         "range_suffix": "%",
         "range_multiplier": Decimal(100),
+    },
+    "spread_expansion": {
+        "key": "spread_expansion",
+        "short_name": "Spread 扩大",
+        "title": "Spread 异常扩大预测研究",
+        "description": "观察当前1分钟高位价差相对近期正常水平的扩大程度，能否稳定区分未来5分钟价格结果。",
+        "formula": "当前1分钟 spread_bps_p95 / 前60个连续有效分钟 spread_bps_p95 中位数",
+        "method_note": "基准只使用当前分钟之前的数据；前60分钟必须连续且盘口覆盖率不低于80%、至少有2次抽样。中位数为0时指标为空，数值大于1代表价差相对近期扩大。",
+        "axis_label": "Spread扩大十分位（D1 相对收窄 → D10 相对扩大）",
+        "low_label": "相对收窄",
+        "high_label": "相对扩大",
+        "range_places": 2,
+        "range_suffix": "×",
+        "range_multiplier": Decimal(1),
+    },
+    "top5_imbalance": {
+        "key": "top5_imbalance",
+        "short_name": "Top5盘口失衡",
+        "title": "Top5盘口失衡预测研究",
+        "description": "观察距离当前价格最近的Top5买卖盘深度失衡，能否稳定区分未来5分钟价格结果。",
+        "formula": "(Top5买盘金额 − Top5卖盘金额) / (Top5买盘金额 + Top5卖盘金额)",
+        "method_note": "使用1分钟内所有有效盘口快照的失衡均值；数值范围为 −1 到 1，越低代表近端卖盘越厚，越高代表近端买盘越厚。只使用Top5自身有效覆盖率不低于80%且至少有2次有效抽样的分钟。",
+        "axis_label": "Top5盘口失衡十分位（D1 卖盘厚 → D10 买盘厚）",
+        "low_label": "近端卖盘厚",
+        "high_label": "近端买盘厚",
+        "range_places": 4,
+        "range_suffix": "",
+        "range_multiplier": Decimal(1),
     },
 }
 
@@ -177,31 +207,28 @@ def trade_imbalance(row: MarketMinute) -> Decimal | None:
         return decimal_18((row.taker_buy_quote - row.taker_sell_quote) / total)
 
 
-def calculate_trade_intensity(
+def _calculate_prior_median_ratio(
     rows: list[MarketMinute],
     *,
-    lookback: int = TRADE_INTENSITY_LOOKBACK_MINUTES,
+    lookback: int,
+    value_for_row: Callable[[MarketMinute], Decimal],
+    is_valid_row: Callable[[MarketMinute], bool],
 ) -> dict[int, Decimal | None]:
-    """Compare each minute with a strictly prior, gap-free rolling median."""
     if lookback <= 0:
         raise ValueError("lookback must be positive")
     result: dict[int, Decimal | None] = {}
-    prior: list[MarketMinute] = []
+    prior: list[Decimal] = []
     previous_start: datetime | None = None
     step = timedelta(minutes=1)
 
     for row in rows:
-        current_is_valid = (
-            row.kline_closed
-            and row.quote_volume is not None
-            and Decimal(row.quote_volume) >= 0
-        )
+        current_is_valid = is_valid_row(row)
         if previous_start is None or row.minute_start != previous_start + step:
             prior = []
 
         value = None
         if current_is_valid and len(prior) == lookback:
-            ordered = sorted(Decimal(item.quote_volume) for item in prior)
+            ordered = sorted(prior)
             middle = lookback // 2
             median = (
                 ordered[middle]
@@ -211,17 +238,54 @@ def calculate_trade_intensity(
             if median > 0:
                 with localcontext() as context:
                     context.prec = 60
-                    value = decimal_18(Decimal(row.quote_volume) / median)
+                    value = decimal_18(value_for_row(row) / median)
         result[row.pk] = value
 
         if current_is_valid:
-            prior.append(row)
+            prior.append(value_for_row(row))
             if len(prior) > lookback:
                 prior.pop(0)
         else:
             prior = []
         previous_start = row.minute_start
     return result
+
+
+def calculate_trade_intensity(
+    rows: list[MarketMinute],
+    *,
+    lookback: int = TRADE_INTENSITY_LOOKBACK_MINUTES,
+) -> dict[int, Decimal | None]:
+    """Compare volume with a strictly prior, gap-free rolling median."""
+    return _calculate_prior_median_ratio(
+        rows,
+        lookback=lookback,
+        value_for_row=lambda row: Decimal(row.quote_volume),
+        is_valid_row=lambda row: (
+            row.kline_closed
+            and row.quote_volume is not None
+            and Decimal(row.quote_volume) >= 0
+        ),
+    )
+
+
+def calculate_spread_expansion(
+    rows: list[MarketMinute],
+    *,
+    lookback: int = SPREAD_EXPANSION_LOOKBACK_MINUTES,
+) -> dict[int, Decimal | None]:
+    """Compare spread P95 with a strictly prior, gap-free quality window."""
+    return _calculate_prior_median_ratio(
+        rows,
+        lookback=lookback,
+        value_for_row=lambda row: Decimal(row.spread_bps_p95),
+        is_valid_row=lambda row: (
+            row.spread_bps_p95 is not None
+            and Decimal(row.spread_bps_p95) >= 0
+            and row.book_sample_count >= 2
+            and Decimal(row.coverage_ratio) >= MIN_DEPTH_COVERAGE_RATIO
+        ),
+    )
 
 
 def depth_drop_ratio(row: MarketMinute) -> Decimal | None:
@@ -245,6 +309,30 @@ def depth_drop_ratio(row: MarketMinute) -> Decimal | None:
     with localcontext() as context:
         context.prec = 60
         return decimal_18((open_depth - close_depth) / open_depth)
+
+
+def top5_imbalance(row: MarketMinute) -> Decimal | None:
+    if row.imbalance_top5_mean is None:
+        return None
+    if (
+        row.book_sample_count < 2
+        or row.imbalance_top5_sample_count < 2
+        or Decimal(row.coverage_ratio) < MIN_DEPTH_COVERAGE_RATIO
+    ):
+        return None
+    with localcontext() as context:
+        context.prec = 60
+        top5_coverage = (
+            Decimal(row.coverage_ratio)
+            * Decimal(row.imbalance_top5_sample_count)
+            / Decimal(row.book_sample_count)
+        )
+    if top5_coverage < MIN_DEPTH_COVERAGE_RATIO:
+        return None
+    value = Decimal(row.imbalance_top5_mean)
+    if value < Decimal(-1) or value > Decimal(1):
+        return None
+    return value
 
 
 def _nearest_rank_cutpoints(values: list[Decimal]) -> list[Decimal]:
@@ -317,7 +405,7 @@ def build_decile_research(
         selected_fields.extend(["taker_buy_quote", "taker_sell_quote"])
     elif metric_key == "trade_intensity":
         selected_fields.extend(["quote_volume", "kline_closed"])
-    else:
+    elif metric_key == "depth_drop":
         selected_fields.extend(
             [
                 "bid_depth_open",
@@ -328,24 +416,45 @@ def build_decile_research(
                 "coverage_ratio",
             ]
         )
+    elif metric_key == "spread_expansion":
+        selected_fields.extend(
+            [
+                "spread_bps_p95",
+                "book_sample_count",
+                "coverage_ratio",
+            ]
+        )
+    else:
+        selected_fields.extend(
+            [
+                "imbalance_top5_mean",
+                "imbalance_top5_sample_count",
+                "book_sample_count",
+                "coverage_ratio",
+            ]
+        )
     all_rows = list(
         MarketMinute.objects.filter(symbol=symbol)
         .only(*selected_fields)
         .order_by("minute_start")
     )
-    intensity_values = (
-        calculate_trade_intensity(all_rows)
-        if metric_key == "trade_intensity"
-        else {}
-    )
+    metric_values = {}
+    if metric_key == "trade_intensity":
+        metric_values = calculate_trade_intensity(all_rows)
+    elif metric_key == "spread_expansion":
+        metric_values = calculate_spread_expansion(all_rows)
     observations: list[ResearchObservation] = []
     for row in all_rows:
         if metric_key == "trade_imbalance":
             metric_value = trade_imbalance(row)
         elif metric_key == "trade_intensity":
-            metric_value = intensity_values[row.pk]
-        else:
+            metric_value = metric_values[row.pk]
+        elif metric_key == "depth_drop":
             metric_value = depth_drop_ratio(row)
+        elif metric_key == "spread_expansion":
+            metric_value = metric_values[row.pk]
+        else:
+            metric_value = top5_imbalance(row)
         if row.future_5m_return is None or metric_value is None:
             continue
         observations.append(
@@ -421,3 +530,11 @@ def build_trade_intensity_research(symbol: str) -> dict[str, object]:
 
 def build_depth_drop_research(symbol: str) -> dict[str, object]:
     return build_decile_research(symbol, metric_key="depth_drop")
+
+
+def build_spread_expansion_research(symbol: str) -> dict[str, object]:
+    return build_decile_research(symbol, metric_key="spread_expansion")
+
+
+def build_top5_imbalance_research(symbol: str) -> dict[str, object]:
+    return build_decile_research(symbol, metric_key="top5_imbalance")

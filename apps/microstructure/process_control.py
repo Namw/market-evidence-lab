@@ -26,8 +26,21 @@ class CollectorControlError(RuntimeError):
 def _process_command(process_id: int) -> str:
     if process_id <= 0:
         return ""
+    if os.name == "nt":
+        command = [
+            "powershell.exe",
+            "-NoProfile",
+            "-NonInteractive",
+            "-Command",
+            (
+                "(Get-CimInstance Win32_Process -Filter "
+                f"'ProcessId = {process_id}').CommandLine"
+            ),
+        ]
+    else:
+        command = ["ps", "-p", str(process_id), "-o", "command="]
     result = subprocess.run(
-        ["ps", "-p", str(process_id), "-o", "command="],
+        command,
         check=False,
         capture_output=True,
         text=True,
@@ -47,8 +60,22 @@ def process_matches_run(run: MicrostructureCollectorRun) -> bool:
 
 
 def _unmanaged_collector_exists() -> bool:
+    if os.name == "nt":
+        command = [
+            "powershell.exe",
+            "-NoProfile",
+            "-NonInteractive",
+            "-Command",
+            (
+                "Get-CimInstance Win32_Process -Filter "
+                "\"Name = 'python.exe' OR Name = 'pythonw.exe'\" | "
+                "Select-Object -ExpandProperty CommandLine"
+            ),
+        ]
+    else:
+        command = ["ps", "-axo", "pid=,command="]
     result = subprocess.run(
-        ["ps", "-axo", "pid=,command="],
+        command,
         check=False,
         capture_output=True,
         text=True,
@@ -212,4 +239,13 @@ def stop_collector() -> MicrostructureCollectorRun:
         )
         raise CollectorControlError("无法停止盘口采集进程。") from exc
     _terminate_process(run.oi_process_id)
+    if os.name == "nt":
+        MicrostructureCollectorRun.objects.filter(pk=run.pk).update(
+            status=MicrostructureCollectorRun.Status.STOPPED,
+            connection_state=(
+                MicrostructureCollectorRun.ConnectionState.DISCONNECTED
+            ),
+            stopped_at=timezone.now(),
+        )
+        run.refresh_from_db()
     return run

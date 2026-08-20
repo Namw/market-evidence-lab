@@ -89,6 +89,14 @@ def save_book_sample(
     minute.book_sample_count += 1
     minute.bid_depth_mean = _mean(minute.bid_depth_sum, minute.book_sample_count)
     minute.ask_depth_mean = _mean(minute.ask_depth_sum, minute.book_sample_count)
+    if features.imbalance_top5 is not None:
+        minute.imbalance_top5_close = features.imbalance_top5
+        minute.imbalance_top5_sum += features.imbalance_top5
+        minute.imbalance_top5_sample_count += 1
+        minute.imbalance_top5_mean = _mean(
+            minute.imbalance_top5_sum,
+            minute.imbalance_top5_sample_count,
+        )
     if spread is not None:
         samples = [*minute.spread_bps_samples, str(spread)]
         minute.spread_bps_samples = samples

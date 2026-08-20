@@ -56,6 +56,16 @@ class MarketMinute(models.Model):
         max_digits=40, decimal_places=18, null=True, blank=True
     )
     ask_depth_sum = models.DecimalField(max_digits=50, decimal_places=18, default=0)
+    imbalance_top5_close = models.DecimalField(
+        max_digits=40, decimal_places=18, null=True, blank=True
+    )
+    imbalance_top5_mean = models.DecimalField(
+        max_digits=40, decimal_places=18, null=True, blank=True
+    )
+    imbalance_top5_sum = models.DecimalField(
+        max_digits=50, decimal_places=18, default=0
+    )
+    imbalance_top5_sample_count = models.PositiveSmallIntegerField(default=0)
     spread_bps_mean = models.DecimalField(
         max_digits=40, decimal_places=18, null=True, blank=True
     )

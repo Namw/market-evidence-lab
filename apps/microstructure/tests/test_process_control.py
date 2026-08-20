@@ -6,12 +6,37 @@ from django.test import TestCase
 from apps.microstructure.models import MicrostructureCollectorRun
 from apps.microstructure.process_control import (
     CollectorControlError,
+    _process_command,
+    _unmanaged_collector_exists,
     launch_collector,
     stop_collector,
 )
 
 
 class CollectorProcessControlTests(TestCase):
+    @patch("apps.microstructure.process_control.subprocess.run")
+    @patch("apps.microstructure.process_control.os.name", "nt")
+    def test_windows_process_query_uses_cim(self, run):
+        run.return_value = Mock(returncode=0, stdout="python manage.py collect_orderbook")
+
+        command = _process_command(4321)
+
+        self.assertEqual(command, "python manage.py collect_orderbook")
+        invoked = run.call_args.args[0]
+        self.assertEqual(invoked[0], "powershell.exe")
+        self.assertIn("ProcessId = 4321", invoked[-1])
+
+    @patch("apps.microstructure.process_control.subprocess.run")
+    @patch("apps.microstructure.process_control.os.name", "nt")
+    def test_windows_unmanaged_query_only_lists_python_processes(self, run):
+        run.return_value = Mock(
+            returncode=0,
+            stdout="python manage.py collect_orderbook --symbol ETHUSDT",
+        )
+
+        self.assertTrue(_unmanaged_collector_exists())
+        self.assertIn("Name = 'python.exe'", run.call_args.args[0][-1])
+
     @patch("apps.microstructure.process_control.subprocess.Popen")
     @patch(
         "apps.microstructure.process_control._unmanaged_collector_exists",
@@ -46,6 +71,7 @@ class CollectorProcessControlTests(TestCase):
         self.assertFalse(MicrostructureCollectorRun.objects.exists())
 
     @patch("apps.microstructure.process_control.os.kill")
+    @patch("apps.microstructure.process_control.os.name", "posix")
     @patch(
         "apps.microstructure.process_control.process_matches_run",
         return_value=True,
@@ -64,6 +90,30 @@ class CollectorProcessControlTests(TestCase):
         self.assertEqual(stopped.status, MicrostructureCollectorRun.Status.STOPPING)
         kill.assert_any_call(9876, signal.SIGTERM)
         kill.assert_any_call(6543, signal.SIGTERM)
+
+    @patch("apps.microstructure.process_control.os.kill")
+    @patch("apps.microstructure.process_control.os.name", "nt")
+    @patch(
+        "apps.microstructure.process_control.process_matches_run",
+        return_value=True,
+    )
+    def test_windows_stop_marks_terminated_run_as_stopped(self, matches, kill):
+        run = MicrostructureCollectorRun.objects.create(
+            symbol="ETHUSDT",
+            status=MicrostructureCollectorRun.Status.RUNNING,
+            process_id=9876,
+            oi_process_id=6543,
+        )
+
+        stopped = stop_collector()
+
+        self.assertEqual(stopped.pk, run.pk)
+        self.assertEqual(stopped.status, MicrostructureCollectorRun.Status.STOPPED)
+        self.assertEqual(
+            stopped.connection_state,
+            MicrostructureCollectorRun.ConnectionState.DISCONNECTED,
+        )
+        self.assertIsNotNone(stopped.stopped_at)
 
     @patch("apps.microstructure.process_control.os.kill")
     @patch(

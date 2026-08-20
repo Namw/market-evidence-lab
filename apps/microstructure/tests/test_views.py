@@ -39,10 +39,12 @@ class MicrostructureViewTests(TestCase):
 
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, "异常候选联合研究")
-        self.assertContains(response, "三个指标，放在一起比较")
+        self.assertContains(response, "五个指标，放在一起比较")
         self.assertContains(response, "主动成交失衡")
         self.assertContains(response, "成交强度")
         self.assertContains(response, "盘口深度减少")
+        self.assertContains(response, "Spread 扩大")
+        self.assertContains(response, "Top5盘口失衡")
         self.assertContains(response, "平均未来5分钟收益")
         self.assertContains(response, "精确数据与分组边界")
         self.assertContains(response, "当前仍不预设异常阈值")
@@ -51,6 +53,26 @@ class MicrostructureViewTests(TestCase):
             for item in response.context["research_items"]
         ]
         self.assertEqual(len(set(chart_labels)), 1)
+
+    def test_research_page_shows_spread_expansion_definition(self):
+        response = self.client.get(reverse("microstructure:research"))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(
+            response,
+            "当前1分钟 spread_bps_p95 / 前60个连续有效分钟 spread_bps_p95 中位数",
+        )
+        self.assertContains(response, "相对收窄 → 相对扩大")
+
+    def test_research_page_shows_top5_imbalance_definition(self):
+        response = self.client.get(reverse("microstructure:research"))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(
+            response,
+            "(Top5买盘金额 − Top5卖盘金额) / (Top5买盘金额 + Top5卖盘金额)",
+        )
+        self.assertContains(response, "近端卖盘厚 → 近端买盘厚")
 
     def test_research_page_keeps_trade_intensity_definition(self):
         start = datetime(2026, 8, 20, 0, 0, tzinfo=UTC)
