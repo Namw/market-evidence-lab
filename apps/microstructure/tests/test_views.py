@@ -22,7 +22,7 @@ class MicrostructureViewTests(TestCase):
         self.assertContains(response, 'href="/microstructure/"')
         self.assertContains(response, 'href="/microstructure/research/"')
 
-    def test_research_page_shows_trade_imbalance_deciles(self):
+    def test_research_page_shows_all_metrics_in_one_comparison(self):
         start = datetime(2026, 8, 20, 0, 0, tzinfo=UTC)
         for offset in range(20):
             MarketMinute.objects.create(
@@ -38,14 +38,21 @@ class MicrostructureViewTests(TestCase):
         response = self.client.get(reverse("microstructure:research"))
 
         self.assertEqual(response.status_code, 200)
-        self.assertContains(response, "主动成交失衡预测研究")
-        self.assertContains(response, "十分位结果")
+        self.assertContains(response, "异常候选联合研究")
+        self.assertContains(response, "三个指标，放在一起比较")
+        self.assertContains(response, "主动成交失衡")
+        self.assertContains(response, "成交强度")
+        self.assertContains(response, "盘口深度减少")
         self.assertContains(response, "平均未来5分钟收益")
-        self.assertContains(response, "未来5分钟上涨比例")
-        self.assertContains(response, "查看精确数据与十分位边界")
-        self.assertContains(response, "当前只做分组研究，不预设异常阈值")
+        self.assertContains(response, "精确数据与分组边界")
+        self.assertContains(response, "当前仍不预设异常阈值")
+        chart_labels = [
+            item["return_chart"]["maximum_label"]
+            for item in response.context["research_items"]
+        ]
+        self.assertEqual(len(set(chart_labels)), 1)
 
-    def test_research_page_can_switch_to_trade_intensity(self):
+    def test_research_page_keeps_trade_intensity_definition(self):
         start = datetime(2026, 8, 20, 0, 0, tzinfo=UTC)
         for offset in range(80):
             MarketMinute.objects.create(
@@ -64,15 +71,13 @@ class MicrostructureViewTests(TestCase):
         )
 
         self.assertEqual(response.status_code, 200)
-        self.assertContains(response, "成交强度预测研究")
         self.assertContains(
             response,
             "当前1分钟成交额 / 前60个连续完整分钟成交额中位数",
         )
-        self.assertContains(response, "成交强度十分位")
-        self.assertContains(response, '?metric=trade_intensity" class="is-active"')
+        self.assertContains(response, "D1 低成交强度 → D10 高成交强度")
 
-    def test_research_page_can_switch_to_depth_drop(self):
+    def test_research_page_keeps_depth_drop_definition(self):
         start = datetime(2026, 8, 20, 0, 0, tzinfo=UTC)
         for offset in range(20):
             MarketMinute.objects.create(
@@ -96,13 +101,11 @@ class MicrostructureViewTests(TestCase):
         )
 
         self.assertEqual(response.status_code, 200)
-        self.assertContains(response, "盘口深度快速减少预测研究")
         self.assertContains(
             response,
             "(分钟初Top20总深度 − 分钟末Top20总深度) / 分钟初Top20总深度",
         )
-        self.assertContains(response, "盘口深度变化十分位")
-        self.assertContains(response, '?metric=depth_drop" class="is-active"')
+        self.assertContains(response, "D1 深度增加 → D10 深度减少")
 
     def test_status_returns_current_run_progress(self):
         MicrostructureCollectorRun.objects.create(

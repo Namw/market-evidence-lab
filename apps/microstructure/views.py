@@ -318,16 +318,26 @@ def _line_segments(groups, split: str, maximum: Decimal) -> list[str]:
     return [" ".join(segment) for segment in segments]
 
 
-def _prepare_chart_data(result: dict[str, object]) -> None:
-    groups = result["groups"]
+def _shared_return_max(results: list[dict[str, object]]) -> Decimal:
     return_values = [
         abs(summary["mean_future_return"] * Decimal(100))
-        for group in groups
+        for result in results
+        for group in result["groups"]
         for summary in (group["discovery"], group["validation"])
         if summary["mean_future_return"] is not None
     ]
-    return_max = max(return_values, default=Decimal("0.01")) * Decimal("1.15")
-    return_max = max(return_max, Decimal("0.01"))
+    maximum = max(return_values, default=Decimal("0.01")) * Decimal("1.15")
+    return max(maximum, Decimal("0.01"))
+
+
+def _prepare_chart_data(
+    result: dict[str, object],
+    *,
+    return_max: Decimal | None = None,
+) -> None:
+    groups = result["groups"]
+    if return_max is None:
+        return_max = _shared_return_max([result])
     for index, group in enumerate(groups):
         group["chart_x"] = 65 + index * 69
         for split in ("discovery", "validation"):
@@ -358,22 +368,7 @@ def _prepare_chart_data(result: dict[str, object]) -> None:
     }
 
 
-@require_GET
-def research(request):
-    metric_key = request.GET.get("metric", "trade_imbalance")
-    if metric_key not in RESEARCH_METRICS:
-        metric_key = "trade_imbalance"
-    result = build_decile_research(
-        settings.MICROSTRUCTURE_SYMBOL,
-        metric_key=metric_key,
-    )
-    result["metric_options"] = [
-        {
-            **metric,
-            "active": key == metric_key,
-        }
-        for key, metric in RESEARCH_METRICS.items()
-    ]
+def _format_research_result(result: dict[str, object]) -> None:
     for group in result["groups"]:
         group["range_label"] = _metric_range(
             group["lower"],
@@ -392,15 +387,39 @@ def research(request):
                 if mean_return is not None and mean_return < 0
                 else ""
             )
-            summary["mean_return_label"] = _percent(
-                mean_return, places=4
+            summary["mean_return_label"] = _percent(mean_return, places=4)
+            summary["up_ratio_label"] = _percent(
+                summary["up_ratio"], places=1
             )
-            summary["up_ratio_label"] = _percent(summary["up_ratio"], places=1)
-    _prepare_chart_data(result)
+
+
+@require_GET
+def research(request):
+    results = [
+        build_decile_research(
+            settings.MICROSTRUCTURE_SYMBOL,
+            metric_key=metric_key,
+        )
+        for metric_key in RESEARCH_METRICS
+    ]
+    shared_return_max = _shared_return_max(results)
+    for result in results:
+        _format_research_result(result)
+        _prepare_chart_data(result, return_max=shared_return_max)
+    overview = {
+        "symbol": settings.MICROSTRUCTURE_SYMBOL,
+        "minute_count": results[0]["minute_count"] if results else 0,
+        "labeled_count": results[0]["labeled_count"] if results else 0,
+        "range_start": results[0]["range_start"] if results else None,
+        "range_end": results[0]["range_end"] if results else None,
+    }
     return render(
         request,
         "microstructure/research.html",
-        {"research": result},
+        {
+            "overview": overview,
+            "research_items": results,
+        },
     )
 
 

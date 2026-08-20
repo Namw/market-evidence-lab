@@ -1,86 +1,49 @@
 {% extends "base.html" %}
 {% load static tz %}
 
-{% block title %}{{ research.metric.title }} · Market Evidence Lab{% endblock %}
+{% block title %}异常候选联合研究 · Market Evidence Lab{% endblock %}
 {% block body_class %}microstructure-research-body{% endblock %}
-{% block extra_css %}<link rel="stylesheet" href="{% static 'microstructure/css/research.css' %}?v=2">{% endblock %}
+{% block extra_css %}<link rel="stylesheet" href="{% static 'microstructure/css/research.css' %}?v=3">{% endblock %}
 
 {% block content %}
 <div class="research-page">
     <header class="research-hero">
         <div>
             <p class="research-eyebrow">ETHUSDT · 1分钟 · 未来5分钟</p>
-            <h1>{{ research.metric.title }}</h1>
-            <p>{{ research.metric.description }}当前只做分组研究，不预设异常阈值。</p>
+            <h1>异常候选联合研究</h1>
+            <p>把三个指标放在同一视图中比较，重点观察发现集与验证集是否呈现一致、可复现的未来收益形态。当前仍不预设异常阈值。</p>
         </div>
         <a href="{% url 'microstructure:index' %}">返回盘口采集</a>
     </header>
 
-    <nav class="metric-switch" aria-label="选择异常候选指标">
-        {% for metric in research.metric_options %}
-        <a href="?metric={{ metric.key }}" class="{% if metric.active %}is-active{% endif %}"{% if metric.active %} aria-current="page"{% endif %}>{{ metric.short_name }}</a>
-        {% endfor %}
-    </nav>
-
-    <section class="readiness-panel">
-        <div>
-            <span>研究状态</span>
-            <strong>{{ research.status_label }}</strong>
-            <p>{{ research.status_detail }}</p>
+    <section class="overview-panel">
+        <div class="overview-copy">
+            <span>研究数据</span>
+            <strong>{{ overview.labeled_count }} 条有效5m标签</strong>
+            {% if overview.range_start %}
+            <p>{% timezone "Asia/Shanghai" %}{{ overview.range_start|date:"Y-m-d H:i" }} → {{ overview.range_end|date:"Y-m-d H:i" }}{% endtimezone %}</p>
+            {% else %}
+            <p>等待分钟数据与未来标签。</p>
+            {% endif %}
         </div>
-        <dl class="research-metrics">
-            <div><dt>分钟总数</dt><dd>{{ research.minute_count }}</dd></div>
-            <div><dt>有效5m标签</dt><dd>{{ research.labeled_count }}</dd></div>
-            <div><dt>研究样本</dt><dd>{{ research.sample_count }}</dd></div>
-            <div><dt>排除样本</dt><dd>{{ research.excluded_count }}</dd></div>
+        <dl class="overview-metrics">
+            <div><dt>分钟总数</dt><dd>{{ overview.minute_count }}</dd></div>
+            {% for research in research_items %}
+            <div>
+                <dt>{{ research.metric.short_name }}</dt>
+                <dd>{{ research.sample_count }}</dd>
+                <small>{{ research.status_label }}</small>
+            </div>
+            {% endfor %}
         </dl>
     </section>
 
-    <section class="research-card methodology-card">
-        <div>
-            <span class="step-index">01</span>
-            <h2>指标定义</h2>
-            <code>{{ research.metric.formula }}</code>
-            <p>{{ research.metric.method_note }}</p>
-        </div>
-        <div>
-            <span class="step-index">02</span>
-            <h2>未来标签</h2>
-            <code>close(t+5m) / close(t) − 1</code>
-            <p>六个分钟必须严格连续且K线已收盘；任何缺口都会令标签为空。</p>
-        </div>
-        <div>
-            <span class="step-index">03</span>
-            <h2>验证方式</h2>
-            <p>时间前70%用于发现，后30%用于验证。十分位边界只由发现集确定，再原样应用到验证集。</p>
-        </div>
-    </section>
-
-    <section class="research-card split-card">
+    <section class="research-card comparison-card">
         <div class="section-heading">
             <div>
-                <p class="research-eyebrow">TIME SPLIT</p>
-                <h2>时间切分</h2>
-            </div>
-            {% if research.range_start %}
-            <span>{% timezone "Asia/Shanghai" %}{{ research.range_start|date:"Y-m-d H:i" }} → {{ research.range_end|date:"Y-m-d H:i" }}{% endtimezone %}</span>
-            {% endif %}
-        </div>
-        <div class="split-track" aria-label="前70%发现，后30%验证">
-            <div class="discovery-segment"><strong>发现集</strong><span>{{ research.discovery_count }} 条</span></div>
-            <div class="validation-segment"><strong>验证集</strong><span>{{ research.validation_count }} 条</span></div>
-        </div>
-        <div class="split-notes">
-            <span>边界清除 {{ research.purged_count }} 条，避免训练标签使用验证期价格</span>
-            {% if research.validation_start %}<span>验证起点：{% timezone "Asia/Shanghai" %}{{ research.validation_start|date:"Y-m-d H:i" }}{% endtimezone %}</span>{% endif %}
-        </div>
-    </section>
-
-    <section class="research-card result-card">
-        <div class="section-heading">
-            <div>
-                <p class="research-eyebrow">DECILE STUDY</p>
-                <h2>十分位结果</h2>
+                <p class="research-eyebrow">SIDE-BY-SIDE VALIDATION</p>
+                <h2>三个指标，放在一起比较</h2>
+                <p>三张图使用相同的收益纵轴，不能只比较线条斜率，还要比较真实幅度。</p>
             </div>
             <div class="chart-legend" aria-label="图例">
                 <span><i class="legend-dot discovery-dot"></i>发现集 70%</span>
@@ -88,119 +51,151 @@
             </div>
         </div>
 
-        {% if research.sample_count %}
-        <figure class="research-figure">
-            <figcaption>
-                <strong>平均未来5分钟收益</strong>
-                <span>重点看两条线的方向和形状是否一致</span>
-            </figcaption>
-            <div class="chart-scroll">
-                <svg class="return-chart" viewBox="0 0 720 278" role="img" aria-labelledby="return-chart-title return-chart-desc">
-                    <title id="return-chart-title">{{ research.metric.short_name }}十分位与平均未来5分钟收益</title>
-                    <desc id="return-chart-desc">蓝色圆点为发现集，橙色方点为验证集。横轴从D1 {{ research.metric.low_label }}到D10 {{ research.metric.high_label }}，纵轴为平均未来5分钟收益百分比。</desc>
-                    <line class="chart-grid" x1="65" y1="34" x2="686" y2="34"></line>
-                    <line class="chart-zero" x1="65" y1="{{ research.return_chart.zero_y|stringformat:'.1f' }}" x2="686" y2="{{ research.return_chart.zero_y|stringformat:'.1f' }}"></line>
-                    <line class="chart-grid" x1="65" y1="220" x2="686" y2="220"></line>
-                    <text class="axis-label" x="55" y="38" text-anchor="end">{{ research.return_chart.maximum_label }}</text>
-                    <text class="axis-label" x="55" y="{{ research.return_chart.zero_label_y|stringformat:'.1f' }}" text-anchor="end">0</text>
-                    <text class="axis-label" x="55" y="224" text-anchor="end">{{ research.return_chart.minimum_label }}</text>
-                    {% for segment in research.return_chart.discovery_segments %}<polyline class="series-line discovery-line" points="{{ segment }}"></polyline>{% endfor %}
-                    {% for segment in research.return_chart.validation_segments %}<polyline class="series-line validation-line" points="{{ segment }}"></polyline>{% endfor %}
-                    {% for group in research.groups %}
-                        <text class="x-label" x="{{ group.chart_x }}" y="248" text-anchor="middle">D{{ group.decile }}</text>
-                        {% if group.discovery.return_y is not None %}
-                        <circle class="chart-point discovery-point" cx="{{ group.chart_x }}" cy="{{ group.discovery.return_y|stringformat:'.1f' }}" r="5">
-                            <title>D{{ group.decile }} 发现集：{{ group.discovery.mean_return_label }}，{{ group.discovery.sample_count }}条</title>
-                        </circle>
-                        {% endif %}
-                        {% if group.validation.return_y is not None %}
-                        <rect class="chart-point validation-point" x="{{ group.chart_x|add:'-5' }}" y="{{ group.validation.return_marker_y|stringformat:'.1f' }}" width="10" height="10">
-                            <title>D{{ group.decile }} 验证集：{{ group.validation.mean_return_label }}，{{ group.validation.sample_count }}条</title>
-                        </rect>
-                        {% endif %}
-                    {% endfor %}
-                    <text class="axis-title" x="375" y="272" text-anchor="middle">{{ research.metric.axis_label }}</text>
-                </svg>
-            </div>
-        </figure>
+        <div class="comparison-list">
+            {% for research in research_items %}
+            <article class="metric-panel">
+                <header class="metric-panel-header">
+                    <div>
+                        <span class="metric-number">0{{ forloop.counter }}</span>
+                        <h3>{{ research.metric.short_name }}</h3>
+                        <p>{{ research.metric.low_label }} → {{ research.metric.high_label }}</p>
+                    </div>
+                    <dl class="metric-sample-summary">
+                        <div><dt>可用</dt><dd>{{ research.sample_count }}</dd></div>
+                        <div><dt>发现</dt><dd>{{ research.discovery_count }}</dd></div>
+                        <div><dt>验证</dt><dd>{{ research.validation_count }}</dd></div>
+                    </dl>
+                </header>
 
-        <figure class="research-figure ratio-figure">
-            <figcaption>
-                <strong>未来5分钟上涨比例</strong>
-                <span>50%参考线以上代表该组上涨样本更多</span>
-            </figcaption>
-            <div class="chart-scroll">
-                <svg class="ratio-chart" viewBox="0 0 720 278" role="img" aria-labelledby="ratio-chart-title ratio-chart-desc">
-                    <title id="ratio-chart-title">{{ research.metric.short_name }}十分位与未来5分钟上涨比例</title>
-                    <desc id="ratio-chart-desc">每个十分位包含发现集和验证集两根柱，纵轴为未来5分钟上涨样本比例。</desc>
-                    <line class="chart-grid" x1="65" y1="34" x2="686" y2="34"></line>
-                    <line class="chart-reference" x1="65" y1="127" x2="686" y2="127"></line>
-                    <line class="chart-grid" x1="65" y1="220" x2="686" y2="220"></line>
-                    <text class="axis-label" x="55" y="38" text-anchor="end">100%</text>
-                    <text class="axis-label" x="55" y="131" text-anchor="end">50%</text>
-                    <text class="axis-label" x="55" y="224" text-anchor="end">0%</text>
-                    {% for group in research.groups %}
-                        {% if group.discovery.up_ratio is not None %}
-                        <rect class="ratio-bar discovery-bar" x="{{ group.chart_x|add:'-16' }}" y="{{ group.discovery.up_bar_y|stringformat:'.1f' }}" width="13" height="{{ group.discovery.up_bar_height|stringformat:'.1f' }}">
-                            <title>D{{ group.decile }} 发现集：{{ group.discovery.up_ratio_label }}，{{ group.discovery.sample_count }}条</title>
-                        </rect>
-                        {% endif %}
-                        {% if group.validation.up_ratio is not None %}
-                        <rect class="ratio-bar validation-bar" x="{{ group.chart_x|add:'3' }}" y="{{ group.validation.up_bar_y|stringformat:'.1f' }}" width="13" height="{{ group.validation.up_bar_height|stringformat:'.1f' }}">
-                            <title>D{{ group.decile }} 验证集：{{ group.validation.up_ratio_label }}，{{ group.validation.sample_count }}条</title>
-                        </rect>
-                        {% endif %}
-                        <text class="x-label" x="{{ group.chart_x }}" y="248" text-anchor="middle">D{{ group.decile }}</text>
-                    {% endfor %}
-                    <text class="axis-title" x="375" y="272" text-anchor="middle">{{ research.metric.axis_label }}</text>
-                </svg>
-            </div>
-        </figure>
-
-        <details class="data-details">
-            <summary>查看精确数据与十分位边界</summary>
-            <div class="research-table-wrap">
-            <table class="research-table">
-                <thead>
-                    <tr>
-                        <th rowspan="2">分组</th>
-                        <th rowspan="2">训练集边界</th>
-                        <th colspan="3">发现集 70%</th>
-                        <th colspan="3">验证集 30%</th>
-                    </tr>
-                    <tr>
-                        <th>样本数</th><th>平均未来收益</th><th>上涨比例</th>
-                        <th>样本数</th><th>平均未来收益</th><th>上涨比例</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    {% for group in research.groups %}
-                    <tr>
-                        <th><span class="decile-badge">D{{ group.decile }}</span></th>
-                        <td class="range-cell">{{ group.range_label }}</td>
-                        <td>{{ group.discovery.sample_count }}</td>
-                        <td class="{{ group.discovery.return_class }}">{{ group.discovery.mean_return_label }}</td>
-                        <td>{{ group.discovery.up_ratio_label }}</td>
-                        <td>{{ group.validation.sample_count }}</td>
-                        <td class="{{ group.validation.return_class }}">{{ group.validation.mean_return_label }}</td>
-                        <td>{{ group.validation.up_ratio_label }}</td>
-                    </tr>
-                    {% endfor %}
-                </tbody>
-            </table>
-            </div>
-        </details>
-        {% else %}
-        <div class="research-empty">
-            <strong>还没有可研究样本</strong>
-            <p>积累满足该指标计算约束且带有未来收益标签的数据后，这里会显示十分位结果。</p>
+                {% if research.sample_count %}
+                <div class="chart-scroll">
+                    <svg class="return-chart" viewBox="0 0 720 278" role="img" aria-labelledby="return-chart-title-{{ research.metric.key }} return-chart-desc-{{ research.metric.key }}">
+                        <title id="return-chart-title-{{ research.metric.key }}">{{ research.metric.short_name }}十分位与平均未来5分钟收益</title>
+                        <desc id="return-chart-desc-{{ research.metric.key }}">蓝色圆点为发现集，橙色方点为验证集。横轴从D1到D10，纵轴为平均未来5分钟收益百分比，三项指标共用纵轴范围。</desc>
+                        <line class="chart-grid" x1="65" y1="34" x2="686" y2="34"></line>
+                        <line class="chart-zero" x1="65" y1="{{ research.return_chart.zero_y|stringformat:'.1f' }}" x2="686" y2="{{ research.return_chart.zero_y|stringformat:'.1f' }}"></line>
+                        <line class="chart-grid" x1="65" y1="220" x2="686" y2="220"></line>
+                        <text class="axis-label" x="55" y="38" text-anchor="end">{{ research.return_chart.maximum_label }}</text>
+                        <text class="axis-label" x="55" y="{{ research.return_chart.zero_label_y|stringformat:'.1f' }}" text-anchor="end">0</text>
+                        <text class="axis-label" x="55" y="224" text-anchor="end">{{ research.return_chart.minimum_label }}</text>
+                        {% for segment in research.return_chart.discovery_segments %}<polyline class="series-line discovery-line" points="{{ segment }}"></polyline>{% endfor %}
+                        {% for segment in research.return_chart.validation_segments %}<polyline class="series-line validation-line" points="{{ segment }}"></polyline>{% endfor %}
+                        {% for group in research.groups %}
+                            <text class="x-label" x="{{ group.chart_x }}" y="248" text-anchor="middle">D{{ group.decile }}</text>
+                            {% if group.discovery.return_y is not None %}
+                            <circle class="chart-point discovery-point" cx="{{ group.chart_x }}" cy="{{ group.discovery.return_y|stringformat:'.1f' }}" r="5">
+                                <title>D{{ group.decile }} 发现集：{{ group.discovery.mean_return_label }}，上涨{{ group.discovery.up_ratio_label }}，{{ group.discovery.sample_count }}条</title>
+                            </circle>
+                            {% endif %}
+                            {% if group.validation.return_y is not None %}
+                            <rect class="chart-point validation-point" x="{{ group.chart_x|add:'-5' }}" y="{{ group.validation.return_marker_y|stringformat:'.1f' }}" width="10" height="10">
+                                <title>D{{ group.decile }} 验证集：{{ group.validation.mean_return_label }}，上涨{{ group.validation.up_ratio_label }}，{{ group.validation.sample_count }}条</title>
+                            </rect>
+                            {% endif %}
+                        {% endfor %}
+                        <text class="axis-title" x="375" y="272" text-anchor="middle">D1 {{ research.metric.low_label }} → D10 {{ research.metric.high_label }}</text>
+                    </svg>
+                </div>
+                {% else %}
+                <div class="research-empty compact-empty">还没有可研究样本</div>
+                {% endif %}
+            </article>
+            {% endfor %}
         </div>
-        {% endif %}
+    </section>
+
+    <section class="research-card definitions-card">
+        <div class="section-heading">
+            <div>
+                <p class="research-eyebrow">METRIC DEFINITIONS</p>
+                <h2>指标定义</h2>
+            </div>
+            <span>指标量纲不同，所以只对齐十分位和未来收益，不直接比较原始数值。</span>
+        </div>
+        <div class="definition-grid">
+            {% for research in research_items %}
+            <article>
+                <span class="metric-number">0{{ forloop.counter }}</span>
+                <h3>{{ research.metric.short_name }}</h3>
+                <code>{{ research.metric.formula }}</code>
+                <p>{{ research.metric.method_note }}</p>
+            </article>
+            {% endfor %}
+        </div>
+    </section>
+
+    <section class="research-card method-card">
+        <div>
+            <span class="step-index">01</span>
+            <h2>未来标签</h2>
+            <code>close(t+5m) / close(t) − 1</code>
+            <p>六个分钟必须严格连续且K线已收盘；任何缺口都会令标签为空。</p>
+        </div>
+        <div>
+            <span class="step-index">02</span>
+            <h2>时间验证</h2>
+            <p>每项指标按时间前70%发现、后30%验证；边界处清除5分钟，十分位边界只从发现集学习。</p>
+        </div>
+        <div>
+            <span class="step-index">03</span>
+            <h2>判断顺序</h2>
+            <p>先看D1到D10是否有序，再看橙线能否复现蓝线；只有样本外稳定，后续才讨论异常阈值。</p>
+        </div>
+    </section>
+
+    <section class="research-card details-card">
+        <div class="section-heading">
+            <div>
+                <p class="research-eyebrow">EXACT DATA</p>
+                <h2>精确数据与分组边界</h2>
+            </div>
+            <span>上涨比例保留在明细中，主视图优先服务价格收益比较。</span>
+        </div>
+        <div class="detail-list">
+            {% for research in research_items %}
+            <details class="data-details">
+                <summary>
+                    <span>{{ research.metric.short_name }}</span>
+                    <small>{{ research.sample_count }} 条可用样本</small>
+                </summary>
+                <div class="research-table-wrap">
+                    <table class="research-table">
+                        <thead>
+                            <tr>
+                                <th rowspan="2">分组</th>
+                                <th rowspan="2">发现集边界</th>
+                                <th colspan="3">发现集 70%</th>
+                                <th colspan="3">验证集 30%</th>
+                            </tr>
+                            <tr>
+                                <th>样本数</th><th>平均未来收益</th><th>上涨比例</th>
+                                <th>样本数</th><th>平均未来收益</th><th>上涨比例</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for group in research.groups %}
+                            <tr>
+                                <th><span class="decile-badge">D{{ group.decile }}</span></th>
+                                <td class="range-cell">{{ group.range_label }}</td>
+                                <td>{{ group.discovery.sample_count }}</td>
+                                <td class="{{ group.discovery.return_class }}">{{ group.discovery.mean_return_label }}</td>
+                                <td>{{ group.discovery.up_ratio_label }}</td>
+                                <td>{{ group.validation.sample_count }}</td>
+                                <td class="{{ group.validation.return_class }}">{{ group.validation.mean_return_label }}</td>
+                                <td>{{ group.validation.up_ratio_label }}</td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            </details>
+            {% endfor %}
+        </div>
     </section>
 
     <aside class="research-note">
-        <strong>如何读结果</strong>
-        <p>先比较D1到D10是否呈现有序关系，再看验证集方向是否与发现集一致。只有极端分组在样本外仍稳定，后续才讨论异常定义。</p>
+        <strong>现在该怎么看</strong>
+        <p>先横向找出发现集与验证集形状最一致的指标，再进入明细核对样本数和上涨比例。不要因为某一个十分位的单点很高，就把它直接定义成异常。</p>
     </aside>
 </div>
 {% endblock %}
