@@ -1,25 +1,17 @@
+"""Stable URL-facing facade for scheduling configuration and manual runs.
+
+Run history, detail presentation, and source-network configuration are split
+into focused modules. Manual execution stays here to preserve public patch
+points used by callers and tests.
+"""
+
 import secrets
-from datetime import date, datetime, time, timedelta
-from itertools import chain
-from urllib.parse import urlsplit
-from zoneinfo import ZoneInfo
 
 from django.contrib import messages
-from django.conf import settings
-from django.db import transaction
-from django.http import Http404
-from django.shortcuts import get_object_or_404, redirect, render
-from django.utils import timezone
+from django.shortcuts import redirect, render
 from django.views.decorators.http import require_http_methods
 
-from apps.collection.models import CollectionRun, SourceNetworkPolicy
-from apps.collection.source_network import (
-    BUILTIN_SOURCES,
-    get_source_network_policy,
-    safe_proxy_label,
-)
-from apps.inspection.models import DerivativesInspectionRun, KlineInspectionRun
-from apps.news_data.models import NewsFeed, NewsSource
+from apps.news_data.models import NewsFeed
 
 from .deribit_workflow import (
     DeribitOptionsAlreadyRunning,
@@ -58,6 +50,7 @@ from .news_workflow import (
     execute_news_workflow,
     get_builtin_news_schedule,
 )
+from .run_views import schedule_run_detail, schedule_runs
 from .services import (
     calculate_next_interval_run_at,
     calculate_next_run_at,
@@ -65,7 +58,7 @@ from .services import (
     get_builtin_schedule,
     scheduler_status,
 )
-
+from .source_views import source_network_settings
 
 RUN_TOKEN_SESSION_KEY = "scheduling_manual_run_token"
 NEWS_RUN_TOKEN_SESSION_KEY = "scheduling_news_manual_run_token"
@@ -74,252 +67,10 @@ NEWS_AI_RUN_TOKEN_SESSION_KEY = "scheduling_news_ai_manual_run_token"
 DERIBIT_RUN_TOKEN_SESSION_KEY = "scheduling_deribit_manual_run_token"
 FUND_RUN_TOKEN_SESSION_KEY = "scheduling_fund_manual_run_token"
 
-
-def _step_runs(workflow_run):
-    if workflow_run is None:
-        return []
-    definitions = (
-        ("collection_1d", "1d 采集", CollectionRun),
-        ("inspection_1d", "1d 巡检", KlineInspectionRun),
-        ("collection_1h", "1h 采集", CollectionRun),
-        ("inspection_1h", "1h 巡检", KlineInspectionRun),
-        ("collection_5m", "5m K线采集", CollectionRun),
-        ("inspection_5m", "5m K线巡检", KlineInspectionRun),
-        ("collection_oi", "OI 1h 采集", CollectionRun),
-        ("inspection_oi", "OI 1h 原始质量检查", DerivativesInspectionRun),
-        ("collection_oi_5m", "OI 5m采集", CollectionRun),
-        ("inspection_oi_5m", "OI 5m原始质量检查", DerivativesInspectionRun),
-        ("collection_funding", "Funding 实际结算采集", CollectionRun),
-        (
-            "inspection_funding",
-            "Funding 实际结算原始质量检查",
-            DerivativesInspectionRun,
-        ),
-    )
-    steps = workflow_run.details.get("steps", {})
-    status_labels = {
-        "pending": "待执行",
-        "success": "成功",
-        "partial": "部分完成",
-        "failed": "失败",
-        "not_run": "未执行",
-    }
-    result = []
-    for key, label, model in definitions:
-        run_id = workflow_run.details.get(f"{key}_run_id")
-        child_run = model.objects.filter(pk=run_id).first() if run_id else None
-        is_collection = key.startswith("collection_")
-        step = steps.get(key, {})
-        result.append(
-            {
-                "key": key,
-                "label": label,
-                "step": step,
-                "status_label": status_labels.get(
-                    step.get("status", "pending"),
-                    step.get("status", "pending"),
-                ),
-                "run": child_run,
-                "child_error": (
-                    child_run.error_message
-                    if child_run is not None and child_run.error_message
-                    else ""
-                ),
-                "is_collection": is_collection,
-                "other_issue_count": (
-                    child_run.other_issue_count
-                    if child_run is not None and not is_collection
-                    else 0
-                ),
-            }
-        )
-    return result
-
-
 def _new_run_token(request, session_key: str) -> str:
     token = secrets.token_urlsafe(24)
     request.session[session_key] = token
     return token
-
-
-def _source_network_rows() -> list[dict]:
-    definitions = [
-        {
-            "key": item.key,
-            "name": item.name,
-            "category": item.category,
-            "endpoint": item.endpoint,
-            "note": item.note,
-        }
-        for item in BUILTIN_SOURCES
-    ]
-    definitions.extend(
-        {
-            "key": source.code,
-            "name": source.name,
-            "category": "新闻采集",
-            "endpoint": urlsplit(source.base_url).netloc or source.base_url,
-            "note": f"{source.feeds.filter(enabled=True).count()} 个启用栏目",
-        }
-        for source in NewsSource.objects.filter(enabled=True).order_by("name")
-    )
-    rows = []
-    for definition in definitions:
-        policy = get_source_network_policy(definition["key"])
-        rows.append({**definition, "policy": policy})
-    return rows
-
-
-@require_http_methods(["GET", "POST"])
-def source_network_settings(request):
-    rows = _source_network_rows()
-    if request.method == "POST":
-        valid_keys = {row["key"] for row in rows}
-        requested = {
-            key: request.POST.get(f"route_{key}", "direct")
-            for key in valid_keys
-        }
-        if any(value not in {"direct", "proxy"} for value in requested.values()):
-            messages.error(request, "来源网络策略包含无法识别的连接方式。")
-        elif "proxy" in requested.values() and not settings.SOURCE_PROXY_URL:
-            messages.error(request, "请先在环境变量中配置 SOURCE_PROXY_URL。")
-        else:
-            with transaction.atomic():
-                for source_key, route in requested.items():
-                    SourceNetworkPolicy.objects.update_or_create(
-                        source_key=source_key,
-                        defaults={"use_proxy": route == "proxy"},
-                    )
-            messages.success(request, "来源网络策略已保存，后续调度将自动沿用。")
-            return redirect("scheduling:sources")
-        rows = _source_network_rows()
-    return render(
-        request,
-        "scheduling/source_network.html",
-        {
-            "source_rows": rows,
-            "proxy_configured": bool(settings.SOURCE_PROXY_URL),
-            "proxy_label": safe_proxy_label(),
-        },
-    )
-
-
-def _workflow_summary(run: WorkflowRun) -> str:
-    if run.error_message:
-        return run.error_message
-    step_errors = [
-        step.get("error_summary", "")
-        for step in run.details.get("steps", {}).values()
-        if step.get("error_summary")
-    ]
-    if step_errors:
-        return "；".join(step_errors)
-    if run.status == WorkflowRun.Status.FAILED:
-        return "执行失败，但未记录明确错误摘要。请进入详情定位失败步骤。"
-    if run.status == WorkflowRun.Status.PARTIAL:
-        return "部分步骤未完成，请进入详情查看各步骤状态。"
-    if run.quality_status == WorkflowRun.QualityStatus.ISSUES:
-        return "执行完成，但数据质量检查发现问题。"
-    return "执行完成，未发现异常。"
-
-
-def _news_workflow_summary(run: NewsWorkflowRun) -> str:
-    if run.safe_error_summary:
-        return run.safe_error_summary
-    if run.status == NewsWorkflowRun.Status.FAILED:
-        return "执行失败，但未记录明确错误摘要。请进入详情定位失败环节。"
-    if run.status == NewsWorkflowRun.Status.PARTIAL:
-        return "部分环节未完成，请进入详情查看采集、质量和分析状态。"
-    if run.quality_issue_count:
-        return f"执行完成，数据质量检查发现 {run.quality_issue_count} 个问题。"
-    return "执行完成，未发现异常。"
-
-
-def _news_ai_workflow_summary(run: NewsAIWorkflowRun) -> str:
-    if run.safe_error_summary:
-        return run.safe_error_summary
-    if run.status == NewsAIWorkflowRun.Status.FAILED:
-        return "新闻 AI 增量分析失败，请进入详情查看各阶段状态。"
-    if run.status == NewsAIWorkflowRun.Status.PARTIAL:
-        return "部分 AI 阶段未完成，未处理输入会保留到后续增量运行。"
-    return (
-        f"执行完成，共 {run.request_count} 次模型请求，"
-        f"使用 {run.total_tokens} tokens。"
-    )
-
-
-def _run_list_item(run, *, kind: str) -> dict:
-    is_market = kind == "market"
-    is_news_ai = kind == "news_ai"
-    if is_market:
-        kind_label = "行情原始数据"
-        summary = _workflow_summary(run)
-    elif is_news_ai:
-        kind_label = "新闻 DeepSeek 分析"
-        summary = _news_ai_workflow_summary(run)
-    else:
-        kind_label = f"{run.get_feed_group_display()}采集工作流"
-        summary = _news_workflow_summary(run)
-    return {
-        "kind": kind,
-        "kind_label": kind_label,
-        "id": run.pk,
-        "trigger": run.get_trigger_display(),
-        "status": run.status,
-        "status_label": run.get_status_display(),
-        "started_at": run.started_at,
-        "finished_at": run.finished_at,
-        "summary": summary,
-        "needs_attention": run.status in {"failed", "partial"}
-        or (is_market and run.quality_status == WorkflowRun.QualityStatus.ISSUES)
-        or (kind == "news" and run.quality_issue_count > 0),
-    }
-
-
-def _run_date_range(request) -> dict:
-    schedule_zone = ZoneInfo(SCHEDULE_TIMEZONE)
-    today = timezone.localdate(timezone=schedule_zone)
-    start_value = request.GET.get("start_date", "").strip()
-    end_value = request.GET.get("end_date", "").strip()
-    error = ""
-
-    if not start_value and not end_value:
-        start_date = end_date = today
-    else:
-        start_value = start_value or end_value
-        end_value = end_value or start_value
-        try:
-            start_date = date.fromisoformat(start_value)
-            end_date = date.fromisoformat(end_value)
-        except ValueError:
-            start_date = end_date = today
-            error = "日期格式无效，已恢复为今日。"
-        if start_date > end_date:
-            start_date = end_date = today
-            error = "开始日期不能晚于结束日期，已恢复为今日。"
-
-    start_at = datetime.combine(start_date, time.min, tzinfo=schedule_zone)
-    end_at = datetime.combine(
-        end_date + timedelta(days=1),
-        time.min,
-        tzinfo=schedule_zone,
-    )
-    if start_date == end_date == today:
-        label = "今日采集情况"
-    elif start_date == end_date:
-        label = f"{start_date:%Y年%m月%d日}采集情况"
-    else:
-        label = f"{start_date:%Y年%m月%d日} 至 {end_date:%Y年%m月%d日}"
-    return {
-        "start_date": start_date,
-        "end_date": end_date,
-        "start_at": start_at,
-        "end_at": end_at,
-        "today": today,
-        "label": label,
-        "error": error,
-    }
-
 
 @require_http_methods(["GET", "POST"])
 def schedule_index(request):
@@ -721,119 +472,3 @@ def schedule_index(request):
         ).select_related("source"),
     }
     return render(request, "scheduling/index.html", context)
-
-
-@require_http_methods(["GET"])
-def schedule_runs(request):
-    selected_task = request.GET.get("task", "all")
-    if selected_task not in {"all", "market", "news", "news_ai"}:
-        selected_task = "all"
-
-    run_range = _run_date_range(request)
-    date_filters = {
-        "started_at__gte": run_range["start_at"],
-        "started_at__lt": run_range["end_at"],
-    }
-    market_queryset = WorkflowRun.objects.filter(**date_filters).select_related(
-        "schedule"
-    )
-    news_queryset = NewsWorkflowRun.objects.filter(**date_filters).select_related(
-        "schedule"
-    )
-    news_ai_queryset = NewsAIWorkflowRun.objects.filter(**date_filters).select_related(
-        "schedule"
-    )
-    market_count = market_queryset.count()
-    news_count = news_queryset.count()
-    news_ai_count = news_ai_queryset.count()
-    market_runs = list(market_queryset[:100])
-    news_runs = list(news_queryset[:100])
-    news_ai_runs = list(news_ai_queryset[:100])
-    all_items = sorted(
-        chain(
-            (_run_list_item(run, kind="market") for run in market_runs),
-            (_run_list_item(run, kind="news") for run in news_runs),
-            (_run_list_item(run, kind="news_ai") for run in news_ai_runs),
-        ),
-        key=lambda item: (item["started_at"], item["id"]),
-        reverse=True,
-    )
-    if selected_task != "all":
-        all_items = [item for item in all_items if item["kind"] == selected_task]
-
-    return render(
-        request,
-        "scheduling/runs.html",
-        {
-            "run_items": all_items[:100],
-            "selected_task": selected_task,
-            "market_count": market_count,
-            "news_count": news_count,
-            "news_ai_count": news_ai_count,
-            "attention_count": sum(item["needs_attention"] for item in all_items),
-            "filter_start": run_range["start_date"].isoformat(),
-            "filter_end": run_range["end_date"].isoformat(),
-            "date_range_label": run_range["label"],
-            "filter_error": run_range["error"],
-            "display_timezone": SCHEDULE_TIMEZONE,
-            "recent_three_start": (
-                run_range["today"] - timedelta(days=2)
-            ).isoformat(),
-            "recent_three_end": run_range["today"].isoformat(),
-        },
-    )
-
-
-@require_http_methods(["GET"])
-def schedule_run_detail(request, run_kind: str, run_id: int):
-    if run_kind == "market":
-        run = get_object_or_404(
-            WorkflowRun.objects.select_related("schedule"),
-            pk=run_id,
-        )
-        context = {
-            "run_kind": run_kind,
-            "run": run,
-            "summary": _workflow_summary(run),
-            "selected_steps": _step_runs(run),
-        }
-    elif run_kind == "news":
-        run = get_object_or_404(
-            NewsWorkflowRun.objects.select_related(
-                "schedule",
-                "ethereum_collection_run",
-                "binance_collection_run",
-                "ethereum_inspection_run",
-                "binance_inspection_run",
-                "analysis_run",
-            ).prefetch_related(
-                "feed_steps__feed__source",
-                "feed_steps__collection_run",
-                "feed_steps__inspection_run",
-            ),
-            pk=run_id,
-        )
-        context = {
-            "run_kind": run_kind,
-            "run": run,
-            "summary": _news_workflow_summary(run),
-            "news_feed_steps": run.feed_steps.all(),
-        }
-    elif run_kind == "news_ai":
-        run = get_object_or_404(
-            NewsAIWorkflowRun.objects.select_related(
-                "schedule",
-                "analysis_run",
-                "objective_fact_run",
-                "event_merge_run",
-            ),
-            pk=run_id,
-        )
-        context = {
-            "run_kind": run_kind,
-            "run": run,
-            "summary": _news_ai_workflow_summary(run),
-        }
-    else:
-        raise Http404("未知的调度任务类型")
-    return render(request, "scheduling/run_detail.html", context)

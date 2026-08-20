@@ -146,7 +146,7 @@ def _available_runs(
     runs = MicrostructureCollectorRun.objects.filter(
         symbol=symbol,
         saved_minute_updates__gt=0,
-    ).order_by("-created_at")[:RECENT_RUN_LIMIT]
+    ).order_by("-created_at", "-pk")[:RECENT_RUN_LIMIT]
     for run in runs:
         range_start, range_end = _run_bounds(run, now=now)
         minute_count = MarketMinute.objects.filter(
@@ -186,9 +186,9 @@ def _status_payload(
     }
     latest_run = (
         MicrostructureCollectorRun.objects.filter(status__in=active_statuses)
-        .order_by("-created_at")
+        .order_by("-created_at", "-pk")
         .first()
-        or MicrostructureCollectorRun.objects.order_by("-created_at").first()
+        or MicrostructureCollectorRun.objects.order_by("-created_at", "-pk").first()
     )
     available_runs = _available_runs(symbol=symbol, now=now)
     available_run_ids = {item["id"] for item in available_runs}
