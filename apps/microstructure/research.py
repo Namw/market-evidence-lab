@@ -89,6 +89,20 @@ RESEARCH_METRICS = {
         "range_suffix": "",
         "range_multiplier": Decimal(1),
     },
+    "flow_price_mismatch": {
+        "key": "flow_price_mismatch",
+        "short_name": "成交-价格背离",
+        "title": "主动成交方向与价格变化背离预测研究",
+        "description": "观察主动成交方向与当分钟价格变化方向相反时，能否稳定区分未来5分钟价格结果。",
+        "formula": "主动成交失衡 × |close / open − 1|（仅方向相反时）",
+        "method_note": "负值代表主动卖出但价格上涨，正值代表主动买入但价格下跌；方向一致、成交平衡、价格不变或K线未收盘的分钟不进入该项研究。指标只使用当前分钟信息。",
+        "axis_label": "成交-价格背离十分位（D1 卖出未跌 → D10 买入未涨）",
+        "low_label": "主动卖出但价格上涨",
+        "high_label": "主动买入但价格下跌",
+        "range_places": 4,
+        "range_suffix": "%",
+        "range_multiplier": Decimal(100),
+    },
 }
 
 
@@ -199,12 +213,14 @@ def refresh_future_5m_returns(
 
 
 def trade_imbalance(row: MarketMinute) -> Decimal | None:
-    total = row.taker_buy_quote + row.taker_sell_quote
+    buy = Decimal(row.taker_buy_quote)
+    sell = Decimal(row.taker_sell_quote)
+    total = buy + sell
     if total <= 0:
         return None
     with localcontext() as context:
         context.prec = 60
-        return decimal_18((row.taker_buy_quote - row.taker_sell_quote) / total)
+        return decimal_18((buy - sell) / total)
 
 
 def _calculate_prior_median_ratio(
@@ -335,6 +351,28 @@ def top5_imbalance(row: MarketMinute) -> Decimal | None:
     return value
 
 
+def flow_price_mismatch(row: MarketMinute) -> Decimal | None:
+    if (
+        not row.kline_closed
+        or row.open_price is None
+        or row.close_price is None
+    ):
+        return None
+    open_price = Decimal(row.open_price)
+    close_price = Decimal(row.close_price)
+    if open_price <= 0 or close_price <= 0:
+        return None
+    imbalance = trade_imbalance(row)
+    if imbalance is None or imbalance == 0:
+        return None
+    with localcontext() as context:
+        context.prec = 60
+        minute_return = close_price / open_price - Decimal(1)
+        if minute_return == 0 or imbalance * minute_return >= 0:
+            return None
+        return decimal_18(imbalance * abs(minute_return))
+
+
 def _nearest_rank_cutpoints(values: list[Decimal]) -> list[Decimal]:
     ordered = sorted(values)
     return [
@@ -424,13 +462,23 @@ def build_decile_research(
                 "coverage_ratio",
             ]
         )
-    else:
+    elif metric_key == "top5_imbalance":
         selected_fields.extend(
             [
                 "imbalance_top5_mean",
                 "imbalance_top5_sample_count",
                 "book_sample_count",
                 "coverage_ratio",
+            ]
+        )
+    else:
+        selected_fields.extend(
+            [
+                "open_price",
+                "close_price",
+                "kline_closed",
+                "taker_buy_quote",
+                "taker_sell_quote",
             ]
         )
     all_rows = list(
@@ -453,8 +501,10 @@ def build_decile_research(
             metric_value = depth_drop_ratio(row)
         elif metric_key == "spread_expansion":
             metric_value = metric_values[row.pk]
-        else:
+        elif metric_key == "top5_imbalance":
             metric_value = top5_imbalance(row)
+        else:
+            metric_value = flow_price_mismatch(row)
         if row.future_5m_return is None or metric_value is None:
             continue
         observations.append(
@@ -538,3 +588,7 @@ def build_spread_expansion_research(symbol: str) -> dict[str, object]:
 
 def build_top5_imbalance_research(symbol: str) -> dict[str, object]:
     return build_decile_research(symbol, metric_key="top5_imbalance")
+
+
+def build_flow_price_mismatch_research(symbol: str) -> dict[str, object]:
+    return build_decile_research(symbol, metric_key="flow_price_mismatch")

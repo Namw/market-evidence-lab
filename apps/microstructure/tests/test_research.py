@@ -6,6 +6,7 @@ from django.test import TestCase
 from apps.microstructure.models import MarketMinute
 from apps.microstructure.research import (
     build_depth_drop_research,
+    build_flow_price_mismatch_research,
     build_spread_expansion_research,
     build_top5_imbalance_research,
     build_trade_intensity_research,
@@ -14,6 +15,7 @@ from apps.microstructure.research import (
     calculate_trade_intensity,
     calculate_future_5m_returns,
     depth_drop_ratio,
+    flow_price_mismatch,
     refresh_future_5m_returns,
     top5_imbalance,
 )
@@ -25,6 +27,7 @@ def minute(
     offset: int,
     *,
     close: str = "100",
+    open_price: str | None = None,
     buy: str = "600",
     sell: str = "400",
     volume: str | None = None,
@@ -44,7 +47,7 @@ def minute(
         symbol="ETHUSDT",
         minute_start=start,
         minute_end=start + timedelta(minutes=1),
-        open_price=close,
+        open_price=open_price if open_price is not None else close,
         high_price=close,
         low_price=close,
         close_price=close,
@@ -429,6 +432,89 @@ class Top5ImbalanceTests(TestCase):
         result = build_top5_imbalance_research("ETHUSDT")
 
         self.assertEqual(result["metric"]["key"], "top5_imbalance")
+        self.assertEqual(result["sample_count"], 100)
+        self.assertEqual(result["discovery_count"], 65)
+        self.assertEqual(result["purged_count"], 5)
+        self.assertEqual(result["validation_count"], 30)
+        self.assertEqual(
+            sum(group["discovery"]["sample_count"] for group in result["groups"]),
+            65,
+        )
+        self.assertEqual(
+            sum(group["validation"]["sample_count"] for group in result["groups"]),
+            30,
+        )
+
+
+class FlowPriceMismatchTests(TestCase):
+    def test_mismatch_keeps_opposite_flow_directions_separate(self):
+        buy_not_up = minute(
+            0,
+            open_price="100",
+            close="99",
+            buy="600",
+            sell="400",
+        )
+        sell_not_down = minute(
+            1,
+            open_price="100",
+            close="101",
+            buy="400",
+            sell="600",
+        )
+
+        self.assertEqual(
+            flow_price_mismatch(buy_not_up),
+            Decimal("0.002000000000000000"),
+        )
+        self.assertEqual(
+            flow_price_mismatch(sell_not_down),
+            Decimal("-0.002000000000000000"),
+        )
+
+    def test_mismatch_excludes_aligned_flat_or_unclosed_minutes(self):
+        aligned = minute(
+            0,
+            open_price="100",
+            close="101",
+            buy="600",
+            sell="400",
+        )
+        flat = minute(
+            1,
+            open_price="100",
+            close="100",
+            buy="600",
+            sell="400",
+        )
+        unclosed = minute(
+            2,
+            open_price="100",
+            close="99",
+            buy="600",
+            sell="400",
+            closed=False,
+        )
+
+        self.assertIsNone(flow_price_mismatch(aligned))
+        self.assertIsNone(flow_price_mismatch(flat))
+        self.assertIsNone(flow_price_mismatch(unclosed))
+
+    def test_mismatch_research_reuses_time_split_and_training_cutpoints(self):
+        for index in range(100):
+            row = minute(
+                index,
+                open_price="100",
+                close="101" if index < 50 else "99",
+                buy=str(index + 1),
+                sell=str(100 - index),
+            )
+            row.future_5m_return = Decimal(index - 50) / Decimal("100000")
+            row.save(update_fields=["future_5m_return"])
+
+        result = build_flow_price_mismatch_research("ETHUSDT")
+
+        self.assertEqual(result["metric"]["key"], "flow_price_mismatch")
         self.assertEqual(result["sample_count"], 100)
         self.assertEqual(result["discovery_count"], 65)
         self.assertEqual(result["purged_count"], 5)
