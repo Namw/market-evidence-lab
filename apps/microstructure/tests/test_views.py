@@ -48,7 +48,8 @@ class MicrostructureViewTests(TestCase):
         self.assertContains(response, "成交-价格背离")
         self.assertContains(response, "平均未来5分钟收益")
         self.assertContains(response, "精确数据与分组边界")
-        self.assertContains(response, "当前仍不预设异常阈值")
+        self.assertNotContains(response, 'class="research-hero"')
+        self.assertNotContains(response, "当前仍不预设异常阈值")
         chart_labels = [
             item["return_chart"]["maximum_label"]
             for item in response.context["research_items"]

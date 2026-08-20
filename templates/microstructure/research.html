@@ -3,19 +3,10 @@
 
 {% block title %}异常候选联合研究 · Market Evidence Lab{% endblock %}
 {% block body_class %}microstructure-research-body{% endblock %}
-{% block extra_css %}<link rel="stylesheet" href="{% static 'microstructure/css/research.css' %}?v=3">{% endblock %}
+{% block extra_css %}<link rel="stylesheet" href="{% static 'microstructure/css/research.css' %}?v=4">{% endblock %}
 
 {% block content %}
 <div class="research-page">
-    <header class="research-hero">
-        <div>
-            <p class="research-eyebrow">ETHUSDT · 1分钟 · 未来5分钟</p>
-            <h1>异常候选联合研究</h1>
-            <p>把六个指标放在同一视图中比较，重点观察发现集与验证集是否呈现一致、可复现的未来收益形态。当前仍不预设异常阈值。</p>
-        </div>
-        <a href="{% url 'microstructure:index' %}">返回盘口采集</a>
-    </header>
-
     <section class="overview-panel">
         <div class="overview-copy">
             <span>研究数据</span>
