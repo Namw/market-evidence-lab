@@ -20,6 +20,30 @@ class MicrostructureViewTests(TestCase):
         self.assertContains(response, "盘口深度与价差")
         self.assertContains(response, "启动采集")
         self.assertContains(response, 'href="/microstructure/"')
+        self.assertContains(response, 'href="/microstructure/research/"')
+
+    def test_research_page_shows_trade_imbalance_deciles(self):
+        start = datetime(2026, 8, 20, 0, 0, tzinfo=UTC)
+        for offset in range(20):
+            MarketMinute.objects.create(
+                symbol="ETHUSDT",
+                minute_start=start + timedelta(minutes=offset),
+                minute_end=start + timedelta(minutes=offset + 1),
+                close_price="3200",
+                taker_buy_quote=str(100 + offset),
+                taker_sell_quote=str(120 - offset),
+                future_5m_return=str((offset - 10) / 10000),
+                kline_closed=True,
+            )
+        response = self.client.get(reverse("microstructure:research"))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "主动成交失衡预测研究")
+        self.assertContains(response, "十分位结果")
+        self.assertContains(response, "平均未来5分钟收益")
+        self.assertContains(response, "未来5分钟上涨比例")
+        self.assertContains(response, "查看精确数据与十分位边界")
+        self.assertContains(response, "当前只做分组研究，不预设异常阈值")
 
     def test_status_returns_current_run_progress(self):
         MicrostructureCollectorRun.objects.create(
@@ -61,6 +85,7 @@ class MicrostructureViewTests(TestCase):
         minutes = self.client.get(reverse("microstructure:status")).json()["minutes"]
 
         self.assertEqual([row["close"] for row in minutes], ["3200.000000000000000000", "3201.000000000000000000"])
+        self.assertIn("future_5m_return", minutes[0])
 
     def test_status_can_switch_between_collector_runs(self):
         first_start = datetime(2026, 8, 17, 1, 0, tzinfo=UTC)

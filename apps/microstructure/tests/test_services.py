@@ -10,15 +10,22 @@ from apps.microstructure.services import save_book_sample, save_kline
 START = datetime(2026, 8, 17, 12, 0, tzinfo=UTC)
 
 
-def kline(*, close: str = "101", buy: str = "600", total: str = "1000") -> MinuteKline:
+def kline(
+    *,
+    close: str = "101",
+    buy: str = "600",
+    total: str = "1000",
+    minute_offset: int = 0,
+    closed: bool = False,
+) -> MinuteKline:
     buy_value = Decimal(buy)
     total_value = Decimal(total)
     sell_value = total_value - buy_value
     return MinuteKline(
         symbol="ETHUSDT",
-        event_time=START + timedelta(seconds=30),
-        minute_start=START,
-        minute_end=START + timedelta(minutes=1),
+        event_time=START + timedelta(minutes=minute_offset, seconds=30),
+        minute_start=START + timedelta(minutes=minute_offset),
+        minute_end=START + timedelta(minutes=minute_offset + 1),
         open_price=Decimal("100"),
         high_price=Decimal("102"),
         low_price=Decimal("99"),
@@ -30,7 +37,7 @@ def kline(*, close: str = "101", buy: str = "600", total: str = "1000") -> Minut
         trade_count=20,
         first_trade_id=10,
         last_trade_id=29,
-        closed=False,
+        closed=closed,
     )
 
 
@@ -68,6 +75,26 @@ class MarketMinuteServiceTests(TestCase):
         self.assertEqual(row.taker_buy_quote, Decimal("700"))
         self.assertEqual(row.taker_sell_quote, Decimal("300"))
         self.assertEqual(row.delta_quote, Decimal("400"))
+
+    def test_closed_klines_automatically_label_the_minute_five_minutes_ago(self):
+        for offset in range(6):
+            save_kline(
+                kline(
+                    close=str(100 + offset),
+                    minute_offset=offset,
+                    closed=True,
+                )
+            )
+
+        first = MarketMinute.objects.get(minute_start=START)
+        second = MarketMinute.objects.get(
+            minute_start=START + timedelta(minutes=1)
+        )
+        self.assertEqual(
+            first.future_5m_return,
+            Decimal("0.050000000000000000"),
+        )
+        self.assertIsNone(second.future_5m_return)
 
     def test_second_book_samples_build_depth_mean_p95_and_coverage(self):
         save_book_sample(book(bid_depth="100", ask_depth="200", spread="1"), sampled_at=START)

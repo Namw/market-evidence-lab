@@ -12,6 +12,7 @@ from django.views.decorators.http import require_GET, require_POST
 from .calculations import floor_time
 from .models import MarketMinute, MicrostructureCollectorRun
 from .process_control import CollectorControlError, launch_collector, stop_collector
+from .research import build_trade_imbalance_research
 
 from apps.market_data.models import Kline, OpenInterest
 
@@ -72,6 +73,7 @@ def _minute_payload(row: MarketMinute) -> dict[str, object]:
         "high": _decimal(row.high_price),
         "low": _decimal(row.low_price),
         "close": _decimal(row.close_price),
+        "future_5m_return": _decimal(row.future_5m_return),
         "quote_volume": _decimal(row.quote_volume),
         "taker_buy_quote": _decimal(row.taker_buy_quote),
         "taker_sell_quote": _decimal(row.taker_sell_quote),
@@ -265,6 +267,111 @@ def index(request):
             "symbol": settings.MICROSTRUCTURE_SYMBOL,
             "initial_status": _status_payload(),
         },
+    )
+
+
+def _percent(value: Decimal | None, *, places: int) -> str:
+    if value is None:
+        return "—"
+    return f"{value * Decimal(100):.{places}f}%"
+
+
+def _imbalance_range(lower: Decimal | None, upper: Decimal | None) -> str:
+    if lower is None and upper is None:
+        return "待计算"
+    if lower is None:
+        return f"≤ {upper:.4f}"
+    if upper is None:
+        return f"> {lower:.4f}"
+    return f"({lower:.4f}, {upper:.4f}]"
+
+
+def _chart_y(value: Decimal, *, maximum: Decimal) -> float:
+    top = Decimal("34")
+    height = Decimal("186")
+    return float(top + (maximum - value) / (maximum * Decimal(2)) * height)
+
+
+def _line_segments(groups, split: str, maximum: Decimal) -> list[str]:
+    segments: list[list[str]] = []
+    current: list[str] = []
+    for group in groups:
+        value = group[split]["mean_future_return"]
+        if value is None:
+            if current:
+                segments.append(current)
+                current = []
+            continue
+        current.append(f'{group["chart_x"]:.1f},{_chart_y(value * Decimal(100), maximum=maximum):.1f}')
+    if current:
+        segments.append(current)
+    return [" ".join(segment) for segment in segments]
+
+
+def _prepare_chart_data(result: dict[str, object]) -> None:
+    groups = result["groups"]
+    return_values = [
+        abs(summary["mean_future_return"] * Decimal(100))
+        for group in groups
+        for summary in (group["discovery"], group["validation"])
+        if summary["mean_future_return"] is not None
+    ]
+    return_max = max(return_values, default=Decimal("0.01")) * Decimal("1.15")
+    return_max = max(return_max, Decimal("0.01"))
+    for index, group in enumerate(groups):
+        group["chart_x"] = 65 + index * 69
+        for split in ("discovery", "validation"):
+            summary = group[split]
+            mean_return = summary["mean_future_return"]
+            summary["return_y"] = (
+                _chart_y(mean_return * Decimal(100), maximum=return_max)
+                if mean_return is not None
+                else None
+            )
+            summary["return_marker_y"] = (
+                summary["return_y"] - 5
+                if summary["return_y"] is not None
+                else None
+            )
+            up_ratio = summary["up_ratio"]
+            summary["up_bar_height"] = (
+                float(up_ratio * Decimal("186")) if up_ratio is not None else 0
+            )
+            summary["up_bar_y"] = 220 - summary["up_bar_height"]
+    result["return_chart"] = {
+        "maximum_label": f"+{return_max:.4f}%",
+        "minimum_label": f"-{return_max:.4f}%",
+        "zero_y": _chart_y(Decimal(0), maximum=return_max),
+        "zero_label_y": _chart_y(Decimal(0), maximum=return_max) + 4,
+        "discovery_segments": _line_segments(groups, "discovery", return_max),
+        "validation_segments": _line_segments(groups, "validation", return_max),
+    }
+
+
+@require_GET
+def research(request):
+    result = build_trade_imbalance_research(settings.MICROSTRUCTURE_SYMBOL)
+    for group in result["groups"]:
+        group["range_label"] = _imbalance_range(group["lower"], group["upper"])
+        for split in ("discovery", "validation"):
+            summary = group[split]
+            mean_return = summary["mean_future_return"]
+            summary["return_class"] = (
+                "positive"
+                if mean_return is not None and mean_return > 0
+                else "negative"
+                if mean_return is not None and mean_return < 0
+                else ""
+            )
+            summary["mean_return_label"] = _percent(
+                mean_return, places=4
+            )
+            summary["up_ratio_label"] = _percent(summary["up_ratio"], places=1)
+    _prepare_chart_data(result)
+    return render(
+        request,
+        "microstructure/research.html",
+        {"research": result},
     )
 
 

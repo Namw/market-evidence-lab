@@ -49,7 +49,8 @@
                 <details class="nav-group{% if request.resolver_match.namespace == 'microstructure' %} is-active{% endif %}" data-nav-group="microstructure"{% if request.resolver_match.namespace == 'microstructure' %} open{% endif %}>
                     <summary class="nav-item"><span>微观结构</span><span class="nav-chevron" aria-hidden="true"></span></summary>
                     <div class="nav-submenu" aria-label="微观结构">
-                        <a class="nav-subitem{% if request.resolver_match.namespace == 'microstructure' %} is-active{% endif %}" href="{% url 'microstructure:index' %}"{% if request.resolver_match.namespace == 'microstructure' %} aria-current="page"{% endif %}>盘口采集</a>
+                        <a class="nav-subitem{% if request.resolver_match.namespace == 'microstructure' and request.resolver_match.url_name == 'index' %} is-active{% endif %}" href="{% url 'microstructure:index' %}"{% if request.resolver_match.namespace == 'microstructure' and request.resolver_match.url_name == 'index' %} aria-current="page"{% endif %}>盘口采集</a>
+                        <a class="nav-subitem{% if request.resolver_match.namespace == 'microstructure' and request.resolver_match.url_name == 'research' %} is-active{% endif %}" href="{% url 'microstructure:research' %}"{% if request.resolver_match.namespace == 'microstructure' and request.resolver_match.url_name == 'research' %} aria-current="page"{% endif %}>预测研究</a>
                     </div>
                 </details>
                 <details class="nav-group{% if request.resolver_match.namespace == 'news_analysis' or request.resolver_match.namespace == 'news_data' %} is-active{% endif %}" data-nav-group="news"{% if request.resolver_match.namespace == 'news_analysis' or request.resolver_match.namespace == 'news_data' %} open{% endif %}>

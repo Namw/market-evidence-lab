@@ -20,6 +20,13 @@ class MarketMinute(models.Model):
     close_price = models.DecimalField(
         max_digits=40, decimal_places=18, null=True, blank=True
     )
+    future_5m_return = models.DecimalField(
+        max_digits=40,
+        decimal_places=18,
+        null=True,
+        blank=True,
+        help_text="严格连续五分钟后的收盘价相对当前收盘价收益。",
+    )
     quote_volume = models.DecimalField(max_digits=40, decimal_places=18, default=0)
     taker_buy_quote = models.DecimalField(max_digits=40, decimal_places=18, default=0)
     taker_sell_quote = models.DecimalField(max_digits=40, decimal_places=18, default=0)
