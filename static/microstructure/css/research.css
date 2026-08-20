@@ -10,6 +10,32 @@
     gap: 20px;
 }
 
+.metric-switch {
+    display: flex;
+    width: max-content;
+    max-width: 100%;
+    gap: 6px;
+    padding: 5px;
+    border: 1px solid var(--line);
+    border-radius: 11px;
+    background: #eef1f6;
+}
+
+.metric-switch a {
+    padding: 8px 14px;
+    border-radius: 7px;
+    color: var(--muted);
+    font-size: 12px;
+    font-weight: 700;
+    text-decoration: none;
+}
+
+.metric-switch a.is-active {
+    color: #315bce;
+    background: #fff;
+    box-shadow: 0 2px 8px rgba(23, 32, 50, .08);
+}
+
 .research-hero {
     display: flex;
     gap: 32px;
@@ -507,5 +533,15 @@
 
     .research-metrics {
         grid-template-columns: 1fr 1fr;
+    }
+
+    .metric-switch {
+        display: grid;
+        width: 100%;
+        grid-template-columns: 1fr 1fr;
+    }
+
+    .metric-switch a {
+        text-align: center;
     }
 }

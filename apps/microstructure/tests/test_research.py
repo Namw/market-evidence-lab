@@ -5,7 +5,9 @@ from django.test import TestCase
 
 from apps.microstructure.models import MarketMinute
 from apps.microstructure.research import (
+    build_trade_intensity_research,
     build_trade_imbalance_research,
+    calculate_trade_intensity,
     calculate_future_5m_returns,
     refresh_future_5m_returns,
 )
@@ -19,6 +21,7 @@ def minute(
     close: str = "100",
     buy: str = "600",
     sell: str = "400",
+    volume: str | None = None,
     closed: bool = True,
 ) -> MarketMinute:
     start = START + timedelta(minutes=offset)
@@ -30,7 +33,11 @@ def minute(
         high_price=close,
         low_price=close,
         close_price=close,
-        quote_volume=Decimal(buy) + Decimal(sell),
+        quote_volume=(
+            Decimal(volume)
+            if volume is not None
+            else Decimal(buy) + Decimal(sell)
+        ),
         taker_buy_quote=buy,
         taker_sell_quote=sell,
         delta_quote=Decimal(buy) - Decimal(sell),
@@ -100,3 +107,57 @@ class TradeImbalanceDecileTests(TestCase):
             30,
         )
         self.assertEqual(result["groups"][-1]["validation"]["sample_count"], 30)
+
+
+class TradeIntensityTests(TestCase):
+    def test_intensity_uses_only_the_previous_sixty_minute_median(self):
+        rows = [
+            minute(index, volume=str(index + 1))
+            for index in range(61)
+        ]
+
+        values = calculate_trade_intensity(rows)
+
+        self.assertIsNone(values[rows[59].pk])
+        self.assertEqual(values[rows[60].pk], Decimal("2.000000000000000000"))
+
+    def test_intensity_is_empty_when_prior_window_has_a_gap(self):
+        rows = [minute(index, volume="100") for index in range(60)]
+        current = minute(61, volume="200")
+        rows.append(current)
+
+        values = calculate_trade_intensity(rows)
+
+        self.assertIsNone(values[current.pk])
+
+    def test_intensity_is_empty_when_prior_window_contains_unclosed_kline(self):
+        rows = [
+            minute(index, volume="100", closed=index != 30)
+            for index in range(61)
+        ]
+
+        values = calculate_trade_intensity(rows)
+
+        self.assertIsNone(values[rows[-1].pk])
+
+    def test_intensity_research_reuses_time_split_and_training_cutpoints(self):
+        for index in range(160):
+            row = minute(index, volume=str(100 + index))
+            row.future_5m_return = Decimal(index - 80) / Decimal("100000")
+            row.save(update_fields=["future_5m_return"])
+
+        result = build_trade_intensity_research("ETHUSDT")
+
+        self.assertEqual(result["metric"]["key"], "trade_intensity")
+        self.assertEqual(result["sample_count"], 100)
+        self.assertEqual(result["discovery_count"], 65)
+        self.assertEqual(result["purged_count"], 5)
+        self.assertEqual(result["validation_count"], 30)
+        self.assertEqual(
+            sum(group["discovery"]["sample_count"] for group in result["groups"]),
+            65,
+        )
+        self.assertEqual(
+            sum(group["validation"]["sample_count"] for group in result["groups"]),
+            30,
+        )

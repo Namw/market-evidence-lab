@@ -1,7 +1,7 @@
 {% extends "base.html" %}
 {% load static tz %}
 
-{% block title %}主动成交失衡研究 · Market Evidence Lab{% endblock %}
+{% block title %}{{ research.metric.title }} · Market Evidence Lab{% endblock %}
 {% block body_class %}microstructure-research-body{% endblock %}
 {% block extra_css %}<link rel="stylesheet" href="{% static 'microstructure/css/research.css' %}?v=2">{% endblock %}
 
@@ -10,11 +10,17 @@
     <header class="research-hero">
         <div>
             <p class="research-eyebrow">ETHUSDT · 1分钟 · 未来5分钟</p>
-            <h1>主动成交失衡预测研究</h1>
-            <p>观察主动买卖成交额的相对失衡，能否稳定区分未来5分钟价格结果。当前只做分组研究，不预设异常阈值。</p>
+            <h1>{{ research.metric.title }}</h1>
+            <p>{{ research.metric.description }}当前只做分组研究，不预设异常阈值。</p>
         </div>
         <a href="{% url 'microstructure:index' %}">返回盘口采集</a>
     </header>
+
+    <nav class="metric-switch" aria-label="选择异常候选指标">
+        {% for metric in research.metric_options %}
+        <a href="?metric={{ metric.key }}" class="{% if metric.active %}is-active{% endif %}"{% if metric.active %} aria-current="page"{% endif %}>{{ metric.short_name }}</a>
+        {% endfor %}
+    </nav>
 
     <section class="readiness-panel">
         <div>
@@ -34,7 +40,8 @@
         <div>
             <span class="step-index">01</span>
             <h2>指标定义</h2>
-            <code>(主动买入额 − 主动卖出额) / (主动买入额 + 主动卖出额)</code>
+            <code>{{ research.metric.formula }}</code>
+            <p>{{ research.metric.method_note }}</p>
         </div>
         <div>
             <span class="step-index">02</span>
@@ -89,8 +96,8 @@
             </figcaption>
             <div class="chart-scroll">
                 <svg class="return-chart" viewBox="0 0 720 278" role="img" aria-labelledby="return-chart-title return-chart-desc">
-                    <title id="return-chart-title">主动成交失衡十分位与平均未来5分钟收益</title>
-                    <desc id="return-chart-desc">蓝色圆点为发现集，橙色方点为验证集。横轴从D1强主动卖出到D10强主动买入，纵轴为平均未来5分钟收益百分比。</desc>
+                    <title id="return-chart-title">{{ research.metric.short_name }}十分位与平均未来5分钟收益</title>
+                    <desc id="return-chart-desc">蓝色圆点为发现集，橙色方点为验证集。横轴从D1 {{ research.metric.low_label }}到D10 {{ research.metric.high_label }}，纵轴为平均未来5分钟收益百分比。</desc>
                     <line class="chart-grid" x1="65" y1="34" x2="686" y2="34"></line>
                     <line class="chart-zero" x1="65" y1="{{ research.return_chart.zero_y|stringformat:'.1f' }}" x2="686" y2="{{ research.return_chart.zero_y|stringformat:'.1f' }}"></line>
                     <line class="chart-grid" x1="65" y1="220" x2="686" y2="220"></line>
@@ -112,7 +119,7 @@
                         </rect>
                         {% endif %}
                     {% endfor %}
-                    <text class="axis-title" x="375" y="272" text-anchor="middle">成交失衡十分位（D1 主动卖出 → D10 主动买入）</text>
+                    <text class="axis-title" x="375" y="272" text-anchor="middle">{{ research.metric.axis_label }}</text>
                 </svg>
             </div>
         </figure>
@@ -124,7 +131,7 @@
             </figcaption>
             <div class="chart-scroll">
                 <svg class="ratio-chart" viewBox="0 0 720 278" role="img" aria-labelledby="ratio-chart-title ratio-chart-desc">
-                    <title id="ratio-chart-title">主动成交失衡十分位与未来5分钟上涨比例</title>
+                    <title id="ratio-chart-title">{{ research.metric.short_name }}十分位与未来5分钟上涨比例</title>
                     <desc id="ratio-chart-desc">每个十分位包含发现集和验证集两根柱，纵轴为未来5分钟上涨样本比例。</desc>
                     <line class="chart-grid" x1="65" y1="34" x2="686" y2="34"></line>
                     <line class="chart-reference" x1="65" y1="127" x2="686" y2="127"></line>
@@ -145,7 +152,7 @@
                         {% endif %}
                         <text class="x-label" x="{{ group.chart_x }}" y="248" text-anchor="middle">D{{ group.decile }}</text>
                     {% endfor %}
-                    <text class="axis-title" x="375" y="272" text-anchor="middle">成交失衡十分位（每组两根柱）</text>
+                    <text class="axis-title" x="375" y="272" text-anchor="middle">{{ research.metric.axis_label }}</text>
                 </svg>
             </div>
         </figure>
@@ -186,7 +193,7 @@
         {% else %}
         <div class="research-empty">
             <strong>还没有可研究样本</strong>
-            <p>完成数据库迁移并回填未来收益后，这里会显示十分位结果。最新5分钟和跨缺口记录会按规则保持为空。</p>
+            <p>积累满足该指标计算约束且带有未来收益标签的数据后，这里会显示十分位结果。</p>
         </div>
         {% endif %}
     </section>

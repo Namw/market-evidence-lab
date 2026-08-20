@@ -12,7 +12,7 @@ from django.views.decorators.http import require_GET, require_POST
 from .calculations import floor_time
 from .models import MarketMinute, MicrostructureCollectorRun
 from .process_control import CollectorControlError, launch_collector, stop_collector
-from .research import build_trade_imbalance_research
+from .research import RESEARCH_METRICS, build_decile_research
 
 from apps.market_data.models import Kline, OpenInterest
 
@@ -276,14 +276,23 @@ def _percent(value: Decimal | None, *, places: int) -> str:
     return f"{value * Decimal(100):.{places}f}%"
 
 
-def _imbalance_range(lower: Decimal | None, upper: Decimal | None) -> str:
+def _metric_range(
+    lower: Decimal | None,
+    upper: Decimal | None,
+    *,
+    places: int,
+    suffix: str,
+) -> str:
     if lower is None and upper is None:
         return "待计算"
+    def label(value: Decimal) -> str:
+        return f"{value:.{places}f}{suffix}"
+
     if lower is None:
-        return f"≤ {upper:.4f}"
+        return f"≤ {label(upper)}"
     if upper is None:
-        return f"> {lower:.4f}"
-    return f"({lower:.4f}, {upper:.4f}]"
+        return f"> {label(lower)}"
+    return f"({label(lower)}, {label(upper)}]"
 
 
 def _chart_y(value: Decimal, *, maximum: Decimal) -> float:
@@ -350,9 +359,27 @@ def _prepare_chart_data(result: dict[str, object]) -> None:
 
 @require_GET
 def research(request):
-    result = build_trade_imbalance_research(settings.MICROSTRUCTURE_SYMBOL)
+    metric_key = request.GET.get("metric", "trade_imbalance")
+    if metric_key not in RESEARCH_METRICS:
+        metric_key = "trade_imbalance"
+    result = build_decile_research(
+        settings.MICROSTRUCTURE_SYMBOL,
+        metric_key=metric_key,
+    )
+    result["metric_options"] = [
+        {
+            **metric,
+            "active": key == metric_key,
+        }
+        for key, metric in RESEARCH_METRICS.items()
+    ]
     for group in result["groups"]:
-        group["range_label"] = _imbalance_range(group["lower"], group["upper"])
+        group["range_label"] = _metric_range(
+            group["lower"],
+            group["upper"],
+            places=result["metric"]["range_places"],
+            suffix=result["metric"]["range_suffix"],
+        )
         for split in ("discovery", "validation"):
             summary = group[split]
             mean_return = summary["mean_future_return"]

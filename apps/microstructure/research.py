@@ -12,13 +12,43 @@ from .calculations import decimal_18
 from .models import MarketMinute
 
 FUTURE_HORIZON_MINUTES = 5
+TRADE_INTENSITY_LOOKBACK_MINUTES = 60
 TRAIN_RATIO = Decimal("0.70")
+
+RESEARCH_METRICS = {
+    "trade_imbalance": {
+        "key": "trade_imbalance",
+        "short_name": "主动成交失衡",
+        "title": "主动成交失衡预测研究",
+        "description": "观察主动买卖成交额的相对失衡，能否稳定区分未来5分钟价格结果。",
+        "formula": "(主动买入额 − 主动卖出额) / (主动买入额 + 主动卖出额)",
+        "method_note": "数值范围为 −1 到 1；越低越偏主动卖出，越高越偏主动买入。",
+        "axis_label": "成交失衡十分位（D1 主动卖出 → D10 主动买入）",
+        "low_label": "强主动卖出",
+        "high_label": "强主动买入",
+        "range_places": 4,
+        "range_suffix": "",
+    },
+    "trade_intensity": {
+        "key": "trade_intensity",
+        "short_name": "成交强度",
+        "title": "成交强度预测研究",
+        "description": "观察当前1分钟成交额相对近期正常水平的放大程度，能否稳定区分未来5分钟价格结果。",
+        "formula": "当前1分钟成交额 / 前60个连续完整分钟成交额中位数",
+        "method_note": "基准只使用当前分钟之前的数据；前60分钟有缺口、未收盘或中位数为0时，指标为空。",
+        "axis_label": "成交强度十分位（D1 低强度 → D10 高强度）",
+        "low_label": "低成交强度",
+        "high_label": "高成交强度",
+        "range_places": 2,
+        "range_suffix": "×",
+    },
+}
 
 
 @dataclass(frozen=True, slots=True)
-class TradeImbalanceObservation:
+class ResearchObservation:
     minute_start: datetime
-    trade_imbalance: Decimal
+    metric_value: Decimal
     future_5m_return: Decimal
 
 
@@ -130,6 +160,53 @@ def trade_imbalance(row: MarketMinute) -> Decimal | None:
         return decimal_18((row.taker_buy_quote - row.taker_sell_quote) / total)
 
 
+def calculate_trade_intensity(
+    rows: list[MarketMinute],
+    *,
+    lookback: int = TRADE_INTENSITY_LOOKBACK_MINUTES,
+) -> dict[int, Decimal | None]:
+    """Compare each minute with a strictly prior, gap-free rolling median."""
+    if lookback <= 0:
+        raise ValueError("lookback must be positive")
+    result: dict[int, Decimal | None] = {}
+    prior: list[MarketMinute] = []
+    previous_start: datetime | None = None
+    step = timedelta(minutes=1)
+
+    for row in rows:
+        current_is_valid = (
+            row.kline_closed
+            and row.quote_volume is not None
+            and Decimal(row.quote_volume) >= 0
+        )
+        if previous_start is None or row.minute_start != previous_start + step:
+            prior = []
+
+        value = None
+        if current_is_valid and len(prior) == lookback:
+            ordered = sorted(Decimal(item.quote_volume) for item in prior)
+            middle = lookback // 2
+            median = (
+                ordered[middle]
+                if lookback % 2
+                else (ordered[middle - 1] + ordered[middle]) / Decimal(2)
+            )
+            if median > 0:
+                with localcontext() as context:
+                    context.prec = 60
+                    value = decimal_18(Decimal(row.quote_volume) / median)
+        result[row.pk] = value
+
+        if current_is_valid:
+            prior.append(row)
+            if len(prior) > lookback:
+                prior.pop(0)
+        else:
+            prior = []
+        previous_start = row.minute_start
+    return result
+
+
 def _nearest_rank_cutpoints(values: list[Decimal]) -> list[Decimal]:
     ordered = sorted(values)
     return [
@@ -139,7 +216,7 @@ def _nearest_rank_cutpoints(values: list[Decimal]) -> list[Decimal]:
 
 
 def _summary(
-    observations: list[TradeImbalanceObservation],
+    observations: list[ResearchObservation],
 ) -> dict[str, object]:
     if not observations:
         return {
@@ -164,12 +241,12 @@ def _summary(
 
 
 def _bucket_summaries(
-    observations: list[TradeImbalanceObservation],
+    observations: list[ResearchObservation],
     cutpoints: list[Decimal],
 ) -> list[dict[str, object]]:
-    buckets: list[list[TradeImbalanceObservation]] = [[] for _ in range(10)]
+    buckets: list[list[ResearchObservation]] = [[] for _ in range(10)]
     for item in observations:
-        index = min(9, bisect_right(cutpoints, item.trade_imbalance))
+        index = min(9, bisect_right(cutpoints, item.metric_value))
         buckets[index].append(item)
     return [_summary(bucket) for bucket in buckets]
 
@@ -184,26 +261,45 @@ def _readiness(sample_count: int) -> tuple[str, str]:
     return "可做首轮验证", "样本规模已支持第一轮时间外验证，但仍不是交易结论。"
 
 
-def build_trade_imbalance_research(symbol: str) -> dict[str, object]:
+def build_decile_research(
+    symbol: str,
+    *,
+    metric_key: str = "trade_imbalance",
+) -> dict[str, object]:
+    if metric_key not in RESEARCH_METRICS:
+        raise ValueError(f"Unsupported research metric: {metric_key}")
+    metric = RESEARCH_METRICS[metric_key]
+    selected_fields = [
+        "minute_start",
+        "future_5m_return",
+    ]
+    if metric_key == "trade_imbalance":
+        selected_fields.extend(["taker_buy_quote", "taker_sell_quote"])
+    else:
+        selected_fields.extend(["quote_volume", "kline_closed"])
     all_rows = list(
         MarketMinute.objects.filter(symbol=symbol)
-        .only(
-            "minute_start",
-            "taker_buy_quote",
-            "taker_sell_quote",
-            "future_5m_return",
-        )
+        .only(*selected_fields)
         .order_by("minute_start")
     )
-    observations: list[TradeImbalanceObservation] = []
+    intensity_values = (
+        calculate_trade_intensity(all_rows)
+        if metric_key == "trade_intensity"
+        else {}
+    )
+    observations: list[ResearchObservation] = []
     for row in all_rows:
-        imbalance = trade_imbalance(row)
-        if row.future_5m_return is None or imbalance is None:
+        metric_value = (
+            trade_imbalance(row)
+            if metric_key == "trade_imbalance"
+            else intensity_values[row.pk]
+        )
+        if row.future_5m_return is None or metric_value is None:
             continue
         observations.append(
-            TradeImbalanceObservation(
+            ResearchObservation(
                 minute_start=row.minute_start,
-                trade_imbalance=imbalance,
+                metric_value=metric_value,
                 future_5m_return=row.future_5m_return,
             )
         )
@@ -222,7 +318,7 @@ def build_trade_imbalance_research(symbol: str) -> dict[str, object]:
     purged_count = len(discovery_candidates) - len(discovery)
 
     cutpoints = (
-        _nearest_rank_cutpoints([item.trade_imbalance for item in discovery])
+        _nearest_rank_cutpoints([item.metric_value for item in discovery])
         if discovery
         else []
     )
@@ -246,6 +342,7 @@ def build_trade_imbalance_research(symbol: str) -> dict[str, object]:
     labeled_count = sum(row.future_5m_return is not None for row in all_rows)
     return {
         "symbol": symbol,
+        "metric": metric,
         "minute_count": len(all_rows),
         "labeled_count": labeled_count,
         "sample_count": len(observations),
@@ -260,3 +357,11 @@ def build_trade_imbalance_research(symbol: str) -> dict[str, object]:
         "status_detail": status_detail,
         "groups": groups,
     }
+
+
+def build_trade_imbalance_research(symbol: str) -> dict[str, object]:
+    return build_decile_research(symbol, metric_key="trade_imbalance")
+
+
+def build_trade_intensity_research(symbol: str) -> dict[str, object]:
+    return build_decile_research(symbol, metric_key="trade_intensity")

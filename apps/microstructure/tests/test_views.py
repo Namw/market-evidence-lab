@@ -45,6 +45,33 @@ class MicrostructureViewTests(TestCase):
         self.assertContains(response, "查看精确数据与十分位边界")
         self.assertContains(response, "当前只做分组研究，不预设异常阈值")
 
+    def test_research_page_can_switch_to_trade_intensity(self):
+        start = datetime(2026, 8, 20, 0, 0, tzinfo=UTC)
+        for offset in range(80):
+            MarketMinute.objects.create(
+                symbol="ETHUSDT",
+                minute_start=start + timedelta(minutes=offset),
+                minute_end=start + timedelta(minutes=offset + 1),
+                close_price="3200",
+                quote_volume=str(1000 + offset),
+                future_5m_return="0.001",
+                kline_closed=True,
+            )
+
+        response = self.client.get(
+            reverse("microstructure:research"),
+            {"metric": "trade_intensity"},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "成交强度预测研究")
+        self.assertContains(
+            response,
+            "当前1分钟成交额 / 前60个连续完整分钟成交额中位数",
+        )
+        self.assertContains(response, "成交强度十分位")
+        self.assertContains(response, '?metric=trade_intensity" class="is-active"')
+
     def test_status_returns_current_run_progress(self):
         MicrostructureCollectorRun.objects.create(
             symbol="ETHUSDT",
