@@ -72,6 +72,38 @@ class MicrostructureViewTests(TestCase):
         self.assertContains(response, "成交强度十分位")
         self.assertContains(response, '?metric=trade_intensity" class="is-active"')
 
+    def test_research_page_can_switch_to_depth_drop(self):
+        start = datetime(2026, 8, 20, 0, 0, tzinfo=UTC)
+        for offset in range(20):
+            MarketMinute.objects.create(
+                symbol="ETHUSDT",
+                minute_start=start + timedelta(minutes=offset),
+                minute_end=start + timedelta(minutes=offset + 1),
+                close_price="3200",
+                future_5m_return="0.001",
+                kline_closed=True,
+                bid_depth_open="600",
+                ask_depth_open="400",
+                bid_depth_close=str(600 - offset * 3),
+                ask_depth_close=str(400 - offset * 2),
+                book_sample_count=60,
+                coverage_ratio="1",
+            )
+
+        response = self.client.get(
+            reverse("microstructure:research"),
+            {"metric": "depth_drop"},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "盘口深度快速减少预测研究")
+        self.assertContains(
+            response,
+            "(分钟初Top20总深度 − 分钟末Top20总深度) / 分钟初Top20总深度",
+        )
+        self.assertContains(response, "盘口深度变化十分位")
+        self.assertContains(response, '?metric=depth_drop" class="is-active"')
+
     def test_status_returns_current_run_progress(self):
         MicrostructureCollectorRun.objects.create(
             symbol="ETHUSDT",

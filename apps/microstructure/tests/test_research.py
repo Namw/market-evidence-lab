@@ -5,10 +5,12 @@ from django.test import TestCase
 
 from apps.microstructure.models import MarketMinute
 from apps.microstructure.research import (
+    build_depth_drop_research,
     build_trade_intensity_research,
     build_trade_imbalance_research,
     calculate_trade_intensity,
     calculate_future_5m_returns,
+    depth_drop_ratio,
     refresh_future_5m_returns,
 )
 
@@ -23,6 +25,12 @@ def minute(
     sell: str = "400",
     volume: str | None = None,
     closed: bool = True,
+    bid_depth_open: str | None = None,
+    ask_depth_open: str | None = None,
+    bid_depth_close: str | None = None,
+    ask_depth_close: str | None = None,
+    book_samples: int = 0,
+    coverage: str = "0",
 ) -> MarketMinute:
     start = START + timedelta(minutes=offset)
     return MarketMinute.objects.create(
@@ -42,6 +50,12 @@ def minute(
         taker_sell_quote=sell,
         delta_quote=Decimal(buy) - Decimal(sell),
         kline_closed=closed,
+        bid_depth_open=bid_depth_open,
+        ask_depth_open=ask_depth_open,
+        bid_depth_close=bid_depth_close,
+        ask_depth_close=ask_depth_close,
+        book_sample_count=book_samples,
+        coverage_ratio=coverage,
     )
 
 
@@ -149,6 +163,85 @@ class TradeIntensityTests(TestCase):
         result = build_trade_intensity_research("ETHUSDT")
 
         self.assertEqual(result["metric"]["key"], "trade_intensity")
+        self.assertEqual(result["sample_count"], 100)
+        self.assertEqual(result["discovery_count"], 65)
+        self.assertEqual(result["purged_count"], 5)
+        self.assertEqual(result["validation_count"], 30)
+        self.assertEqual(
+            sum(group["discovery"]["sample_count"] for group in result["groups"]),
+            65,
+        )
+        self.assertEqual(
+            sum(group["validation"]["sample_count"] for group in result["groups"]),
+            30,
+        )
+
+
+class DepthDropTests(TestCase):
+    def test_depth_drop_compares_combined_top20_open_and_close_depth(self):
+        row = minute(
+            0,
+            bid_depth_open="600",
+            ask_depth_open="400",
+            bid_depth_close="300",
+            ask_depth_close="200",
+            book_samples=60,
+            coverage="1",
+        )
+
+        self.assertEqual(depth_drop_ratio(row), Decimal("0.500000000000000000"))
+
+    def test_depth_drop_is_empty_when_coverage_is_below_eighty_percent(self):
+        row = minute(
+            0,
+            bid_depth_open="600",
+            ask_depth_open="400",
+            bid_depth_close="300",
+            ask_depth_close="200",
+            book_samples=47,
+            coverage="0.799999",
+        )
+
+        self.assertIsNone(depth_drop_ratio(row))
+
+    def test_depth_drop_is_empty_without_open_close_or_two_samples(self):
+        missing_close = minute(
+            0,
+            bid_depth_open="600",
+            ask_depth_open="400",
+            book_samples=60,
+            coverage="1",
+        )
+        one_sample = minute(
+            1,
+            bid_depth_open="600",
+            ask_depth_open="400",
+            bid_depth_close="300",
+            ask_depth_close="200",
+            book_samples=1,
+            coverage="1",
+        )
+
+        self.assertIsNone(depth_drop_ratio(missing_close))
+        self.assertIsNone(depth_drop_ratio(one_sample))
+
+    def test_depth_drop_research_reuses_time_split_and_training_cutpoints(self):
+        for index in range(100):
+            row = minute(
+                index,
+                bid_depth_open="600",
+                ask_depth_open="400",
+                bid_depth_close=str(600 - index * 3),
+                ask_depth_close=str(400 - index * 2),
+                book_samples=60,
+                coverage="1",
+            )
+            row.future_5m_return = Decimal(index - 50) / Decimal("100000")
+            row.save(update_fields=["future_5m_return"])
+
+        result = build_depth_drop_research("ETHUSDT")
+
+        self.assertEqual(result["metric"]["key"], "depth_drop")
         self.assertEqual(result["sample_count"], 100)
         self.assertEqual(result["discovery_count"], 65)
         self.assertEqual(result["purged_count"], 5)

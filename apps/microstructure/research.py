@@ -13,6 +13,7 @@ from .models import MarketMinute
 
 FUTURE_HORIZON_MINUTES = 5
 TRADE_INTENSITY_LOOKBACK_MINUTES = 60
+MIN_DEPTH_COVERAGE_RATIO = Decimal("0.80")
 TRAIN_RATIO = Decimal("0.70")
 
 RESEARCH_METRICS = {
@@ -28,6 +29,7 @@ RESEARCH_METRICS = {
         "high_label": "强主动买入",
         "range_places": 4,
         "range_suffix": "",
+        "range_multiplier": Decimal(1),
     },
     "trade_intensity": {
         "key": "trade_intensity",
@@ -41,6 +43,21 @@ RESEARCH_METRICS = {
         "high_label": "高成交强度",
         "range_places": 2,
         "range_suffix": "×",
+        "range_multiplier": Decimal(1),
+    },
+    "depth_drop": {
+        "key": "depth_drop",
+        "short_name": "盘口深度减少",
+        "title": "盘口深度快速减少预测研究",
+        "description": "观察Top20买卖盘总深度在1分钟内快速减少，能否稳定区分未来5分钟价格结果。",
+        "formula": "(分钟初Top20总深度 − 分钟末Top20总深度) / 分钟初Top20总深度",
+        "method_note": "正值代表深度减少，负值代表深度增加；只使用盘口覆盖率不低于80%且至少有2次抽样的分钟。深度减少本身不能区分成交与撤单。",
+        "axis_label": "盘口深度变化十分位（D1 深度增加 → D10 深度减少）",
+        "low_label": "深度增加",
+        "high_label": "深度减少",
+        "range_places": 2,
+        "range_suffix": "%",
+        "range_multiplier": Decimal(100),
     },
 }
 
@@ -207,6 +224,29 @@ def calculate_trade_intensity(
     return result
 
 
+def depth_drop_ratio(row: MarketMinute) -> Decimal | None:
+    required = (
+        row.bid_depth_open,
+        row.ask_depth_open,
+        row.bid_depth_close,
+        row.ask_depth_close,
+    )
+    if any(value is None for value in required):
+        return None
+    if (
+        row.book_sample_count < 2
+        or Decimal(row.coverage_ratio) < MIN_DEPTH_COVERAGE_RATIO
+    ):
+        return None
+    open_depth = Decimal(row.bid_depth_open) + Decimal(row.ask_depth_open)
+    close_depth = Decimal(row.bid_depth_close) + Decimal(row.ask_depth_close)
+    if open_depth <= 0:
+        return None
+    with localcontext() as context:
+        context.prec = 60
+        return decimal_18((open_depth - close_depth) / open_depth)
+
+
 def _nearest_rank_cutpoints(values: list[Decimal]) -> list[Decimal]:
     ordered = sorted(values)
     return [
@@ -275,8 +315,19 @@ def build_decile_research(
     ]
     if metric_key == "trade_imbalance":
         selected_fields.extend(["taker_buy_quote", "taker_sell_quote"])
-    else:
+    elif metric_key == "trade_intensity":
         selected_fields.extend(["quote_volume", "kline_closed"])
+    else:
+        selected_fields.extend(
+            [
+                "bid_depth_open",
+                "ask_depth_open",
+                "bid_depth_close",
+                "ask_depth_close",
+                "book_sample_count",
+                "coverage_ratio",
+            ]
+        )
     all_rows = list(
         MarketMinute.objects.filter(symbol=symbol)
         .only(*selected_fields)
@@ -289,11 +340,12 @@ def build_decile_research(
     )
     observations: list[ResearchObservation] = []
     for row in all_rows:
-        metric_value = (
-            trade_imbalance(row)
-            if metric_key == "trade_imbalance"
-            else intensity_values[row.pk]
-        )
+        if metric_key == "trade_imbalance":
+            metric_value = trade_imbalance(row)
+        elif metric_key == "trade_intensity":
+            metric_value = intensity_values[row.pk]
+        else:
+            metric_value = depth_drop_ratio(row)
         if row.future_5m_return is None or metric_value is None:
             continue
         observations.append(
@@ -365,3 +417,7 @@ def build_trade_imbalance_research(symbol: str) -> dict[str, object]:
 
 def build_trade_intensity_research(symbol: str) -> dict[str, object]:
     return build_decile_research(symbol, metric_key="trade_intensity")
+
+
+def build_depth_drop_research(symbol: str) -> dict[str, object]:
+    return build_decile_research(symbol, metric_key="depth_drop")

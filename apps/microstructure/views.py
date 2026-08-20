@@ -282,11 +282,12 @@ def _metric_range(
     *,
     places: int,
     suffix: str,
+    multiplier: Decimal,
 ) -> str:
     if lower is None and upper is None:
         return "待计算"
     def label(value: Decimal) -> str:
-        return f"{value:.{places}f}{suffix}"
+        return f"{value * multiplier:.{places}f}{suffix}"
 
     if lower is None:
         return f"≤ {label(upper)}"
@@ -379,6 +380,7 @@ def research(request):
             group["upper"],
             places=result["metric"]["range_places"],
             suffix=result["metric"]["range_suffix"],
+            multiplier=result["metric"]["range_multiplier"],
         )
         for split in ("discovery", "validation"):
             summary = group[split]
