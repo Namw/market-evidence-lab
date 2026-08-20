@@ -9,7 +9,6 @@ from django.db import transaction
 
 from .calculations import MinuteKline, OrderBookFeatures, decimal_18, floor_time
 from .models import MarketMinute
-from .research import FUTURE_HORIZON_MINUTES, refresh_future_5m_returns
 
 
 def _mean(total: Decimal, count: int) -> Decimal | None:
@@ -49,12 +48,6 @@ def save_kline(kline: MinuteKline) -> MarketMinute:
     minute.kline_closed = kline.closed
     minute.latest_event_time = kline.event_time
     minute.save()
-    refresh_future_5m_returns(
-        symbol=kline.symbol,
-        candidate_start=kline.minute_start
-        - timedelta(minutes=FUTURE_HORIZON_MINUTES),
-        candidate_end=kline.minute_start,
-    )
     return minute
 
 

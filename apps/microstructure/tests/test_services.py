@@ -84,7 +84,7 @@ class MarketMinuteServiceTests(TestCase):
         self.assertEqual(row.taker_sell_quote, Decimal("300"))
         self.assertEqual(row.delta_quote, Decimal("400"))
 
-    def test_closed_klines_automatically_label_the_minute_five_minutes_ago(self):
+    def test_closed_klines_do_not_generate_research_labels_during_collection(self):
         for offset in range(6):
             save_kline(
                 kline(
@@ -98,10 +98,7 @@ class MarketMinuteServiceTests(TestCase):
         second = MarketMinute.objects.get(
             minute_start=START + timedelta(minutes=1)
         )
-        self.assertEqual(
-            first.future_5m_return,
-            Decimal("0.050000000000000000"),
-        )
+        self.assertIsNone(first.future_5m_return)
         self.assertIsNone(second.future_5m_return)
 
     def test_second_book_samples_build_depth_mean_p95_and_coverage(self):
