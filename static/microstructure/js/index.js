@@ -32,6 +32,7 @@
 
     const WINDOW_SIZE = 120;
     const PREFETCH_MARGIN = 30;
+    const SPREAD_MAX_BPS = 3;
 
     const COLORS = {
         grid: "rgba(139, 158, 175, .13)", text: "#8fa0ac", green: "#24cd78",
@@ -145,6 +146,16 @@
             const stamp = new Date(row.timestamp).getTime();
             if (Number.isFinite(stamp)) state.oiCache.set(stamp, { ...row, stamp });
         });
+    }
+
+    function oiBarForStamp(stamp) {
+        let value = null;
+        for (const row of state.oiCache.values()) {
+            if (row.stamp - 5 * minuteMs < stamp && stamp <= row.stamp) {
+                value = number(row.value);
+            }
+        }
+        return value;
     }
 
     function setupCanvas(canvas) {
@@ -416,16 +427,31 @@
             }
             ctx.stroke();
         });
-        const spreads = state.minutes.slice(view.start, view.end + 1).map((row) => number(row.spread_bps_p95) || 0);
-        const spreadMax = Math.max(1, ...spreads);
-        spreads.forEach((value, local) => {
-            const height = value / spreadMax * Math.min(22, plot.plotHeight * .15);
-            ctx.fillStyle = "rgba(240, 185, 11, .9)";
-            ctx.fillRect(plot.x(local) - Math.max(1, plot.slotWidth * .2), plot.height - plot.bottom - height, Math.max(1, plot.slotWidth * .4), height);
-        });
         const avgDepth = trailingCombinedAverage(["bid_depth_mean", "ask_depth_mean"]);
         if (avgDepth !== null) drawAverageLine(plot, y(avgDepth * 2), COLORS.white);
         drawHoverAxis(plot, 0, max);
+    }
+
+    function drawSpread(canvas) {
+        const view = viewRange();
+        const plot = plotGeometry(setupCanvas(canvas), view.count);
+        drawGrid(plot); drawSelection(plot);
+        const ctx = plot.context;
+        const max = SPREAD_MAX_BPS;
+        const y = (value) => plot.top + (max - value) / max * plot.plotHeight;
+        const label = (value) => `${Number(value.toFixed(2))}`;
+        drawAxisLabels(plot, 0, max, label);
+        const bottom = plot.height - plot.bottom;
+        const selectedLocal = state.selected >= view.start && state.selected <= view.end ? state.selected - view.start : -1;
+        for (let local = 0; local < view.count; local += 1) {
+            const value = number(state.minutes[view.start + local].spread_bps_p95);
+            if (value === null) continue;
+            const top = Math.max(plot.top, y(value));
+            if (top >= bottom) continue;
+            ctx.fillStyle = local === selectedLocal ? "rgba(240, 185, 11, 1)" : "rgba(240, 185, 11, .72)";
+            ctx.fillRect(plot.x(local) - Math.max(1, plot.slotWidth * .2), top, Math.max(1, plot.slotWidth * .4), bottom - top);
+        }
+        drawHoverAxis(plot, 0, max, (value) => `${value.toFixed(2)} bps`);
     }
 
     function drawOi(canvas) {
@@ -463,6 +489,7 @@
         if (canvas.dataset.chart === "oi") drawOi(canvas);
         if (canvas.dataset.chart === "flow") drawFlow(canvas);
         if (canvas.dataset.chart === "depth") drawDepth(canvas);
+        if (canvas.dataset.chart === "spread") drawSpread(canvas);
     }
 
     function drawCharts() {
@@ -521,6 +548,12 @@
         setText("[data-spread]", number(row.spread_bps_p95) === null ? "—" : `${number(row.spread_bps_p95).toFixed(2)} bps`);
         setText("[data-coverage]", number(row.coverage_ratio) === null ? "—" : `${(number(row.coverage_ratio) * 100).toFixed(1)}%`);
         setText("[data-ohlc]", `O ${price(row.open)}  H ${price(row.high)}  L ${price(row.low)}  C ${price(row.close)}  ${percent(change)}`);
+        const flowBuy = number(row.taker_buy_quote), flowSell = number(row.taker_sell_quote);
+        setText("[data-flow-summary]", `买 ${compact(flowBuy)} / 卖 ${compact(flowSell)} / Δ ${signedCompact(delta)}`);
+        setText("[data-depth-summary]", `买深 ${compact(row.bid_depth_mean)} / 卖深 ${compact(row.ask_depth_mean)}`);
+        setText("[data-spread-summary]", number(row.spread_bps_p95) === null ? "—" : `${number(row.spread_bps_p95).toFixed(2)} bps`);
+        const oiValue = oiBarForStamp(row.stamp);
+        setText("[data-oi-summary]", oiValue === null ? "—" : `${compact(oiValue)}`);
         renderGroup(row);
     }
 
@@ -573,6 +606,11 @@
         } else {
             setText("[data-selected-range]", "—");
             setText("[data-last-update]", "该采集记录暂无分钟数据");
+            setText("[data-ohlc]", "O —  H —  L —  C —");
+            setText("[data-flow-summary]", "—");
+            setText("[data-depth-summary]", "—");
+            setText("[data-spread-summary]", "—");
+            setText("[data-oi-summary]", "—");
             root.querySelector("[data-minute-group]")?.replaceChildren();
         }
         if (data.run.status === "failed" && data.run.error_message) showMessage(data.run.error_message, true);

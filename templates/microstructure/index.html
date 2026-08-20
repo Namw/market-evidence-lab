@@ -4,7 +4,7 @@
 {% block title %}分钟盘口观察 · Market Evidence Lab{% endblock %}
 {% block body_class %}microstructure-body{% endblock %}
 
-{% block extra_css %}<link rel="stylesheet" href="{% static 'microstructure/css/index.css' %}?v=13">{% endblock %}
+{% block extra_css %}<link rel="stylesheet" href="{% static 'microstructure/css/index.css' %}?v=14">{% endblock %}
 
 {% block content %}
 {{ initial_status|json_script:"microstructure-initial-data" }}
@@ -53,21 +53,32 @@
             <section class="chart-panel flow-panel">
                 <div class="chart-heading">
                     <div><strong>主动成交与 Delta</strong><span class="legend buy">主动买入</span><span class="legend sell">主动卖出</span><span class="legend delta">Delta</span></div>
+                    <span data-flow-summary>—</span>
                 </div>
                 <div class="canvas-wrap"><canvas data-chart="flow" aria-label="主动买卖与Delta图"></canvas></div>
             </section>
 
             <section class="chart-panel depth-panel">
                 <div class="chart-heading">
-                    <div><strong>盘口深度与价差</strong><span class="legend bid-depth">买盘深度</span><span class="legend ask-depth">卖盘深度</span><span class="legend spread">Spread P95</span></div>
+                    <div><strong>盘口深度</strong><span class="legend bid-depth">买盘深度</span><span class="legend ask-depth">卖盘深度</span></div>
+                    <span data-depth-summary>—</span>
                 </div>
-                <div class="canvas-wrap"><canvas data-chart="depth" aria-label="盘口深度与价差图"></canvas></div>
+                <div class="canvas-wrap"><canvas data-chart="depth" aria-label="盘口深度图"></canvas></div>
                 <div class="chart-axis-footer"><span data-range-start>—</span><span data-range-date>—</span><span data-range-end>—</span></div>
+            </section>
+
+            <section class="chart-panel spread-panel">
+                <div class="chart-heading">
+                    <div><strong>Spread P95</strong><span class="legend spread">价差 bps · 固定刻度 0–3</span></div>
+                    <span data-spread-summary>—</span>
+                </div>
+                <div class="canvas-wrap"><canvas data-chart="spread" aria-label="Spread P95 价差图"></canvas></div>
             </section>
 
             <section class="chart-panel oi-panel">
                 <div class="chart-heading">
                     <div><strong>5m OI</strong><span class="legend oi">持仓量</span></div>
+                    <span data-oi-summary>—</span>
                 </div>
                 <div class="canvas-wrap"><canvas data-chart="oi" aria-label="5分钟未平仓合约量条形图"></canvas></div>
             </section>
@@ -138,4 +149,4 @@
 </div>
 {% endblock %}
 
-{% block extra_js %}<script src="{% static 'microstructure/js/index.js' %}?v=17" defer></script>{% endblock %}
+{% block extra_js %}<script src="{% static 'microstructure/js/index.js' %}?v=19" defer></script>{% endblock %}

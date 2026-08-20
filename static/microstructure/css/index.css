@@ -279,6 +279,7 @@
 .oi-panel .canvas-wrap { height: clamp(90px, 14vh, 150px); }
 .flow-panel .canvas-wrap { height: clamp(170px, 24vh, 245px); }
 .depth-panel .canvas-wrap { height: clamp(165px, 23vh, 235px); }
+.spread-panel .canvas-wrap { height: clamp(100px, 15vh, 150px); }
 
 .canvas-wrap canvas {
     display: block;
@@ -536,4 +537,5 @@
     .oi-panel .canvas-wrap { height: 110px; }
     .flow-panel .canvas-wrap,
     .depth-panel .canvas-wrap { height: 180px; }
+    .spread-panel .canvas-wrap { height: 120px; }
 }
