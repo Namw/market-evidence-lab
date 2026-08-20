@@ -9,6 +9,7 @@ from django.utils import timezone
 from apps.market_data.models import OpenInterest
 from apps.microstructure.management.commands.collect_orderbook import Command
 from apps.microstructure.models import MarketMinute, MicrostructureCollectorRun
+from apps.microstructure.views import _decorate_research_verdict
 
 
 class MicrostructureViewTests(TestCase):
@@ -17,7 +18,8 @@ class MicrostructureViewTests(TestCase):
 
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, "主动成交与 Delta")
-        self.assertContains(response, "盘口深度与价差")
+        self.assertContains(response, "盘口深度")
+        self.assertContains(response, "Spread P95")
         self.assertContains(response, "启动采集")
         self.assertContains(response, 'href="/microstructure/"')
         self.assertContains(response, 'href="/microstructure/research/"')
@@ -38,8 +40,9 @@ class MicrostructureViewTests(TestCase):
         response = self.client.get(reverse("microstructure:research"))
 
         self.assertEqual(response.status_code, 200)
-        self.assertContains(response, "异常候选联合研究")
-        self.assertContains(response, "六个指标，放在一起比较")
+        self.assertContains(response, "目前没有指标通过样本外验证")
+        self.assertContains(response, "现在能不能用")
+        self.assertContains(response, "展开研究图表")
         self.assertContains(response, "主动成交失衡")
         self.assertContains(response, "成交强度")
         self.assertContains(response, "盘口深度减少")
@@ -47,14 +50,55 @@ class MicrostructureViewTests(TestCase):
         self.assertContains(response, "Top5盘口失衡")
         self.assertContains(response, "成交-价格背离")
         self.assertContains(response, "平均未来5分钟收益")
-        self.assertContains(response, "精确数据与分组边界")
-        self.assertNotContains(response, 'class="research-hero"')
-        self.assertNotContains(response, "当前仍不预设异常阈值")
+        self.assertContains(response, "查看精确数据")
+        self.assertContains(response, "数据不足")
+        self.assertEqual(response.context["overview"]["counts"]["candidate"], 0)
+        self.assertEqual(response.context["overview"]["counts"]["insufficient"], 6)
         chart_labels = [
             item["return_chart"]["maximum_label"]
             for item in response.context["research_items"]
         ]
         self.assertEqual(len(set(chart_labels)), 1)
+
+    def test_research_verdict_requires_stable_out_of_sample_shape(self):
+        start = datetime(2026, 8, 1, 0, 0, tzinfo=UTC)
+        result = {
+            "sample_count": 12_000,
+            "range_start": start,
+            "range_end": start + timedelta(days=8),
+            "groups": [
+                {
+                    "discovery": {"mean_future_return": offset / 100_000},
+                    "validation": {"mean_future_return": offset / 110_000},
+                }
+                for offset in range(1, 11)
+            ],
+        }
+
+        _decorate_research_verdict(result)
+
+        self.assertEqual(result["verdict"]["level"], "candidate")
+        self.assertEqual(result["verdict"]["agreement_label"], "高")
+
+    def test_research_verdict_rejects_opposite_validation_shape(self):
+        start = datetime(2026, 8, 1, 0, 0, tzinfo=UTC)
+        result = {
+            "sample_count": 12_000,
+            "range_start": start,
+            "range_end": start + timedelta(days=8),
+            "groups": [
+                {
+                    "discovery": {"mean_future_return": offset / 100_000},
+                    "validation": {"mean_future_return": (11 - offset) / 100_000},
+                }
+                for offset in range(1, 11)
+            ],
+        }
+
+        _decorate_research_verdict(result)
+
+        self.assertEqual(result["verdict"]["level"], "rejected")
+        self.assertEqual(result["verdict"]["agreement_label"], "低")
 
     def test_research_page_shows_spread_expansion_definition(self):
         response = self.client.get(reverse("microstructure:research"))

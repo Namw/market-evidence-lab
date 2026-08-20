@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import math
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 
@@ -393,6 +394,170 @@ def _format_research_result(result: dict[str, object]) -> None:
             )
 
 
+def _correlation(left: list[float], right: list[float]) -> float | None:
+    if len(left) != len(right) or len(left) < 2:
+        return None
+    left_mean = sum(left) / len(left)
+    right_mean = sum(right) / len(right)
+    left_delta = [value - left_mean for value in left]
+    right_delta = [value - right_mean for value in right]
+    denominator = math.sqrt(
+        sum(value * value for value in left_delta)
+        * sum(value * value for value in right_delta)
+    )
+    if denominator == 0:
+        return None
+    return sum(
+        left_value * right_value
+        for left_value, right_value in zip(left_delta, right_delta)
+    ) / denominator
+
+
+def _decorate_research_verdict(result: dict[str, object]) -> None:
+    paired_groups = [
+        (
+            float(index),
+            float(group["discovery"]["mean_future_return"]),
+            float(group["validation"]["mean_future_return"]),
+        )
+        for index, group in enumerate(result["groups"], start=1)
+        if group["discovery"]["mean_future_return"] is not None
+        and group["validation"]["mean_future_return"] is not None
+    ]
+    indices = [item[0] for item in paired_groups]
+    discovery = [item[1] for item in paired_groups]
+    validation = [item[2] for item in paired_groups]
+    shape_agreement = _correlation(discovery, validation)
+    discovery_trend = _correlation(indices, discovery)
+    validation_trend = _correlation(indices, validation)
+    range_start = result["range_start"]
+    range_end = result["range_end"]
+    duration_days = (
+        max(0.0, (range_end - range_start).total_seconds() / 86_400)
+        if range_start is not None and range_end is not None
+        else 0.0
+    )
+    sample_count = int(result["sample_count"])
+    enough_groups = len(paired_groups) >= 8
+    trends_agree = bool(
+        discovery_trend is not None
+        and validation_trend is not None
+        and discovery_trend * validation_trend > 0
+        and abs(discovery_trend) >= 0.45
+        and abs(validation_trend) >= 0.45
+    )
+    stable_shape = bool(
+        shape_agreement is not None
+        and shape_agreement >= 0.60
+        and trends_agree
+    )
+
+    if shape_agreement is None:
+        agreement_label = "不可计算"
+    elif shape_agreement >= 0.60:
+        agreement_label = "高"
+    elif shape_agreement >= 0.30:
+        agreement_label = "中"
+    else:
+        agreement_label = "低"
+
+    if sample_count < 1_000 or not enough_groups:
+        level = "insufficient"
+        label = "数据不足"
+        headline = "样本不够，暂时不能判断"
+        if sample_count == 0:
+            detail = "还没有同时具备指标值和未来5分钟结果的样本。"
+        else:
+            detail = (
+                f"目前只有 {sample_count:,} 条可用样本，且十分位分组尚不完整；"
+                "继续采集后再判断。"
+            )
+    elif stable_shape and sample_count >= 10_000 and duration_days >= 7:
+        level = "candidate"
+        label = "候选信号"
+        headline = "前后两段数据呈现一致趋势"
+        detail = (
+            "发现集与验证集走势方向一致，可进入阈值和稳健性验证；"
+            "这仍不是交易或告警结论。"
+        )
+    elif stable_shape:
+        level = "watch"
+        label = "继续观察"
+        headline = "出现初步一致走势，但证据还不够"
+        detail = (
+            "前后两段数据开始呈现同向趋势，但样本量或覆盖周期仍短，"
+            "暂不设置异常阈值。"
+        )
+    else:
+        level = "rejected"
+        label = "未通过验证"
+        headline = "历史规律没有在后段数据中稳定复现"
+        detail = (
+            "橙色验证结果没有稳定复现蓝色发现结果，当前不应把这个指标"
+            "用于异常告警。"
+        )
+
+    result["verdict"] = {
+        "level": level,
+        "label": label,
+        "headline": headline,
+        "detail": detail,
+        "agreement_label": agreement_label,
+        "paired_group_count": len(paired_groups),
+    }
+
+
+def _research_duration_label(result: dict[str, object]) -> str:
+    range_start = result["range_start"]
+    range_end = result["range_end"]
+    if range_start is None or range_end is None:
+        return "等待数据"
+    hours = max(0.0, (range_end - range_start).total_seconds() / 3_600)
+    if hours < 72:
+        return f"{hours:.1f} 小时"
+    return f"{hours / 24:.1f} 天"
+
+
+def _research_overview(results: list[dict[str, object]]) -> dict[str, object]:
+    counts = {
+        level: sum(
+            result["verdict"]["level"] == level for result in results
+        )
+        for level in ("candidate", "watch", "rejected", "insufficient")
+    }
+    candidate_count = counts["candidate"]
+    if candidate_count:
+        label = "发现候选"
+        headline = f"{candidate_count} 个指标出现可继续验证的关系"
+        detail = (
+            "它们通过了当前页面的初步一致性检查，但仍需阈值、成本和更多"
+            "市场阶段验证。"
+        )
+        level = "candidate"
+    else:
+        label = "暂无可用信号"
+        headline = "目前没有指标通过样本外验证"
+        detail = (
+            "这意味着页面现在只能用于积累证据，不能据此触发异常告警或"
+            "交易判断。"
+        )
+        level = "neutral"
+    first = results[0] if results else None
+    return {
+        "symbol": settings.MICROSTRUCTURE_SYMBOL,
+        "minute_count": first["minute_count"] if first else 0,
+        "labeled_count": first["labeled_count"] if first else 0,
+        "range_start": first["range_start"] if first else None,
+        "range_end": first["range_end"] if first else None,
+        "duration_label": _research_duration_label(first) if first else "等待数据",
+        "counts": counts,
+        "level": level,
+        "label": label,
+        "headline": headline,
+        "detail": detail,
+    }
+
+
 @require_GET
 def research(request):
     results = [
@@ -404,15 +569,10 @@ def research(request):
     ]
     shared_return_max = _shared_return_max(results)
     for result in results:
+        _decorate_research_verdict(result)
         _format_research_result(result)
         _prepare_chart_data(result, return_max=shared_return_max)
-    overview = {
-        "symbol": settings.MICROSTRUCTURE_SYMBOL,
-        "minute_count": results[0]["minute_count"] if results else 0,
-        "labeled_count": results[0]["labeled_count"] if results else 0,
-        "range_start": results[0]["range_start"] if results else None,
-        "range_end": results[0]["range_end"] if results else None,
-    }
+    overview = _research_overview(results)
     return render(
         request,
         "microstructure/research.html",
