@@ -11,6 +11,12 @@
         <div class="conclusion-copy">
             <div class="conclusion-kicker">
                 <span class="research-eyebrow">当前研究结论</span>
+                <nav class="symbol-switcher" aria-label="切换合约">
+                    {% for candidate in available_symbols %}
+                    <a class="symbol-tab{% if candidate == symbol %} is-active{% endif %}"
+                       href="{% url 'microstructure:research_symbol' candidate %}">{{ candidate }}</a>
+                    {% endfor %}
+                </nav>
                 <span class="status-pill status-{{ overview.level }}">{{ overview.label }}</span>
             </div>
             <h1>{{ overview.headline }}</h1>

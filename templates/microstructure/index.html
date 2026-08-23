@@ -10,12 +10,19 @@
 {{ initial_status|json_script:"microstructure-initial-data" }}
 <div class="market-terminal"
      data-microstructure-page
-     data-status-url="{% url 'microstructure:status' %}"
-     data-start-url="{% url 'microstructure:start' %}"
-     data-stop-url="{% url 'microstructure:stop' %}">
+     data-status-url="{% url 'microstructure:status_symbol' symbol %}"
+     data-start-url="{% url 'microstructure:start_symbol' symbol %}"
+     data-stop-url="{% url 'microstructure:stop_symbol' symbol %}">
     <header class="terminal-toolbar">
         <div class="terminal-symbol">
             <strong>{{ symbol }} 永续</strong>
+            <span class="toolbar-divider"></span>
+            <nav class="symbol-switcher" aria-label="切换合约">
+                {% for candidate in available_symbols %}
+                <a class="symbol-tab{% if candidate == symbol %} is-active{% endif %}"
+                   href="{% if candidate == symbol %}#{% else %}{% url 'microstructure:index_symbol' candidate %}{% endif %}">{{ candidate }}</a>
+                {% endfor %}
+            </nav>
             <span class="toolbar-divider"></span>
             <span>1分钟</span>
             <span class="toolbar-divider"></span>

@@ -5,7 +5,7 @@ from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 
 from django.conf import settings
-from django.http import JsonResponse
+from django.http import Http404, JsonResponse
 from django.shortcuts import render
 from django.utils import timezone
 from django.views.decorators.http import require_GET, require_POST
@@ -20,6 +20,16 @@ from apps.market_data.models import Kline, OpenInterest
 DEFAULT_MINUTE_LIMIT = 120
 MAX_MINUTE_LIMIT = 1_440
 RECENT_RUN_LIMIT = 8
+
+
+def _resolve_symbol(symbol: str | None) -> str:
+    """Resolve a requested symbol; unknown symbols are rejected."""
+    if symbol is None:
+        return settings.MICROSTRUCTURE_SYMBOL
+    resolved = symbol.upper()
+    if resolved not in settings.MICROSTRUCTURE_SYMBOLS:
+        raise Http404(f"Unsupported microstructure symbol: {resolved}")
+    return resolved
 
 
 def _utc_iso(value: datetime | None) -> str | None:
@@ -176,11 +186,12 @@ def _available_runs(
 
 def _status_payload(
     *,
+    symbol: str | None = None,
     minute_limit: int = DEFAULT_MINUTE_LIMIT,
     selected_run_id: int | None = None,
     before: datetime | None = None,
 ) -> dict[str, object]:
-    symbol = settings.MICROSTRUCTURE_SYMBOL
+    symbol = _resolve_symbol(symbol)
     now = timezone.now().astimezone(UTC)
     active_statuses = {
         MicrostructureCollectorRun.Status.STARTING,
@@ -188,10 +199,14 @@ def _status_payload(
         MicrostructureCollectorRun.Status.STOPPING,
     }
     latest_run = (
-        MicrostructureCollectorRun.objects.filter(status__in=active_statuses)
+        MicrostructureCollectorRun.objects.filter(
+            symbol=symbol, status__in=active_statuses
+        )
         .order_by("-created_at", "-pk")
         .first()
-        or MicrostructureCollectorRun.objects.order_by("-created_at", "-pk").first()
+        or MicrostructureCollectorRun.objects.filter(symbol=symbol)
+        .order_by("-created_at", "-pk")
+        .first()
     )
     available_runs = _available_runs(symbol=symbol, now=now)
     available_run_ids = {item["id"] for item in available_runs}
@@ -260,13 +275,15 @@ def _status_payload(
 
 
 @require_GET
-def index(request):
+def index(request, symbol: str | None = None):
+    resolved = _resolve_symbol(symbol)
     return render(
         request,
         "microstructure/index.html",
         {
-            "symbol": settings.MICROSTRUCTURE_SYMBOL,
-            "initial_status": _status_payload(),
+            "symbol": resolved,
+            "available_symbols": settings.MICROSTRUCTURE_SYMBOLS,
+            "initial_status": _status_payload(symbol=resolved),
         },
     )
 
@@ -544,7 +561,7 @@ def _research_overview(results: list[dict[str, object]]) -> dict[str, object]:
         level = "neutral"
     first = results[0] if results else None
     return {
-        "symbol": settings.MICROSTRUCTURE_SYMBOL,
+        "symbol": first["symbol"] if first else settings.MICROSTRUCTURE_SYMBOL,
         "minute_count": first["minute_count"] if first else 0,
         "labeled_count": first["labeled_count"] if first else 0,
         "range_start": first["range_start"] if first else None,
@@ -559,10 +576,11 @@ def _research_overview(results: list[dict[str, object]]) -> dict[str, object]:
 
 
 @require_GET
-def research(request):
+def research(request, symbol: str | None = None):
+    resolved = _resolve_symbol(symbol)
     results = [
         build_decile_research(
-            settings.MICROSTRUCTURE_SYMBOL,
+            resolved,
             metric_key=metric_key,
         )
         for metric_key in RESEARCH_METRICS
@@ -579,12 +597,15 @@ def research(request):
         {
             "overview": overview,
             "research_items": results,
+            "symbol": resolved,
+            "available_symbols": settings.MICROSTRUCTURE_SYMBOLS,
         },
     )
 
 
 @require_GET
-def status(request):
+def status(request, symbol: str | None = None):
+    resolved = _resolve_symbol(symbol)
     try:
         minute_limit = int(request.GET.get("minutes", DEFAULT_MINUTE_LIMIT))
     except (TypeError, ValueError):
@@ -607,6 +628,7 @@ def status(request):
     minute_limit = max(10, min(MAX_MINUTE_LIMIT, minute_limit))
     return JsonResponse(
         _status_payload(
+            symbol=resolved,
             minute_limit=minute_limit,
             selected_run_id=selected_run_id,
             before=before,
@@ -615,21 +637,23 @@ def status(request):
 
 
 @require_POST
-def start(request):
+def start(request, symbol: str | None = None):
+    resolved = _resolve_symbol(symbol)
     try:
-        run = launch_collector(symbol=settings.MICROSTRUCTURE_SYMBOL)
+        run = launch_collector(symbol=resolved)
     except CollectorControlError as exc:
         return JsonResponse({"ok": False, "message": str(exc)}, status=409)
     return JsonResponse(
-        {"ok": True, "message": "实时分钟数据采集正在启动。", "run_id": run.pk},
+        {"ok": True, "message": f"{resolved} 实时分钟数据采集正在启动。", "run_id": run.pk},
         status=202,
     )
 
 
 @require_POST
-def stop(request):
+def stop(request, symbol: str | None = None):
+    resolved = _resolve_symbol(symbol)
     try:
-        run = stop_collector()
+        run = stop_collector(symbol=resolved)
     except CollectorControlError as exc:
         return JsonResponse({"ok": False, "message": str(exc)}, status=409)
     return JsonResponse(

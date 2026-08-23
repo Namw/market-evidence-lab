@@ -34,8 +34,19 @@ class CollectorProcessControlTests(TestCase):
             stdout="python manage.py collect_orderbook --symbol ETHUSDT",
         )
 
-        self.assertTrue(_unmanaged_collector_exists())
+        self.assertTrue(_unmanaged_collector_exists("ETHUSDT"))
         self.assertIn("Name = 'python.exe'", run.call_args.args[0][-1])
+
+    @patch("apps.microstructure.process_control.subprocess.run")
+    @patch("apps.microstructure.process_control.os.name", "nt")
+    def test_unmanaged_query_ignores_other_symbols(self, run):
+        run.return_value = Mock(
+            returncode=0,
+            stdout="python manage.py collect_orderbook --symbol ETHUSDT",
+        )
+
+        self.assertFalse(_unmanaged_collector_exists("ZECUSDT"))
+        self.assertTrue(_unmanaged_collector_exists("ETHUSDT"))
 
     @patch("apps.microstructure.process_control.subprocess.Popen")
     @patch(
@@ -84,7 +95,7 @@ class CollectorProcessControlTests(TestCase):
             oi_process_id=6543,
         )
 
-        stopped = stop_collector()
+        stopped = stop_collector(symbol="ETHUSDT")
 
         stopped.refresh_from_db()
         self.assertEqual(stopped.status, MicrostructureCollectorRun.Status.STOPPING)
@@ -105,7 +116,7 @@ class CollectorProcessControlTests(TestCase):
             oi_process_id=6543,
         )
 
-        stopped = stop_collector()
+        stopped = stop_collector(symbol="ETHUSDT")
 
         self.assertEqual(stopped.pk, run.pk)
         self.assertEqual(stopped.status, MicrostructureCollectorRun.Status.STOPPED)
@@ -128,8 +139,48 @@ class CollectorProcessControlTests(TestCase):
         )
 
         with self.assertRaises(CollectorControlError):
-            stop_collector()
+            stop_collector(symbol="ETHUSDT")
 
         run.refresh_from_db()
         self.assertEqual(run.status, MicrostructureCollectorRun.Status.FAILED)
         kill.assert_not_called()
+
+    @patch("apps.microstructure.process_control.os.kill")
+    @patch(
+        "apps.microstructure.process_control.process_matches_run",
+        return_value=True,
+    )
+    def test_stop_ignores_runs_of_other_symbols(self, matches, kill):
+        MicrostructureCollectorRun.objects.create(
+            symbol="ETHUSDT",
+            status=MicrostructureCollectorRun.Status.RUNNING,
+            process_id=9876,
+            oi_process_id=6543,
+        )
+
+        with self.assertRaises(CollectorControlError):
+            stop_collector(symbol="ZECUSDT")
+
+        kill.assert_not_called()
+
+    @patch("apps.microstructure.process_control.subprocess.Popen")
+    @patch(
+        "apps.microstructure.process_control._unmanaged_collector_exists",
+        return_value=False,
+    )
+    def test_launch_allows_parallel_symbols(self, unmanaged, popen):
+        popen.return_value = Mock(pid=4321)
+        MicrostructureCollectorRun.objects.create(
+            symbol="ETHUSDT",
+            status=MicrostructureCollectorRun.Status.RUNNING,
+            process_id=1111,
+        )
+
+        run = launch_collector(symbol="ZECUSDT")
+
+        self.assertEqual(run.symbol, "ZECUSDT")
+        self.assertEqual(run.status, MicrostructureCollectorRun.Status.STARTING)
+        self.assertEqual(
+            MicrostructureCollectorRun.objects.filter(symbol="ETHUSDT").count(),
+            1,
+        )

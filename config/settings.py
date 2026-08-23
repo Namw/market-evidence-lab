@@ -116,7 +116,14 @@ BINANCE_FUTURES_BASE_URL = os.getenv(
     "https://fapi.binance.com",
 ).rstrip("/")
 
-MICROSTRUCTURE_SYMBOL = os.getenv("MICROSTRUCTURE_SYMBOL", "ETHUSDT").upper()
+MICROSTRUCTURE_SYMBOLS = [
+    value.strip().upper()
+    for value in os.getenv("MICROSTRUCTURE_SYMBOLS", "ETHUSDT,ZECUSDT").split(",")
+    if value.strip()
+]
+MICROSTRUCTURE_SYMBOL = os.getenv(
+    "MICROSTRUCTURE_SYMBOL", MICROSTRUCTURE_SYMBOLS[0]
+).upper()
 MICROSTRUCTURE_WS_BASE_URL = os.getenv(
     "MICROSTRUCTURE_WS_BASE_URL",
     "wss://fstream.binance.com/public/ws",

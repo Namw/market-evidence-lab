@@ -207,6 +207,52 @@ class MicrostructureViewTests(TestCase):
         self.assertTrue(payload["can_stop"])
         self.assertFalse(payload["can_start"])
 
+    def test_status_is_isolated_per_symbol(self):
+        MicrostructureCollectorRun.objects.create(
+            symbol="ETHUSDT",
+            status=MicrostructureCollectorRun.Status.RUNNING,
+            connection_state=MicrostructureCollectorRun.ConnectionState.CONNECTED,
+        )
+
+        eth = self.client.get(reverse("microstructure:status_symbol", args=["ETHUSDT"])).json()
+        zec = self.client.get(reverse("microstructure:status_symbol", args=["ZECUSDT"])).json()
+
+        self.assertEqual(eth["symbol"], "ETHUSDT")
+        self.assertEqual(eth["run"]["status"], "running")
+        self.assertFalse(eth["can_start"])
+        self.assertEqual(zec["symbol"], "ZECUSDT")
+        self.assertEqual(zec["run"]["status"], "stopped")
+        self.assertTrue(zec["can_start"])
+
+    def test_index_page_renders_symbol_switcher(self):
+        response = self.client.get(reverse("microstructure:index_symbol", args=["ZECUSDT"]))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "ZECUSDT 永续")
+        self.assertContains(response, "ETHUSDT")
+        self.assertContains(response, "切换合约")
+        self.assertContains(response, reverse("microstructure:index_symbol", args=["ETHUSDT"]))
+        self.assertEqual(response.context["symbol"], "ZECUSDT")
+
+    def test_unknown_symbol_is_rejected(self):
+        response = self.client.get(reverse("microstructure:index_symbol", args=["FOO"]))
+
+        self.assertEqual(response.status_code, 404)
+
+    @patch("apps.microstructure.views.launch_collector")
+    def test_start_endpoint_launches_requested_symbol(self, launch):
+        launch.return_value = MicrostructureCollectorRun.objects.create(
+            symbol="ZECUSDT"
+        )
+
+        response = self.client.post(
+            reverse("microstructure:start_symbol", args=["ZECUSDT"])
+        )
+
+        self.assertEqual(response.status_code, 202)
+        self.assertTrue(response.json()["ok"])
+        launch.assert_called_once_with(symbol="ZECUSDT")
+
     def test_status_returns_display_ready_minutes_in_time_order(self):
         later = datetime(2026, 8, 17, 1, 1, tzinfo=UTC)
         earlier = datetime(2026, 8, 17, 1, 0, tzinfo=UTC)
@@ -414,7 +460,7 @@ class MicrostructureViewTests(TestCase):
 
         self.assertEqual(response.status_code, 202)
         self.assertTrue(response.json()["ok"])
-        stop.assert_called_once_with()
+        stop.assert_called_once_with(symbol="ETHUSDT")
 
     def test_control_endpoints_keep_csrf_protection(self):
         csrf_client = Client(enforce_csrf_checks=True)

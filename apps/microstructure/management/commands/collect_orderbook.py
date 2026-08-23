@@ -11,7 +11,7 @@ from apps.microstructure.models import MicrostructureCollectorRun
 
 
 class Command(BaseCommand):
-    help = "Collect Binance ETHUSDT 1m klines and Top20 depth into minute facts."
+    help = "Collect Binance perpetual 1m klines and Top20 depth into minute facts."
 
     def add_arguments(self, parser):
         parser.add_argument(

@@ -539,3 +539,33 @@
     .depth-panel .canvas-wrap { height: 180px; }
     .spread-panel .canvas-wrap { height: 120px; }
 }
+
+/* Symbol switcher (multi-symbol support) */
+.symbol-switcher {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+}
+
+.symbol-tab {
+    padding: 4px 9px;
+    border: 1px solid transparent;
+    border-radius: 4px;
+    color: #83939f;
+    font-size: 12px;
+    font-weight: 650;
+    letter-spacing: .03em;
+    text-decoration: none;
+    transition: color .12s ease, border-color .12s ease, background .12s ease;
+}
+
+.symbol-tab:hover {
+    color: #dce5ec;
+    border-color: #33434f;
+}
+
+.symbol-tab.is-active {
+    color: #f0b90b;
+    border-color: #3c4a55;
+    background: #13222e;
+}
