@@ -8,6 +8,12 @@ app_name = "microstructure"
 urlpatterns = [
     path("", views.index, name="index"),
     path("research/", views.research, name="research"),
+    path("market-pilot/", views.market_pilot_list, name="market_pilot_list"),
+    path(
+        "market-pilot/<int:report_id>/",
+        views.market_pilot_detail,
+        name="market_pilot_detail",
+    ),
     path("assistant/", views.assistant_chat, name="assistant_chat"),
     path("status/", views.status, name="status"),
     path("start/", views.start, name="start"),

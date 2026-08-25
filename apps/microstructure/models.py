@@ -151,3 +151,99 @@ class MicrostructureCollectorRun(models.Model):
 
     def __str__(self) -> str:
         return f"{self.symbol}:{self.status}:#{self.pk}"
+
+
+class MarketPilotRun(models.Model):
+    class Status(models.TextChoices):
+        RUNNING = "running", "运行中"
+        SUCCESS = "success", "成功"
+        FAILED = "failed", "失败"
+
+    symbol = models.CharField(max_length=20)
+    prompt_version = models.CharField(max_length=80)
+    configured_model = models.CharField(max_length=160)
+    actual_models = models.JSONField(default=list, blank=True)
+    status = models.CharField(
+        max_length=20, choices=Status.choices, default=Status.RUNNING
+    )
+    window_count = models.PositiveIntegerField(default=0)
+    request_count = models.PositiveIntegerField(default=0)
+    input_tokens = models.PositiveIntegerField(default=0)
+    output_tokens = models.PositiveIntegerField(default=0)
+    total_tokens = models.PositiveIntegerField(default=0)
+    future_outcomes_excluded = models.BooleanField(default=True)
+    safe_error_summary = models.CharField(max_length=500, blank=True)
+    started_at = models.DateTimeField()
+    finished_at = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["-started_at", "-id"]
+        indexes = [
+            models.Index(fields=["symbol", "-started_at"], name="pilot_run_sym_start_idx")
+        ]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["symbol"],
+                condition=models.Q(status="running"),
+                name="pilot_one_running_symbol",
+            )
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.symbol}:{self.status}:#{self.pk}"
+
+
+class MarketPilotReport(models.Model):
+    class SelectionReason(models.TextChoices):
+        SHOCK = "absolute_return_ge_2pct", "候选异动"
+        CALM = "calm_control", "平静对照"
+
+    class Mechanism(models.TextChoices):
+        TREND_EXPANSION = "trend_expansion", "趋势扩张"
+        SHORT_SQUEEZE = "short_squeeze", "空头回补"
+        LONG_LIQUIDATION = "long_liquidation", "多头去杠杆"
+        TECHNICAL_REBOUND = "technical_rebound", "技术反弹"
+        TECHNICAL_PULLBACK = "technical_pullback", "技术回调"
+        LIQUIDITY_JUMP = "liquidity_jump", "流动性跳变"
+        MIXED = "mixed", "混合机制"
+        INSUFFICIENT = "insufficient_evidence", "证据不足"
+
+    class Confidence(models.TextChoices):
+        LOW = "low", "低"
+        MEDIUM = "medium", "中"
+        HIGH = "high", "高"
+
+    run = models.ForeignKey(
+        MarketPilotRun, on_delete=models.PROTECT, related_name="reports"
+    )
+    window_start = models.DateTimeField()
+    window_end = models.DateTimeField()
+    selection_reason = models.CharField(
+        max_length=40, choices=SelectionReason.choices
+    )
+    mechanism = models.CharField(max_length=40, choices=Mechanism.choices)
+    confidence = models.CharField(max_length=20, choices=Confidence.choices)
+    input_snapshot = models.JSONField()
+    ai_analysis = models.JSONField()
+    future_outcomes = models.JSONField()
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["-window_start", "-id"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["run", "window_start"], name="pilot_report_run_window_unique"
+            )
+        ]
+        indexes = [
+            models.Index(
+                fields=["run", "-window_start"], name="pilot_report_run_time_idx"
+            ),
+            models.Index(
+                fields=["mechanism", "confidence"], name="pilot_report_mech_conf_idx"
+            ),
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.run.symbol}:{self.window_start.isoformat()}:{self.mechanism}"

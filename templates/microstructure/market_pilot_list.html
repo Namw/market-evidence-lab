@@ -1,0 +1,52 @@
+{% extends "base.html" %}
+{% load static %}
+{% block title %}AI 市场预演 · Market Evidence Lab{% endblock %}
+{% block body_class %}market-pilot-page{% endblock %}
+{% block extra_css %}<link rel="stylesheet" href="{% static 'microstructure/css/market_pilot.css' %}?v=1">{% endblock %}
+{% block content %}
+<header class="page-header">
+    <div>
+        <p class="eyebrow">四小时证据分析</p>
+        <h1>AI 市场预演</h1>
+        <p class="page-intro">查看候选异动和平静对照的输入快照、DeepSeek 判断与事后 4 / 12 / 24 小时结果。未来结果不会进入 AI 输入。</p>
+    </div>
+</header>
+
+<section class="pilot-summary-grid">
+    <article class="panel pilot-summary-card"><span>报告总数</span><strong>{{ report_count }}</strong><small>每个四小时窗口一条</small></article>
+    <article class="panel pilot-summary-card"><span>最近运行</span>{% with run=recent_runs.0 %}<strong>{% if run %}#{{ run.id }} · {{ run.get_status_display }}{% else %}尚未运行{% endif %}</strong><small>{% if run %}{{ run.started_at|date:"Y-m-d H:i:s" }} 北京时间{% else %}等待首次预演{% endif %}</small>{% endwith %}</article>
+    <article class="panel pilot-summary-card"><span>研究边界</span><strong>观察，不是信号</strong><small>当前结果不构成交易或告警结论</small></article>
+</section>
+
+<section class="panel">
+    <div class="panel-heading"><div><p class="eyebrow">报告列表</p><h2>四小时窗口</h2></div></div>
+    <div class="table-scroll">
+        <table class="runs-table pilot-report-table">
+            <thead><tr><th>窗口（北京时间）</th><th>类型</th><th>当期涨跌 / 收盘</th><th>AI 机制</th><th>置信度</th><th>后续 4h / 12h / 24h</th><th>运行</th></tr></thead>
+            <tbody>
+            {% for row in rows %}
+                <tr>
+                    <td><a class="text-link" href="{% url 'microstructure:market_pilot_detail' row.report.id %}">{{ row.report.window_start|date:"Y-m-d H:i" }} → {{ row.report.window_end|date:"H:i" }}</a><p>{{ row.trigger_assessment|truncatechars:96 }}</p></td>
+                    <td><span class="pilot-kind kind-{{ row.report.selection_reason }}">{{ row.report.get_selection_reason_display }}</span></td>
+                    <td>{{ row.price_return_pct|floatformat:2 }}%<br><small>{{ row.close|floatformat:2 }}</small></td>
+                    <td><span class="run-status mechanism-{{ row.report.mechanism }}">{{ row.report.get_mechanism_display }}</span></td>
+                    <td>{{ row.report.get_confidence_display }}</td>
+                    <td>{{ row.future_4h|floatformat:2 }}% / {{ row.future_12h|floatformat:2 }}% / {{ row.future_24h|floatformat:2 }}%</td>
+                    <td>#{{ row.report.run_id }}</td>
+                </tr>
+            {% empty %}
+                <tr><td colspan="7">尚无预演报告。运行 <code>python manage.py run_market_pilot --symbol ETHUSDT</code> 后会在这里显示。</td></tr>
+            {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    {% if page.paginator.num_pages > 1 %}<nav class="pagination" aria-label="报告分页">{% if page.has_previous %}<a class="secondary-button" href="?page={{ page.previous_page_number }}">上一页</a>{% endif %}<span>第 {{ page.number }} / {{ page.paginator.num_pages }} 页</span>{% if page.has_next %}<a class="secondary-button" href="?page={{ page.next_page_number }}">下一页</a>{% endif %}</nav>{% endif %}
+</section>
+
+{% if recent_runs %}
+<section class="panel">
+    <div class="panel-heading"><div><p class="eyebrow">审计记录</p><h2>最近运行</h2></div></div>
+    <div class="table-scroll"><table class="runs-table"><thead><tr><th>运行</th><th>状态</th><th>模型 / Prompt</th><th>窗口 / 请求</th><th>Token</th><th>开始 / 完成</th></tr></thead><tbody>{% for run in recent_runs %}<tr><td>#{{ run.id }} · {{ run.symbol }}</td><td><span class="run-status status-{{ run.status }}">{{ run.get_status_display }}</span>{% if run.safe_error_summary %}<br><small>{{ run.safe_error_summary }}</small>{% endif %}</td><td>{{ run.actual_models|join:", "|default:run.configured_model }}<br><small>{{ run.prompt_version }}</small></td><td>{{ run.window_count }} / {{ run.request_count }}</td><td>{{ run.input_tokens }} / {{ run.output_tokens }} / {{ run.total_tokens }}</td><td>{{ run.started_at|date:"Y-m-d H:i:s" }}<br>{{ run.finished_at|date:"Y-m-d H:i:s"|default:"—" }}</td></tr>{% endfor %}</tbody></table></div>
+</section>
+{% endif %}
+{% endblock %}

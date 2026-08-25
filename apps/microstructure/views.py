@@ -5,14 +5,20 @@ from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 
 from django.conf import settings
+from django.core.paginator import Paginator
 from django.http import Http404, JsonResponse
-from django.shortcuts import render
+from django.shortcuts import get_object_or_404, render
 from django.utils import timezone
 from django.views.decorators.http import require_GET, require_POST
 
 from .calculations import floor_time
 from .chat import reply_to_question
-from .models import MarketMinute, MicrostructureCollectorRun
+from .models import (
+    MarketMinute,
+    MarketPilotReport,
+    MarketPilotRun,
+    MicrostructureCollectorRun,
+)
 from .process_control import CollectorControlError, launch_collector, stop_collector
 from .research import RESEARCH_METRICS, build_decile_research
 
@@ -614,6 +620,70 @@ def research(request, symbol: str | None = None):
             "research_items": results,
             "symbol": resolved,
             "available_symbols": settings.MICROSTRUCTURE_SYMBOLS,
+        },
+    )
+
+
+def _pilot_report_row(report: MarketPilotReport) -> dict[str, object]:
+    evidence = report.input_snapshot.get("market_evidence", {})
+    price = evidence.get("price", {})
+    outcomes = report.future_outcomes
+    return {
+        "report": report,
+        "price_return_pct": price.get("return_pct"),
+        "close": price.get("close"),
+        "future_4h": outcomes.get("future_4h_return_pct"),
+        "future_12h": outcomes.get("future_12h_return_pct"),
+        "future_24h": outcomes.get("future_24h_return_pct"),
+        "trigger_assessment": report.ai_analysis.get("trigger_assessment", ""),
+    }
+
+
+@require_GET
+def market_pilot_list(request):
+    reports = MarketPilotReport.objects.select_related("run").order_by(
+        "-window_start", "-id"
+    )
+    page = Paginator(reports, 30).get_page(request.GET.get("page"))
+    rows = [_pilot_report_row(report) for report in page.object_list]
+    recent_runs = MarketPilotRun.objects.order_by("-started_at", "-id")[:8]
+    return render(
+        request,
+        "microstructure/market_pilot_list.html",
+        {
+            "page": page,
+            "rows": rows,
+            "recent_runs": recent_runs,
+            "report_count": reports.count(),
+        },
+    )
+
+
+@require_GET
+def market_pilot_detail(request, report_id: int):
+    report = get_object_or_404(
+        MarketPilotReport.objects.select_related("run"), pk=report_id
+    )
+    snapshot = report.input_snapshot
+    evidence = snapshot.get("market_evidence", {})
+    return render(
+        request,
+        "microstructure/market_pilot_detail.html",
+        {
+            "report": report,
+            "run": report.run,
+            "snapshot": snapshot,
+            "evidence": evidence,
+            "price": evidence.get("price", {}),
+            "volume": evidence.get("volume", {}),
+            "open_interest": evidence.get("open_interest", {}),
+            "funding": evidence.get("funding", {}),
+            "dvol": evidence.get("dvol", {}),
+            "micro": evidence.get("microstructure", {}),
+            "news_items": snapshot.get("news_available_before_window_end", []),
+            "data_limitations": snapshot.get("known_data_limitations", []),
+            "analysis": report.ai_analysis,
+            "outcomes": report.future_outcomes,
         },
     )
 
