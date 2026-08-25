@@ -23,6 +23,64 @@ class MicrostructureViewTests(TestCase):
         self.assertContains(response, "启动采集")
         self.assertContains(response, 'href="/microstructure/"')
         self.assertContains(response, 'href="/microstructure/research/"')
+        self.assertContains(response, "问数据助手")
+
+    def test_assistant_answers_price_range_from_collected_minutes(self):
+        start = datetime(2026, 8, 17, 1, 0, tzinfo=UTC)
+        for offset, high, low, close in (
+            (0, "101", "99", "100"),
+            (1, "110", "100", "108"),
+            (2, "109", "98", "106"),
+        ):
+            MarketMinute.objects.create(
+                symbol="ETHUSDT",
+                minute_start=start + timedelta(minutes=offset),
+                minute_end=start + timedelta(minutes=offset + 1),
+                open_price="100",
+                high_price=high,
+                low_price=low,
+                close_price=close,
+            )
+
+        response = self.client.post(
+            reverse("microstructure:assistant_chat"),
+            {"question": "最近4小时最高最低价格是多少？当前价格处于什么水平？"},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["intent"], "price_range")
+        self.assertIn("最高 110", response.json()["answer"])
+        self.assertIn("最低 98", response.json()["answer"])
+        self.assertIn("当前价 106", response.json()["answer"])
+
+    def test_assistant_answers_buy_and_sell_peaks(self):
+        start = datetime(2026, 8, 17, 1, 0, tzinfo=UTC)
+        for offset, buy, sell, close in (
+            (0, "100", "300", "100"),
+            (1, "500", "200", "105"),
+            (2, "300", "800", "102"),
+        ):
+            MarketMinute.objects.create(
+                symbol="ETHUSDT",
+                minute_start=start + timedelta(minutes=offset),
+                minute_end=start + timedelta(minutes=offset + 1),
+                open_price="100",
+                high_price="110",
+                low_price="95",
+                close_price=close,
+                taker_buy_quote=buy,
+                taker_sell_quote=sell,
+            )
+
+        response = self.client.post(
+            reverse("microstructure:assistant_chat"),
+            {"question": "2小时买和卖的主动成交最高是多少？"},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["intent"], "aggressive_flow")
+        self.assertIn("主动买入单分钟最高为 500", response.json()["answer"])
+        self.assertIn("主动卖出单分钟最高为 800", response.json()["answer"])
 
     def test_research_page_shows_all_metrics_in_one_comparison(self):
         start = datetime(2026, 8, 20, 0, 0, tzinfo=UTC)

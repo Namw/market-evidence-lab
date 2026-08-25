@@ -11,6 +11,7 @@ from django.utils import timezone
 from django.views.decorators.http import require_GET, require_POST
 
 from .calculations import floor_time
+from .chat import reply_to_question
 from .models import MarketMinute, MicrostructureCollectorRun
 from .process_control import CollectorControlError, launch_collector, stop_collector
 from .research import RESEARCH_METRICS, build_decile_research
@@ -286,6 +287,15 @@ def index(request, symbol: str | None = None):
             "initial_status": _status_payload(symbol=resolved),
         },
     )
+
+
+@require_POST
+def assistant_chat(request, symbol: str | None = None):
+    """Return a grounded microstructure answer for the selected contract."""
+    resolved = _resolve_symbol(symbol)
+    question = request.POST.get("question", "")
+    reply = reply_to_question(symbol=resolved, question=question)
+    return JsonResponse({"answer": reply.answer, "intent": reply.intent, "symbol": resolved})
 
 
 def _percent(value: Decimal | None, *, places: int) -> str:

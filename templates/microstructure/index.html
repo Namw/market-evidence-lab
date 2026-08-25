@@ -4,7 +4,7 @@
 {% block title %}分钟盘口观察 · Market Evidence Lab{% endblock %}
 {% block body_class %}microstructure-body{% endblock %}
 
-{% block extra_css %}<link rel="stylesheet" href="{% static 'microstructure/css/index.css' %}?v=14">{% endblock %}
+{% block extra_css %}<link rel="stylesheet" href="{% static 'microstructure/css/index.css' %}?v=16">{% endblock %}
 
 {% block content %}
 {{ initial_status|json_script:"microstructure-initial-data" }}
@@ -12,7 +12,8 @@
      data-microstructure-page
      data-status-url="{% url 'microstructure:status_symbol' symbol %}"
      data-start-url="{% url 'microstructure:start_symbol' symbol %}"
-     data-stop-url="{% url 'microstructure:stop_symbol' symbol %}">
+     data-stop-url="{% url 'microstructure:stop_symbol' symbol %}"
+     data-assistant-url="{% url 'microstructure:assistant_chat_symbol' symbol %}">
     <header class="terminal-toolbar">
         <div class="terminal-symbol">
             <strong>{{ symbol }} 永续</strong>
@@ -154,6 +155,34 @@
         </aside>
     </div>
 </div>
+
+<section class="microstructure-assistant" data-microstructure-assistant aria-label="微观结构数据助手">
+    <button class="assistant-launcher" type="button" data-assistant-open aria-expanded="false" aria-controls="microstructure-assistant-panel">
+        <span class="assistant-launcher-icon" aria-hidden="true">✦</span>
+        <span>问数据助手</span>
+    </button>
+    <div class="assistant-panel" id="microstructure-assistant-panel" data-assistant-panel hidden>
+        <header class="assistant-header">
+            <div><strong>微观结构数据助手</strong><span>只基于当前 {{ symbol }} 页面采集数据</span></div>
+            <button type="button" class="assistant-close" data-assistant-close aria-label="关闭对话框">×</button>
+        </header>
+        <div class="assistant-messages" data-assistant-messages aria-live="polite">
+            <div class="assistant-message is-bot">你好，我可以计算当前 {{ symbol }} 的区间价格、波动幅度与主动成交峰值。</div>
+        </div>
+        <div class="assistant-suggestions" aria-label="示例问题">
+            <button type="button" data-assistant-question>最近4小时最高最低价格是多少？当前价格处于什么水平？</button>
+            <button type="button" data-assistant-question>当前波动幅度如何？</button>
+            <button type="button" data-assistant-question>2小时买和卖的主动成交最高是多少？当时价格是多少？</button>
+        </div>
+        <form class="assistant-input-row" data-assistant-form>
+            {% csrf_token %}
+            <label class="sr-only" for="microstructure-assistant-input">输入问题</label>
+            <textarea id="microstructure-assistant-input" data-assistant-input rows="1" placeholder="例如：最近4小时最高最低价格？"></textarea>
+            <button type="submit" data-assistant-send>发送</button>
+        </form>
+        <p class="assistant-disclaimer">事实数据，不构成交易建议。</p>
+    </div>
+</section>
 {% endblock %}
 
-{% block extra_js %}<script src="{% static 'microstructure/js/index.js' %}?v=19" defer></script>{% endblock %}
+{% block extra_js %}<script src="{% static 'microstructure/js/index.js' %}?v=19" defer></script><script src="{% static 'microstructure/js/assistant.js' %}?v=1" defer></script>{% endblock %}
