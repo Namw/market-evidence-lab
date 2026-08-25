@@ -120,7 +120,7 @@ class _BinanceDerivativesClient:
         time_key: str,
         newest_first: bool = False,
     ) -> Iterator[list[dict[str, object]]]:
-        if symbol != SUPPORTED_SYMBOL:
+        if symbol not in settings.MICROSTRUCTURE_SYMBOLS:
             raise ValueError(f"Unsupported symbol: {symbol}")
         if range_start >= range_end:
             raise ValueError("range_start must be earlier than range_end")

@@ -143,7 +143,12 @@ def _run_bounds(
     now: datetime,
 ) -> tuple[datetime, datetime]:
     started_at = run.started_at or run.created_at
-    ended_at = run.stopped_at or now
+    is_active = run.status in {
+        MicrostructureCollectorRun.Status.STARTING,
+        MicrostructureCollectorRun.Status.RUNNING,
+        MicrostructureCollectorRun.Status.STOPPING,
+    }
+    ended_at = now if is_active else run.stopped_at or now
     return (
         floor_time(started_at, seconds=60),
         floor_time(ended_at, seconds=60) + timedelta(minutes=1),
