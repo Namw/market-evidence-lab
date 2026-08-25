@@ -3,6 +3,7 @@ from django import forms
 from .models import (
     DeribitOptionsSchedule,
     KlineSchedule,
+    MarketPilotSchedule,
     NewsAISchedule,
     NewsWorkflowSchedule,
 )
@@ -113,4 +114,30 @@ class NewsAIScheduleForm(forms.ModelForm):
             "max_direction_requests": forms.NumberInput(attrs={"min": "1", "max": "500"}),
             "max_objective_records": forms.NumberInput(attrs={"min": "1", "max": "1000"}),
             "max_event_ai_calls": forms.NumberInput(attrs={"min": "0", "max": "1000"}),
+        }
+
+
+class MarketPilotScheduleForm(forms.ModelForm):
+    threshold_pct = forms.DecimalField(
+        label="四小时异常阈值",
+        min_value=0.1,
+        max_value=20,
+        decimal_places=3,
+        help_text="按四小时开盘到收盘的绝对涨跌幅判断；当前建议保持 2%。",
+        widget=forms.NumberInput(attrs={"min": "0.1", "max": "20", "step": "0.1"}),
+    )
+
+    class Meta:
+        model = MarketPilotSchedule
+        fields = ["enabled", "run_time", "threshold_pct"]
+        labels = {
+            "enabled": "启用 ETH 四小时影子监控",
+            "run_time": "每日首轮执行时间",
+        }
+        help_texts = {
+            "run_time": "北京时间；以该时间为首轮，此后每 4 小时执行一次。",
+        }
+        widgets = {
+            "enabled": forms.CheckboxInput(),
+            "run_time": forms.TimeInput(attrs={"type": "time", "step": "60"}),
         }

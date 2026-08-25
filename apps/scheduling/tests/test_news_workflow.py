@@ -607,7 +607,7 @@ class NewsWorkflowPageTests(TestCase):
 
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, "任务列表")
-        self.assertContains(response, "任务列表 <span>8</span>", html=True)
+        self.assertContains(response, "任务列表 <span>9</span>", html=True)
         self.assertContains(response, "官方与监管新闻工作流")
         self.assertContains(response, "CoinDesk 新闻工作流")
         self.assertContains(response, "Ethereum Foundation、Binance")

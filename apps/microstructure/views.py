@@ -17,6 +17,7 @@ from .models import (
     MarketMinute,
     MarketPilotReport,
     MarketPilotRun,
+    MarketPilotWindowCheck,
     MicrostructureCollectorRun,
 )
 from .process_control import CollectorControlError, launch_collector, stop_collector
@@ -628,13 +629,17 @@ def _pilot_report_row(report: MarketPilotReport) -> dict[str, object]:
     evidence = report.input_snapshot.get("market_evidence", {})
     price = evidence.get("price", {})
     outcomes = report.future_outcomes
+    def outcome_label(key: str) -> str:
+        value = outcomes.get(key)
+        return f"{float(value):+.2f}%" if value is not None else "待验证"
+
     return {
         "report": report,
         "price_return_pct": price.get("return_pct"),
         "close": price.get("close"),
-        "future_4h": outcomes.get("future_4h_return_pct"),
-        "future_12h": outcomes.get("future_12h_return_pct"),
-        "future_24h": outcomes.get("future_24h_return_pct"),
+        "future_4h_label": outcome_label("future_4h_return_pct"),
+        "future_12h_label": outcome_label("future_12h_return_pct"),
+        "future_24h_label": outcome_label("future_24h_return_pct"),
         "trigger_assessment": report.ai_analysis.get("trigger_assessment", ""),
     }
 
@@ -647,6 +652,9 @@ def market_pilot_list(request):
     page = Paginator(reports, 30).get_page(request.GET.get("page"))
     rows = [_pilot_report_row(report) for report in page.object_list]
     recent_runs = MarketPilotRun.objects.order_by("-started_at", "-id")[:8]
+    recent_checks = MarketPilotWindowCheck.objects.select_related("report").order_by(
+        "-window_start", "-id"
+    )[:24]
     return render(
         request,
         "microstructure/market_pilot_list.html",
@@ -654,6 +662,7 @@ def market_pilot_list(request):
             "page": page,
             "rows": rows,
             "recent_runs": recent_runs,
+            "recent_checks": recent_checks,
             "report_count": reports.count(),
         },
     )

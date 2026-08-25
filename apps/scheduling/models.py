@@ -493,6 +493,27 @@ class NewsAISchedule(models.Model):
         return self.name
 
 
+class MarketPilotSchedule(models.Model):
+    name = models.CharField(max_length=120, unique=True)
+    enabled = models.BooleanField(default=False)
+    run_time = models.TimeField(default=time(0, 10))
+    interval_hours = models.PositiveSmallIntegerField(default=4, editable=False)
+    timezone = models.CharField(
+        max_length=64, default=SCHEDULE_TIMEZONE, editable=False
+    )
+    threshold_pct = models.DecimalField(max_digits=6, decimal_places=3, default=2)
+    next_run_at = models.DateTimeField()
+    last_run_at = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["name"]
+
+    def __str__(self) -> str:
+        return self.name
+
+
 class NewsAIWorkflowRun(models.Model):
     class Trigger(models.TextChoices):
         SCHEDULED = "scheduled", "定时"

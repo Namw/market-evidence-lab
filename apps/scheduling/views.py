@@ -27,9 +27,11 @@ from .funds_workflow import (
 from .forms import (
     DeribitOptionsScheduleForm,
     KlineScheduleForm,
+    MarketPilotScheduleForm,
     NewsAIScheduleForm,
     NewsWorkflowScheduleForm,
 )
+from .market_pilot_workflow import get_builtin_market_pilot_schedule
 from .models import (
     DeribitOptionsWorkflowRun,
     FundDataWorkflowRun,
@@ -100,6 +102,7 @@ def schedule_index(request):
         NewsWorkflowSchedule.FeedGroup.COINDESK
     )
     news_ai_schedule = get_builtin_news_ai_schedule()
+    market_pilot_schedule = get_builtin_market_pilot_schedule()
     deribit_schedule = get_builtin_deribit_options_schedule()
     fund_schedules = get_builtin_fund_schedules()
     form = KlineScheduleForm(instance=schedule, auto_id="market_%s")
@@ -111,6 +114,10 @@ def schedule_index(request):
     news_ai_form = NewsAIScheduleForm(
         instance=news_ai_schedule,
         auto_id="news_ai_%s",
+    )
+    market_pilot_form = MarketPilotScheduleForm(
+        instance=market_pilot_schedule,
+        auto_id="market_pilot_%s",
     )
     deribit_form = DeribitOptionsScheduleForm(
         instance=deribit_schedule,
@@ -181,6 +188,23 @@ def schedule_index(request):
                 messages.success(request, "新闻 DeepSeek 增量分析配置已保存。")
                 return redirect("scheduling:index")
             open_dialog = "news-ai-config-dialog"
+        elif action == "save_market_pilot":
+            market_pilot_form = MarketPilotScheduleForm(
+                request.POST,
+                instance=market_pilot_schedule,
+                auto_id="market_pilot_%s",
+            )
+            if market_pilot_form.is_valid():
+                updated = market_pilot_form.save(commit=False)
+                updated.timezone = SCHEDULE_TIMEZONE
+                updated.next_run_at = calculate_next_interval_run_at(
+                    updated.run_time,
+                    interval_hours=updated.interval_hours,
+                )
+                updated.save()
+                messages.success(request, "ETH 四小时 AI 影子监控配置已保存。")
+                return redirect("scheduling:index")
+            open_dialog = "market-pilot-config-dialog"
         elif action == "save_deribit":
             deribit_form = DeribitOptionsScheduleForm(
                 request.POST,
@@ -437,6 +461,8 @@ def schedule_index(request):
         "coindesk_form": coindesk_form,
         "news_ai_schedule": news_ai_schedule,
         "news_ai_form": news_ai_form,
+        "market_pilot_schedule": market_pilot_schedule,
+        "market_pilot_form": market_pilot_form,
         "deribit_schedule": deribit_schedule,
         "deribit_form": deribit_form,
         "deribit_latest_run": DeribitOptionsWorkflowRun.objects.first(),

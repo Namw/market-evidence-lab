@@ -87,6 +87,7 @@ class MarketPilotPageTests(TestCase):
         )
         cls.report = MarketPilotReport.objects.create(
             run=cls.pilot_run,
+            symbol="ETHUSDT",
             window_start=started_at - timedelta(hours=4),
             window_end=started_at,
             selection_reason=MarketPilotReport.SelectionReason.SHOCK,

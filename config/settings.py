@@ -7,6 +7,7 @@ from dotenv import load_dotenv
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 load_dotenv(BASE_DIR / ".env", override=False)
+load_dotenv(BASE_DIR / ".env.market_pilot", override=False)
 
 
 def env_bool(name: str, default: bool = False) -> bool:
@@ -170,6 +171,15 @@ ETHEREUM_RPC_URL = os.getenv("ETHEREUM_RPC_URL", "").strip()
 NEWS_AI_API_KEY = os.getenv("NEWS_AI_API_KEY") or os.getenv("DEEPSEEK_API_KEY", "")
 NEWS_AI_MODEL = os.getenv("NEWS_AI_MODEL", "deepseek-v4-flash")
 NEWS_AI_TIMEOUT_SECONDS = float(os.getenv("NEWS_AI_TIMEOUT_SECONDS", "60"))
+MARKET_PILOT_WECHAT_WEBHOOK_URL = os.getenv(
+    "MARKET_PILOT_WECHAT_WEBHOOK_URL", ""
+).strip()
+MARKET_PILOT_PUBLIC_BASE_URL = os.getenv(
+    "MARKET_PILOT_PUBLIC_BASE_URL", ""
+).strip()
+MARKET_PILOT_WEBHOOK_TIMEOUT_SECONDS = float(
+    os.getenv("MARKET_PILOT_WEBHOOK_TIMEOUT_SECONDS", "10")
+)
 NEWS_ARTICLE_TIMEOUT_SECONDS = float(os.getenv("NEWS_ARTICLE_TIMEOUT_SECONDS", "10"))
 NEWS_AI_BATCH_SIZE = int(os.getenv("NEWS_AI_BATCH_SIZE", "10"))
 NEWS_AI_MAX_RETRIES = int(os.getenv("NEWS_AI_MAX_RETRIES", "2"))

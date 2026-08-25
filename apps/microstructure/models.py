@@ -159,9 +159,23 @@ class MarketPilotRun(models.Model):
         SUCCESS = "success", "成功"
         FAILED = "failed", "失败"
 
+    class Mode(models.TextChoices):
+        HISTORICAL = "historical", "历史预演"
+        LIVE = "live", "实时影子监控"
+
+    class Trigger(models.TextChoices):
+        MANUAL = "manual", "手工"
+        SCHEDULED = "scheduled", "定时"
+
     symbol = models.CharField(max_length=20)
     prompt_version = models.CharField(max_length=80)
     configured_model = models.CharField(max_length=160)
+    mode = models.CharField(
+        max_length=20, choices=Mode.choices, default=Mode.HISTORICAL
+    )
+    trigger = models.CharField(
+        max_length=20, choices=Trigger.choices, default=Trigger.MANUAL
+    )
     actual_models = models.JSONField(default=list, blank=True)
     status = models.CharField(
         max_length=20, choices=Status.choices, default=Status.RUNNING
@@ -214,9 +228,21 @@ class MarketPilotReport(models.Model):
         MEDIUM = "medium", "中"
         HIGH = "high", "高"
 
+    class Status(models.TextChoices):
+        AWAITING_OUTCOMES = "awaiting_outcomes", "等待验证"
+        COMPLETED = "completed", "已完成"
+        FAILED = "failed", "失败"
+
+    class NotificationStatus(models.TextChoices):
+        PENDING = "pending", "待推送"
+        SENT = "sent", "已推送"
+        FAILED = "failed", "推送失败"
+        NOT_CONFIGURED = "not_configured", "未配置"
+
     run = models.ForeignKey(
         MarketPilotRun, on_delete=models.PROTECT, related_name="reports"
     )
+    symbol = models.CharField(max_length=20)
     window_start = models.DateTimeField()
     window_end = models.DateTimeField()
     selection_reason = models.CharField(
@@ -227,13 +253,26 @@ class MarketPilotReport(models.Model):
     input_snapshot = models.JSONField()
     ai_analysis = models.JSONField()
     future_outcomes = models.JSONField()
+    status = models.CharField(
+        max_length=30, choices=Status.choices, default=Status.COMPLETED
+    )
+    notification_status = models.CharField(
+        max_length=30,
+        choices=NotificationStatus.choices,
+        default=NotificationStatus.NOT_CONFIGURED,
+    )
+    notification_attempts = models.PositiveSmallIntegerField(default=0)
+    notification_error = models.CharField(max_length=300, blank=True)
+    notified_at = models.DateTimeField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
         ordering = ["-window_start", "-id"]
         constraints = [
             models.UniqueConstraint(
-                fields=["run", "window_start"], name="pilot_report_run_window_unique"
+                fields=["symbol", "window_start"],
+                name="pilot_report_symbol_window_unique",
             )
         ]
         indexes = [
@@ -246,4 +285,57 @@ class MarketPilotReport(models.Model):
         ]
 
     def __str__(self) -> str:
-        return f"{self.run.symbol}:{self.window_start.isoformat()}:{self.mechanism}"
+        return f"{self.symbol}:{self.window_start.isoformat()}:{self.mechanism}"
+
+
+class MarketPilotWindowCheck(models.Model):
+    class Status(models.TextChoices):
+        WAITING_DATA = "waiting_data", "等待数据"
+        NORMAL = "normal", "未达异常"
+        ANALYZING = "analyzing", "AI 分析中"
+        ANALYZED = "analyzed", "已生成报告"
+        FAILED = "failed", "失败"
+
+    run = models.ForeignKey(
+        MarketPilotRun, on_delete=models.PROTECT, related_name="window_checks"
+    )
+    report = models.OneToOneField(
+        MarketPilotReport,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="window_check",
+    )
+    symbol = models.CharField(max_length=20)
+    window_start = models.DateTimeField()
+    window_end = models.DateTimeField()
+    status = models.CharField(
+        max_length=20, choices=Status.choices, default=Status.WAITING_DATA
+    )
+    return_pct = models.DecimalField(
+        max_digits=12, decimal_places=6, null=True, blank=True
+    )
+    threshold_pct = models.DecimalField(max_digits=6, decimal_places=3)
+    data_quality = models.JSONField(default=dict, blank=True)
+    attempt_count = models.PositiveSmallIntegerField(default=0)
+    safe_error_summary = models.CharField(max_length=500, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["-window_start", "-id"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["symbol", "window_start"],
+                name="pilot_check_symbol_window_unique",
+            )
+        ]
+        indexes = [
+            models.Index(
+                fields=["status", "-window_start"],
+                name="pilot_check_status_time_idx",
+            )
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.symbol}:{self.window_start.isoformat()}:{self.status}"

@@ -16,9 +16,9 @@
 
 <section class="pilot-move-grid">
     <article class="panel"><span>当期 4h</span><strong>{{ price.return_pct|floatformat:2 }}%</strong><small>{{ price.open|floatformat:2 }} → {{ price.close|floatformat:2 }}</small></article>
-    <article class="panel"><span>后续 4h</span><strong>{{ outcomes.future_4h_return_pct|floatformat:2 }}%</strong><small>AI 返回后揭示</small></article>
-    <article class="panel"><span>后续 12h</span><strong>{{ outcomes.future_12h_return_pct|floatformat:2 }}%</strong><small>AI 返回后揭示</small></article>
-    <article class="panel"><span>后续 24h</span><strong>{{ outcomes.future_24h_return_pct|floatformat:2 }}%</strong><small>AI 返回后揭示</small></article>
+    <article class="panel"><span>后续 4h</span><strong>{% if outcomes.future_4h_return_pct is not None %}{{ outcomes.future_4h_return_pct|floatformat:2 }}%{% else %}待验证{% endif %}</strong><small>AI 返回后揭示</small></article>
+    <article class="panel"><span>后续 12h</span><strong>{% if outcomes.future_12h_return_pct is not None %}{{ outcomes.future_12h_return_pct|floatformat:2 }}%{% else %}待验证{% endif %}</strong><small>AI 返回后揭示</small></article>
+    <article class="panel"><span>后续 24h</span><strong>{% if outcomes.future_24h_return_pct is not None %}{{ outcomes.future_24h_return_pct|floatformat:2 }}%{% else %}待验证{% endif %}</strong><small>AI 返回后揭示</small></article>
 </section>
 
 <section class="panel">
@@ -45,7 +45,7 @@
 
 <section class="panel">
     <div class="panel-heading"><div><p class="eyebrow">审计与边界</p><h2>运行信息</h2></div><span class="run-status status-{{ run.status }}">{{ run.get_status_display }}</span></div>
-    <dl class="objective-meta-list"><div><dt>运行 / 报告</dt><dd>#{{ run.id }} / #{{ report.id }}</dd></div><div><dt>模型</dt><dd>{{ run.actual_models|join:", "|default:run.configured_model }}</dd></div><div><dt>Prompt</dt><dd>{{ run.prompt_version }}</dd></div><div><dt>Token</dt><dd>{{ run.input_tokens }} / {{ run.output_tokens }} / {{ run.total_tokens }}</dd></div><div><dt>未来结果隔离</dt><dd>{{ run.future_outcomes_excluded|yesno:"是,否" }}</dd></div><div><dt>运行时间</dt><dd>{{ run.started_at|date:"Y-m-d H:i:s" }} → {{ run.finished_at|date:"Y-m-d H:i:s" }}</dd></div></dl>
+    <dl class="objective-meta-list"><div><dt>运行 / 报告</dt><dd>#{{ run.id }} / #{{ report.id }}</dd></div><div><dt>模式 / 触发</dt><dd>{{ run.get_mode_display }} / {{ run.get_trigger_display }}</dd></div><div><dt>报告状态</dt><dd>{{ report.get_status_display }}</dd></div><div><dt>企业微信</dt><dd>{{ report.get_notification_status_display }}{% if report.notification_attempts %} · {{ report.notification_attempts }} 次{% endif %}</dd></div><div><dt>模型</dt><dd>{{ run.actual_models|join:", "|default:run.configured_model }}</dd></div><div><dt>Prompt</dt><dd>{{ run.prompt_version }}</dd></div><div><dt>Token</dt><dd>{{ run.input_tokens }} / {{ run.output_tokens }} / {{ run.total_tokens }}</dd></div><div><dt>未来结果隔离</dt><dd>{{ run.future_outcomes_excluded|yesno:"是,否" }}</dd></div><div><dt>运行时间</dt><dd>{{ run.started_at|date:"Y-m-d H:i:s" }} → {{ run.finished_at|date:"Y-m-d H:i:s" }}</dd></div></dl>
     <div class="pilot-limitations"><h3>数据限制</h3><ul>{% for item in data_limitations %}<li>{{ item }}</li>{% endfor %}{% for item in analysis.limitations %}<li>{{ item }}</li>{% endfor %}</ul></div>
 </section>
 {% endblock %}

@@ -30,6 +30,11 @@ from apps.scheduling.funds_workflow import (
     execute_claimed_fund_workflow,
     get_builtin_fund_schedules,
 )
+from apps.scheduling.market_pilot_workflow import (
+    claim_due_market_pilot_schedules,
+    execute_claimed_market_pilot_workflow,
+    get_builtin_market_pilot_schedule,
+)
 
 
 class Command(BaseCommand):
@@ -59,6 +64,7 @@ class Command(BaseCommand):
         get_builtin_news_schedules()
         get_builtin_news_ai_schedule()
         get_builtin_fund_schedules()
+        get_builtin_market_pilot_schedule()
         executor_id = str(uuid4())
         stop_event = threading.Event()
 
@@ -131,6 +137,17 @@ class Command(BaseCommand):
                     )
                     claimed_fund_ids = []
 
+                try:
+                    claimed_market_pilot_ids = claim_due_market_pilot_schedules()
+                except Exception as exc:
+                    self.stderr.write(
+                        self.style.ERROR(
+                            "Market pilot schedule claim failed "
+                            f"({exc.__class__.__name__}); retrying."
+                        )
+                    )
+                    claimed_market_pilot_ids = []
+
                 for workflow_run_id in claimed_ids:
                     try:
                         execute_claimed_workflow(
@@ -201,6 +218,18 @@ class Command(BaseCommand):
                         self.stderr.write(
                             self.style.ERROR(
                                 f"FundDataWorkflowRun #{workflow_run_id} failed unexpectedly "
+                                f"({exc.__class__.__name__}); continuing."
+                            )
+                        )
+                    heartbeat()
+
+                for schedule_id in claimed_market_pilot_ids:
+                    try:
+                        execute_claimed_market_pilot_workflow(schedule_id)
+                    except Exception as exc:
+                        self.stderr.write(
+                            self.style.ERROR(
+                                f"Market pilot schedule #{schedule_id} failed unexpectedly "
                                 f"({exc.__class__.__name__}); continuing."
                             )
                         )

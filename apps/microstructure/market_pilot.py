@@ -120,15 +120,19 @@ def select_representative_indices(
 
 
 def _latest_oi(symbol: str, at: datetime) -> OpenInterest | None:
-    return (
-        OpenInterest.objects.filter(
-            symbol=symbol,
-            period=OpenInterest.Period.ONE_HOUR,
-            timestamp__lte=at,
+    for period in (OpenInterest.Period.FIVE_MINUTES, OpenInterest.Period.ONE_HOUR):
+        row = (
+            OpenInterest.objects.filter(
+                symbol=symbol,
+                period=period,
+                timestamp__lte=at,
+            )
+            .order_by("-timestamp")
+            .first()
         )
-        .order_by("-timestamp")
-        .first()
-    )
+        if row is not None:
+            return row
+    return None
 
 
 def _latest_funding(symbol: str, at: datetime) -> FundingRate | None:
@@ -394,6 +398,8 @@ def run_market_pilot(symbol: str) -> dict[str, object]:
         symbol=symbol,
         prompt_version=PROMPT_VERSION,
         configured_model=settings.NEWS_AI_MODEL,
+        mode=MarketPilotRun.Mode.HISTORICAL,
+        trigger=MarketPilotRun.Trigger.MANUAL,
         started_at=started_at,
     )
     try:
@@ -415,22 +421,27 @@ def run_market_pilot(symbol: str) -> dict[str, object]:
                 }
             )
             report_models.append(
-                MarketPilotReport(
-                    run=run,
-                    window_start=datetime.fromisoformat(start),
-                    window_end=datetime.fromisoformat(str(item["window_end"])),
-                    selection_reason=str(item["selection_reason"]),
-                    mechanism=str(analysis["mechanism"]),
-                    confidence=str(analysis["confidence"]),
-                    input_snapshot=item,
-                    ai_analysis=analysis,
-                    future_outcomes=outcome,
-                )
+                {
+                    "symbol": symbol,
+                    "window_start": datetime.fromisoformat(start),
+                    "defaults": {
+                        "run": run,
+                        "window_end": datetime.fromisoformat(str(item["window_end"])),
+                        "selection_reason": str(item["selection_reason"]),
+                        "mechanism": str(analysis["mechanism"]),
+                        "confidence": str(analysis["confidence"]),
+                        "input_snapshot": item,
+                        "ai_analysis": analysis,
+                        "future_outcomes": outcome,
+                        "status": MarketPilotReport.Status.COMPLETED,
+                    },
+                }
             )
         usage = ai_metadata["usage"]
         finished_at = timezone.now()
         with transaction.atomic():
-            MarketPilotReport.objects.bulk_create(report_models)
+            for report_values in report_models:
+                MarketPilotReport.objects.update_or_create(**report_values)
             run.status = MarketPilotRun.Status.SUCCESS
             run.actual_models = ai_metadata["actual_models"]
             run.window_count = len(reports)

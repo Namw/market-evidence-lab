@@ -30,7 +30,7 @@
     <div class="section-title-row">
         <div>
             <p class="eyebrow">可调度任务</p>
-            <h2 id="task-list-title">任务列表 <span>{{ fund_schedule_rows|length|add:"5" }}</span></h2>
+            <h2 id="task-list-title">任务列表 <span>{{ fund_schedule_rows|length|add:"6" }}</span></h2>
         </div>
         <p>统一查看所有任务；手动执行会先显示本次运行内容，不会直接启动。</p>
     </div>
@@ -114,6 +114,25 @@
 
         <article class="scheduled-task-card">
             <header class="task-card-header">
+                <span class="task-type-icon market-icon" aria-hidden="true">4H</span>
+                <div><span class="task-kicker">MARKET PILOT · ETHUSDT</span><h3>ETH 四小时 AI 异常影子监控</h3></div>
+                {% if market_pilot_schedule.enabled %}<span class="task-state is-enabled"><i></i>已启用</span>{% else %}<span class="task-state"><i></i>已停用</span>{% endif %}
+            </header>
+            <p class="task-description">使用完整分钟数据检测刚收盘的四小时窗口；绝对涨跌达到阈值时调用 DeepSeek，保存报告并推送企业微信，之后自动补充 4 / 12 / 24 小时结果。</p>
+            <div class="task-next-run">
+                <span>下次计划运行</span>
+                {% if market_pilot_schedule.enabled %}<strong>{% timezone market_pilot_schedule.timezone %}{{ market_pilot_schedule.next_run_at|date:"m月d日 H:i" }}{% endtimezone %}</strong><small>北京时间</small>{% else %}<strong>启用后计算</strong><small>当前自动计划已停用</small>{% endif %}
+            </div>
+            <dl class="task-facts">
+                <div><dt>调度频率</dt><dd>每 {{ market_pilot_schedule.interval_hours }} 小时（首轮 {{ market_pilot_schedule.run_time|time:"H:i" }}）</dd></div>
+                <div><dt>异常阈值</dt><dd>|四小时涨跌| ≥ {{ market_pilot_schedule.threshold_pct|floatformat:2 }}%</dd></div>
+                <div><dt>上次计划运行</dt><dd>{% if market_pilot_schedule.last_run_at %}{{ market_pilot_schedule.last_run_at|date:"m-d H:i" }} 北京时间{% else %}尚未运行{% endif %}</dd></div>
+            </dl>
+            <footer class="task-card-actions"><button class="task-config-button" type="button" data-dialog-target="market-pilot-config-dialog">配置自动任务</button><a class="task-run-button" href="{% url 'microstructure:market_pilot_list' %}">查看报告</a></footer>
+        </article>
+
+        <article class="scheduled-task-card">
+            <header class="task-card-header">
                 <span class="task-type-icon market-icon" aria-hidden="true">D</span>
                 <div><span class="task-kicker">OPTIONS · DERIBIT ETH</span><h3>Deribit 期权数据采集</h3></div>
                 {% if deribit_schedule.enabled %}<span class="task-state is-enabled"><i></i>已启用</span>{% else %}<span class="task-state"><i></i>已停用</span>{% endif %}
@@ -176,6 +195,18 @@
             {% csrf_token %}<input type="hidden" name="action" value="save_news_ai">
             {% if news_ai_form.non_field_errors %}<div class="form-errors" role="alert">{{ news_ai_form.non_field_errors }}</div>{% endif %}
             {% for field in news_ai_form %}<div class="form-field{% if field.name == 'enabled' %} checkbox-field{% endif %}"><label for="{{ field.id_for_label }}">{% if field.name == 'enabled' %}{{ field }} {% endif %}{{ field.label }}</label>{% if field.name != 'enabled' %}{{ field }}{% endif %}{% if field.errors %}<div class="field-errors">{{ field.errors }}</div>{% endif %}{% if field.help_text %}<small>{{ field.help_text }}</small>{% endif %}</div>{% endfor %}
+            <div class="dialog-actions"><button type="button" class="secondary-button" data-dialog-close>取消</button><button class="primary-button" type="submit" data-waiting-text="保存中…">保存配置</button></div>
+        </form>
+    </div>
+</dialog>
+
+<dialog class="schedule-dialog" id="market-pilot-config-dialog"{% if open_dialog == 'market-pilot-config-dialog' %} data-open-dialog{% endif %}>
+    <div class="dialog-card">
+        <div class="dialog-heading"><div><p class="eyebrow">自动配置</p><h2>ETH 四小时 AI 异常影子监控</h2></div><button type="button" class="dialog-close" data-dialog-close aria-label="关闭">×</button></div>
+        <form method="post" class="dialog-form" id="market-pilot-config-form">
+            {% csrf_token %}<input type="hidden" name="action" value="save_market_pilot">
+            {% if market_pilot_form.non_field_errors %}<div class="form-errors" role="alert">{{ market_pilot_form.non_field_errors }}</div>{% endif %}
+            {% for field in market_pilot_form %}<div class="form-field{% if field.name == 'enabled' %} checkbox-field{% endif %}"><label for="{{ field.id_for_label }}">{% if field.name == 'enabled' %}{{ field }} {% endif %}{{ field.label }}</label>{% if field.name != 'enabled' %}{{ field }}{% endif %}{% if field.errors %}<div class="field-errors">{{ field.errors }}</div>{% endif %}{% if field.help_text %}<small>{{ field.help_text }}</small>{% endif %}</div>{% endfor %}
             <div class="dialog-actions"><button type="button" class="secondary-button" data-dialog-close>取消</button><button class="primary-button" type="submit" data-waiting-text="保存中…">保存配置</button></div>
         </form>
     </div>
