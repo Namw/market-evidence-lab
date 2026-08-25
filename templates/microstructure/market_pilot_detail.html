@@ -11,14 +11,12 @@
 
 <section class="panel pilot-verdict-panel">
     <div class="panel-heading"><div><p class="eyebrow">DeepSeek 判断</p><h2>{{ report.get_mechanism_display }}</h2></div><span class="run-status mechanism-{{ report.mechanism }}">置信度 {{ report.get_confidence_display }}</span></div>
-    <div class="pilot-narrative-grid"><article><h3>触发背景</h3><p>{{ analysis.trigger_assessment|default:"—" }}</p></article><article><h3>放大机制</h3><p>{{ analysis.amplifier_assessment|default:"—" }}</p></article></div>
+    <div class="pilot-narrative-grid"><article><h3>{% if microstructure_only %}窗口起始内部状态{% else %}触发背景{% endif %}</h3><p>{{ analysis.trigger_assessment|default:"—" }}</p></article><article><h3>放大机制</h3><p>{{ analysis.amplifier_assessment|default:"—" }}</p></article></div>
 </section>
 
 <section class="pilot-move-grid">
-    <article class="panel"><span>当期 4h</span><strong>{{ price.return_pct|floatformat:2 }}%</strong><small>{{ price.open|floatformat:2 }} → {{ price.close|floatformat:2 }}</small></article>
-    <article class="panel"><span>后续 4h</span><strong>{% if outcomes.future_4h_return_pct is not None %}{{ outcomes.future_4h_return_pct|floatformat:2 }}%{% else %}待验证{% endif %}</strong><small>AI 返回后揭示</small></article>
-    <article class="panel"><span>后续 12h</span><strong>{% if outcomes.future_12h_return_pct is not None %}{{ outcomes.future_12h_return_pct|floatformat:2 }}%{% else %}待验证{% endif %}</strong><small>AI 返回后揭示</small></article>
-    <article class="panel"><span>后续 24h</span><strong>{% if outcomes.future_24h_return_pct is not None %}{{ outcomes.future_24h_return_pct|floatformat:2 }}%{% else %}待验证{% endif %}</strong><small>AI 返回后揭示</small></article>
+    <article class="panel"><span>当期 {{ window_hours }}h</span><strong>{{ price.return_pct|floatformat:2 }}%</strong><small>{{ price.open|floatformat:2 }} → {{ price.close|floatformat:2 }}</small></article>
+    {% for item in outcome_rows %}<article class="panel"><span>后续 {{ item.horizon }}h</span><strong>{% if item.value is not None %}{{ item.value|floatformat:2 }}%{% else %}待验证{% endif %}</strong><small>AI 返回后揭示</small></article>{% endfor %}
 </section>
 
 <section class="panel">
@@ -26,8 +24,8 @@
     <div class="pilot-evidence-grid">
         <article><h3>价格</h3><dl><div><dt>开 / 高 / 低 / 收</dt><dd>{{ price.open|floatformat:2 }} / {{ price.high|floatformat:2 }} / {{ price.low|floatformat:2 }} / {{ price.close|floatformat:2 }}</dd></div><div><dt>涨跌 / 振幅</dt><dd>{{ price.return_pct|floatformat:3 }}% / {{ price.range_pct|floatformat:3 }}%</dd></div></dl></article>
         <article><h3>成交</h3><dl><div><dt>成交额</dt><dd>{{ volume.quote_volume_usd|floatformat:0 }}</dd></div><div><dt>相对前24h中位数</dt><dd>{{ volume.ratio_to_prior_median|floatformat:2 }}×</dd></div><div><dt>主动买入占比</dt><dd>{{ volume.kline_taker_buy_share_pct|floatformat:2 }}%</dd></div></dl></article>
-        <article><h3>持仓与资金费率</h3><dl><div><dt>OI 起点 / 终点</dt><dd>{{ open_interest.start_usd|floatformat:0 }} / {{ open_interest.end_usd|floatformat:0 }}</dd></div><div><dt>OI 变化</dt><dd>{{ open_interest.change_pct|floatformat:3 }}%</dd></div><div><dt>Funding 起点 / 终点</dt><dd>{{ funding.start_rate|default:"—" }} / {{ funding.end_rate|default:"—" }}</dd></div></dl></article>
-        <article><h3>波动率与盘口</h3><dl><div><dt>DVOL 起点 / 终点</dt><dd>{{ dvol.start|default:"—" }} / {{ dvol.end|default:"—" }}</dd></div><div><dt>分钟数 / 覆盖率</dt><dd>{{ micro.minute_rows }} / {{ micro.book_coverage_mean|default:"—" }}</dd></div><div><dt>微观主动买入 / Delta</dt><dd>{{ micro.aggressive_buy_share_pct|floatformat:2|default:"—" }}% / {{ micro.delta_quote_usd|floatformat:0|default:"—" }}</dd></div><div><dt>Spread / Top5失衡</dt><dd>{{ micro.spread_bps_p95_mean|default:"—" }} / {{ micro.top5_imbalance_mean|default:"—" }}</dd></div></dl></article>
+        <article><h3>持仓{% if not microstructure_only %}与资金费率{% endif %}</h3><dl><div><dt>OI 起点 / 终点</dt><dd>{{ open_interest.start_usd|floatformat:0 }} / {{ open_interest.end_usd|floatformat:0 }}</dd></div><div><dt>OI 变化</dt><dd>{{ open_interest.change_pct|floatformat:3 }}%</dd></div>{% if not microstructure_only %}<div><dt>Funding 起点 / 终点</dt><dd>{{ funding.start_rate|default:"—" }} / {{ funding.end_rate|default:"—" }}</dd></div>{% endif %}</dl></article>
+        <article><h3>{% if microstructure_only %}盘口与流动性{% else %}波动率与盘口{% endif %}</h3><dl>{% if not microstructure_only %}<div><dt>DVOL 起点 / 终点</dt><dd>{{ dvol.start|default:"—" }} / {{ dvol.end|default:"—" }}</dd></div>{% endif %}<div><dt>分钟数 / 覆盖率</dt><dd>{{ micro.minute_rows }} / {{ micro.book_coverage_mean|default:"—" }}</dd></div><div><dt>主动买入 / Delta</dt><dd>{{ micro.aggressive_buy_share_pct|floatformat:2|default:"—" }}% / {{ micro.delta_quote_usd|floatformat:0|default:"—" }}</dd></div><div><dt>Spread P95 / 前24h倍数</dt><dd>{{ micro.spread_bps_p95_mean|default:"—" }} / {{ micro.spread_ratio_to_prior_24h|default:"—" }}×</dd></div><div><dt>Top5失衡</dt><dd>{{ micro.top5_imbalance_mean|default:"—" }}</dd></div><div><dt>Top20深度起点 / 终点</dt><dd>{{ micro.top20_depth_start_usd|floatformat:0|default:"—" }} / {{ micro.top20_depth_end_usd|floatformat:0|default:"—" }}</dd></div><div><dt>Top20深度变化</dt><dd>{{ micro.top20_depth_change_pct|floatformat:2|default:"—" }}%</dd></div></dl></article>
     </div>
 </section>
 
@@ -38,10 +36,11 @@
     <article class="panel"><h2>技术调整需验证</h2><ul>{% for item in analysis.adjustment_conditions %}<li>{{ item }}</li>{% empty %}<li>没有列出调整条件。</li>{% endfor %}</ul></article>
 </section>
 
-<section class="panel">
+{% if not microstructure_only %}<section class="panel">
     <div class="panel-heading"><div><p class="eyebrow">时间边界</p><h2>窗口结束前可见新闻</h2></div><span>{{ news_items|length }} 条</span></div>
     <div class="pilot-news-stack">{% for item in news_items %}<article><div><strong>{{ item.title }}</strong><span>{{ item.source }} · {{ item.published_at }}</span></div>{% if item.summary %}<p>{{ item.summary }}</p>{% endif %}</article>{% empty %}<p class="muted">该窗口没有可用新闻。</p>{% endfor %}</div>
 </section>
+{% else %}<section class="panel"><div class="panel-heading"><div><p class="eyebrow">证据范围</p><h2>仅使用内部微观结构数据</h2></div></div><p class="muted">本报告没有读取新闻、Funding、DVOL、宏观或项目事件，因此不能判断外部触发原因。</p></section>{% endif %}
 
 <section class="panel">
     <div class="panel-heading"><div><p class="eyebrow">审计与边界</p><h2>运行信息</h2></div><span class="run-status status-{{ run.status }}">{{ run.get_status_display }}</span></div>

@@ -33,7 +33,7 @@ from apps.scheduling.funds_workflow import (
 from apps.scheduling.market_pilot_workflow import (
     claim_due_market_pilot_schedules,
     execute_claimed_market_pilot_workflow,
-    get_builtin_market_pilot_schedule,
+    get_builtin_market_pilot_schedules,
 )
 
 
@@ -64,7 +64,7 @@ class Command(BaseCommand):
         get_builtin_news_schedules()
         get_builtin_news_ai_schedule()
         get_builtin_fund_schedules()
-        get_builtin_market_pilot_schedule()
+        get_builtin_market_pilot_schedules()
         executor_id = str(uuid4())
         stop_event = threading.Event()
 

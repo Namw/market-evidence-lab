@@ -48,6 +48,46 @@ def create_minute_history(*, anomaly_return: Decimal) -> None:
     MarketMinute.objects.bulk_create(rows, batch_size=500)
 
 
+def create_zec_minute_history(*, anomaly_return: Decimal) -> None:
+    window_end = WINDOW_START + timedelta(hours=2)
+    history_start = WINDOW_START - timedelta(hours=24)
+    rows = []
+    for index in range(26 * 60):
+        minute_start = history_start + timedelta(minutes=index)
+        in_current = minute_start >= WINDOW_START
+        open_price = Decimal("50")
+        close_price = Decimal("50")
+        if in_current and minute_start == window_end - timedelta(minutes=1):
+            close_price = Decimal("50") * (Decimal("1") + anomaly_return / 100)
+        rows.append(
+            MarketMinute(
+                symbol="ZECUSDT",
+                minute_start=minute_start,
+                minute_end=minute_start + timedelta(minutes=1),
+                open_price=open_price,
+                high_price=max(open_price, close_price),
+                low_price=min(open_price, close_price),
+                close_price=close_price,
+                quote_volume=Decimal("500"),
+                taker_buy_quote=Decimal("275"),
+                taker_sell_quote=Decimal("225"),
+                delta_quote=Decimal("50"),
+                bid_depth_open=Decimal("10000"),
+                bid_depth_close=Decimal("9500"),
+                bid_depth_mean=Decimal("9750"),
+                ask_depth_open=Decimal("11000"),
+                ask_depth_close=Decimal("10000"),
+                ask_depth_mean=Decimal("10500"),
+                spread_bps_p95=Decimal("1.5"),
+                imbalance_top5_mean=Decimal("0.1"),
+                coverage_ratio=Decimal("1"),
+                book_sample_count=60,
+                kline_closed=True,
+            )
+        )
+    MarketMinute.objects.bulk_create(rows, batch_size=500)
+
+
 def analysis_result(inputs):
     analyses = [
         {
@@ -150,6 +190,8 @@ class MarketMonitorTests(TestCase):
             max_windows=1,
             analyzer=analysis_result,
         )
+        check = run.window_checks.get()
+        self.assertEqual(check.status, MarketPilotWindowCheck.Status.ANALYZED)
         report = run.reports.get()
         for horizon, close in ((4, "104"), (12, "105"), (24, "102")):
             target = WINDOW_END + timedelta(hours=horizon)
@@ -173,3 +215,74 @@ class MarketMonitorTests(TestCase):
             "future_12h_return_pct",
             "future_24h_return_pct",
         })
+
+    def test_zec_two_hour_anomaly_uses_only_microstructure_evidence(self):
+        create_zec_minute_history(anomaly_return=Decimal("3"))
+
+        run = monitor_market_windows(
+            symbol="ZECUSDT",
+            threshold_pct=Decimal("2.5"),
+            window_hours=2,
+            outcome_horizons=(2, 6, 12, 24),
+            include_contextual_evidence=False,
+            now=WINDOW_START + timedelta(hours=2, minutes=10),
+            max_windows=1,
+            analyzer=analysis_result,
+        )
+
+        check = run.window_checks.get()
+        self.assertTrue(check.data_quality.get("ready"), check.data_quality)
+        self.assertEqual(check.status, MarketPilotWindowCheck.Status.ANALYZED)
+        report = run.reports.get()
+        snapshot = report.input_snapshot
+        evidence = snapshot["market_evidence"]
+        self.assertEqual(report.symbol, "ZECUSDT")
+        self.assertEqual(snapshot["window_hours"], 2)
+        self.assertEqual(snapshot["evidence_profile"], "microstructure_only")
+        self.assertEqual(snapshot["outcome_horizons"], [2, 6, 12, 24])
+        self.assertEqual(snapshot["news_available_before_window_end"], [])
+        self.assertNotIn("funding", evidence)
+        self.assertNotIn("dvol", evidence)
+        self.assertIn("spread_ratio_to_prior_24h", evidence["microstructure"])
+        self.assertIn("top20_depth_change_pct", evidence["microstructure"])
+
+    def test_zec_outcomes_use_two_six_twelve_and_twenty_four_hours(self):
+        create_zec_minute_history(anomaly_return=Decimal("3"))
+        window_end = WINDOW_START + timedelta(hours=2)
+        run = monitor_market_windows(
+            symbol="ZECUSDT",
+            threshold_pct=Decimal("2.5"),
+            window_hours=2,
+            outcome_horizons=(2, 6, 12, 24),
+            include_contextual_evidence=False,
+            now=window_end + timedelta(minutes=10),
+            max_windows=1,
+            analyzer=analysis_result,
+        )
+        report = run.reports.get()
+        for horizon, close in ((2, "52"), (6, "53"), (12, "51"), (24, "54")):
+            target = window_end + timedelta(hours=horizon)
+            MarketMinute.objects.create(
+                symbol="ZECUSDT",
+                minute_start=target - timedelta(minutes=1),
+                minute_end=target,
+                open_price=Decimal(close),
+                high_price=Decimal(close),
+                low_price=Decimal(close),
+                close_price=Decimal(close),
+                kline_closed=True,
+            )
+
+        update_due_outcomes(now=window_end + timedelta(hours=24))
+
+        report.refresh_from_db()
+        self.assertEqual(report.status, MarketPilotReport.Status.COMPLETED)
+        self.assertEqual(
+            set(report.future_outcomes),
+            {
+                "future_2h_return_pct",
+                "future_6h_return_pct",
+                "future_12h_return_pct",
+                "future_24h_return_pct",
+            },
+        )

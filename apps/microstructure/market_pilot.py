@@ -24,6 +24,7 @@ from apps.news_data.models import NewsRawRecord
 
 
 PROMPT_VERSION = "market-four-hour-pilot-v1"
+MICROSTRUCTURE_PROMPT_VERSION = "market-two-hour-microstructure-v1"
 MECHANISMS = {
     "trend_expansion",
     "short_squeeze",
@@ -152,21 +153,23 @@ def _latest_dvol(at: datetime) -> DeribitVolatilityIndexCandle | None:
 
 
 def _market_evidence(
-    symbol: str, blocks: list[FourHourBlock], index: int
+    symbol: str,
+    blocks: list[FourHourBlock],
+    index: int,
+    *,
+    baseline_windows: int = 6,
+    include_contextual_evidence: bool = True,
 ) -> dict[str, object]:
     block = blocks[index]
-    prior = blocks[index - 6 : index]
+    prior = blocks[max(0, index - baseline_windows) : index]
     start_oi = _latest_oi(symbol, block.start)
     end_oi = _latest_oi(symbol, block.end)
-    start_funding = _latest_funding(symbol, block.start)
-    end_funding = _latest_funding(symbol, block.end)
-    start_dvol = _latest_dvol(block.start)
-    end_dvol = _latest_dvol(block.end)
-    minute_metrics = MarketMinute.objects.filter(
+    minute_rows = MarketMinute.objects.filter(
         symbol=symbol,
         minute_start__gte=block.start,
         minute_start__lt=block.end,
-    ).aggregate(
+    ).order_by("minute_start")
+    minute_metrics = minute_rows.aggregate(
         rows=Count("id"),
         quote_volume=Sum("quote_volume"),
         taker_buy=Sum("taker_buy_quote"),
@@ -175,11 +178,42 @@ def _market_evidence(
         spread_bps=Avg("spread_bps_p95"),
         top5_imbalance=Avg("imbalance_top5_mean"),
         coverage=Avg("coverage_ratio"),
+        bid_depth=Avg("bid_depth_mean"),
+        ask_depth=Avg("ask_depth_mean"),
     )
+    prior_start = prior[0].start if prior else block.start
+    prior_micro = MarketMinute.objects.filter(
+        symbol=symbol,
+        minute_start__gte=prior_start,
+        minute_start__lt=block.start,
+    ).aggregate(
+        spread_bps=Avg("spread_bps_p95"),
+        top5_imbalance=Avg("imbalance_top5_mean"),
+        coverage=Avg("coverage_ratio"),
+    )
+    first_minute = minute_rows.first()
+    last_minute = minute_rows.last()
     buy = minute_metrics["taker_buy"] or Decimal(0)
     sell = minute_metrics["taker_sell"] or Decimal(0)
     total = buy + sell
-    return {
+    prior_volume_median = median(item.quote_volume for item in prior) if prior else None
+    start_depth = None
+    end_depth = None
+    if (
+        first_minute is not None
+        and first_minute.bid_depth_open is not None
+        and first_minute.ask_depth_open is not None
+    ):
+        start_depth = first_minute.bid_depth_open + first_minute.ask_depth_open
+    if (
+        last_minute is not None
+        and last_minute.bid_depth_close is not None
+        and last_minute.ask_depth_close is not None
+    ):
+        end_depth = last_minute.bid_depth_close + last_minute.ask_depth_close
+    spread_value = minute_metrics["spread_bps"]
+    prior_spread = prior_micro["spread_bps"]
+    evidence = {
         "price": {
             "open": _float(block.open, 2),
             "high": _float(block.high, 2),
@@ -190,15 +224,13 @@ def _market_evidence(
         },
         "volume": {
             "quote_volume_usd": _float(block.quote_volume, 2),
-            "prior_24h_four_hour_median_usd": _float(
-                median(item.quote_volume for item in prior), 2
-            ),
+            "prior_24h_window_median_usd": _float(prior_volume_median, 2),
             "ratio_to_prior_median": _float(
-                block.quote_volume / median(item.quote_volume for item in prior), 3
-            ),
+                block.quote_volume / prior_volume_median, 3
+            ) if prior_volume_median else None,
             "kline_taker_buy_share_pct": _float(
                 block.taker_buy_quote_volume / block.quote_volume * 100, 3
-            ),
+            ) if block.quote_volume else None,
         },
         "open_interest": {
             "start_usd": _float(
@@ -210,14 +242,6 @@ def _market_evidence(
                 end_oi.sum_open_interest_value if end_oi else None,
             ),
         },
-        "funding": {
-            "start_rate": _float(start_funding.funding_rate if start_funding else None),
-            "end_rate": _float(end_funding.funding_rate if end_funding else None),
-        },
-        "dvol": {
-            "start": _float(start_dvol.close if start_dvol else None, 3),
-            "end": _float(end_dvol.close if end_dvol else None, 3),
-        },
         "microstructure": {
             "minute_rows": minute_metrics["rows"] or 0,
             "quote_volume_usd": _float(minute_metrics["quote_volume"], 2),
@@ -226,10 +250,36 @@ def _market_evidence(
             else None,
             "delta_quote_usd": _float(minute_metrics["delta"], 2),
             "spread_bps_p95_mean": _float(minute_metrics["spread_bps"], 4),
+            "spread_ratio_to_prior_24h": _float(
+                Decimal(spread_value) / Decimal(prior_spread), 3
+            ) if spread_value is not None and prior_spread else None,
             "top5_imbalance_mean": _float(minute_metrics["top5_imbalance"], 4),
+            "prior_24h_top5_imbalance_mean": _float(
+                prior_micro["top5_imbalance"], 4
+            ),
             "book_coverage_mean": _float(minute_metrics["coverage"], 4),
+            "prior_24h_book_coverage_mean": _float(prior_micro["coverage"], 4),
+            "bid_depth_mean_usd": _float(minute_metrics["bid_depth"], 2),
+            "ask_depth_mean_usd": _float(minute_metrics["ask_depth"], 2),
+            "top20_depth_start_usd": _float(start_depth, 2),
+            "top20_depth_end_usd": _float(end_depth, 2),
+            "top20_depth_change_pct": _pct_change(start_depth, end_depth),
         },
     }
+    if include_contextual_evidence:
+        start_funding = _latest_funding(symbol, block.start)
+        end_funding = _latest_funding(symbol, block.end)
+        start_dvol = _latest_dvol(block.start)
+        end_dvol = _latest_dvol(block.end)
+        evidence["funding"] = {
+            "start_rate": _float(start_funding.funding_rate if start_funding else None),
+            "end_rate": _float(end_funding.funding_rate if end_funding else None),
+        }
+        evidence["dvol"] = {
+            "start": _float(start_dvol.close if start_dvol else None, 3),
+            "end": _float(end_dvol.close if end_dvol else None, 3),
+        }
+    return evidence
 
 
 def _news_evidence(end: datetime, *, limit: int = 8) -> list[dict[str, object]]:
@@ -302,6 +352,15 @@ SYSTEM_PROMPT = """你是 Market Evidence Lab 的四小时市场预演分析员�
 
 新闻只有在发布时间早于 window_end 且内容明确时才能作为证据。OI上升不能自动解释为空头逼空；价格上涨且OI下降才更符合存量空头回补，但仍需谨慎。资金费率在上涨之后升高通常是放大或拥挤结果，不是初始触发。"""
 
+MICROSTRUCTURE_SYSTEM_PROMPT = """你是 Market Evidence Lab 的 ZECUSDT 两小时微观结构分析员。你只能使用输入中在 window_end 之前已知的价格、成交、主动买卖、Delta、Top20盘口深度、Top5盘口失衡、Spread P95、盘口覆盖率和5分钟OI，不得使用新闻、宏观事件、项目方消息、资金费率、DVOL或任何外部知识。
+
+你的任务不是解释外部触发原因，而是判断市场内部的形成与放大机制、趋势顺延条件和技术调整条件。证据只能支持“更符合”某种机制，不能证明因果；证据不足或数据互相冲突时必须选择 insufficient_evidence。不能提供买卖建议、仓位建议或价格预测。
+
+每个窗口必须返回一次，JSON格式固定为：
+{"analyses":[{"window_start":"ISO时间","mechanism":"trend_expansion|short_squeeze|long_liquidation|technical_rebound|technical_pullback|liquidity_jump|mixed|insufficient_evidence","confidence":"low|medium|high","trigger_assessment":"中文，不超过180字；只描述窗口开始时可见的内部市场状态，不得虚构外因","amplifier_assessment":"中文，不超过180字","supporting_evidence":["最多4条具体证据"],"contrary_evidence":["最多3条反证或冲突"],"continuation_conditions":["未来需要验证的条件，最多3条"],"adjustment_conditions":["未来需要验证的条件，最多3条"],"limitations":["最多3条"]}]}
+
+解释规则：价格上涨且OI下降更符合存量空头回补；价格下跌且OI下降更符合多头去杠杆，但都必须结合主动成交验证。价格与OI同向增长只表示新仓参与增加，不能确定新仓方向。Spread P95扩大、Top20深度下降只能说明流动性恶化或挂单变化，不能把撤单说成成交。Top5失衡是快照状态，不能单独证明后续方向。"""
+
 
 def _parse_ai_content(content: object, expected_starts: set[str]) -> list[dict]:
     if not isinstance(content, str):
@@ -325,7 +384,12 @@ def _parse_ai_content(content: object, expected_starts: set[str]) -> list[dict]:
     return analyses
 
 
-def analyze_with_deepseek(inputs: list[dict[str, object]]) -> tuple[list[dict], dict]:
+def _analyze_with_deepseek(
+    inputs: list[dict[str, object]],
+    *,
+    system_prompt: str,
+    prompt_version: str,
+) -> tuple[list[dict], dict]:
     if not settings.NEWS_AI_API_KEY:
         raise RuntimeError("NEWS_AI_API_KEY is not configured")
     analyses: list[dict] = []
@@ -341,11 +405,11 @@ def analyze_with_deepseek(inputs: list[dict[str, object]]) -> tuple[list[dict], 
             request_payload = {
                 "model": settings.NEWS_AI_MODEL,
                 "messages": [
-                    {"role": "system", "content": SYSTEM_PROMPT},
+                    {"role": "system", "content": system_prompt},
                     {
                         "role": "user",
                         "content": json.dumps(
-                            {"prompt_version": PROMPT_VERSION, "windows": chunk},
+                            {"prompt_version": prompt_version, "windows": chunk},
                             ensure_ascii=False,
                         ),
                     },
@@ -390,6 +454,24 @@ def analyze_with_deepseek(inputs: list[dict[str, object]]) -> tuple[list[dict], 
         "request_count": (len(inputs) + 1) // 2,
         "usage": usage,
     }
+
+
+def analyze_with_deepseek(inputs: list[dict[str, object]]) -> tuple[list[dict], dict]:
+    return _analyze_with_deepseek(
+        inputs,
+        system_prompt=SYSTEM_PROMPT,
+        prompt_version=PROMPT_VERSION,
+    )
+
+
+def analyze_microstructure_with_deepseek(
+    inputs: list[dict[str, object]],
+) -> tuple[list[dict], dict]:
+    return _analyze_with_deepseek(
+        inputs,
+        system_prompt=MICROSTRUCTURE_SYSTEM_PROMPT,
+        prompt_version=MICROSTRUCTURE_PROMPT_VERSION,
+    )
 
 
 def run_market_pilot(symbol: str) -> dict[str, object]:

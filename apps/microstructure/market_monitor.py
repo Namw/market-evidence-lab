@@ -16,6 +16,7 @@ from apps.market_data.models import (
 )
 
 from .market_pilot import (
+    MICROSTRUCTURE_PROMPT_VERSION,
     PROMPT_VERSION,
     FourHourBlock,
     _market_evidence,
@@ -35,6 +36,11 @@ LIVE_LIMITATIONS = [
     "数据库当前不能独立验证 BTC 与全市场同步性。",
     "ETF 资金流和地址余额不是四小时实时数据，不能作为即时触发证据。",
 ]
+MICROSTRUCTURE_ONLY_LIMITATIONS = [
+    "该报告只观察价格、成交、盘口与 OI，不能识别新闻、宏观或项目事件等外部触发原因。",
+    "盘口深度变化不能区分成交、撤单与新增挂单，不能单独证明买卖方向。",
+    "数据库当前不能独立验证 BTC 与全市场同步性，也没有 Funding 或 DVOL 证据。",
+]
 OUTCOME_HORIZONS = (4, 12, 24)
 MAX_NOTIFICATION_ATTEMPTS = 3
 
@@ -43,13 +49,17 @@ class MarketMonitorAlreadyRunning(RuntimeError):
     pass
 
 
-def latest_closed_window_end(now: datetime | None = None) -> datetime:
+def latest_closed_window_end(
+    now: datetime | None = None, *, window_hours: int = 4
+) -> datetime:
     current = now or timezone.now()
     if timezone.is_naive(current):
         raise ValueError("now must be timezone-aware")
+    if window_hours <= 0 or 24 % window_hours:
+        raise ValueError("window_hours must be a positive divisor of 24")
     current = current.astimezone(UTC)
     return current.replace(
-        hour=current.hour - current.hour % 4,
+        hour=current.hour - current.hour % window_hours,
         minute=0,
         second=0,
         microsecond=0,
@@ -57,9 +67,9 @@ def latest_closed_window_end(now: datetime | None = None) -> datetime:
 
 
 def _minute_block(
-    symbol: str, start: datetime
+    symbol: str, start: datetime, *, window_hours: int = 4
 ) -> tuple[FourHourBlock | None, dict[str, object]]:
-    end = start + timedelta(hours=4)
+    end = start + timedelta(hours=window_hours)
     rows = list(
         MarketMinute.objects.filter(
             symbol=symbol,
@@ -67,7 +77,10 @@ def _minute_block(
             minute_start__lt=end,
         ).order_by("minute_start")
     )
-    expected_times = {start + timedelta(minutes=index) for index in range(240)}
+    expected_minutes = window_hours * 60
+    expected_times = {
+        start + timedelta(minutes=index) for index in range(expected_minutes)
+    }
     actual_times = {row.minute_start.astimezone(UTC) for row in rows}
     missing_count = len(expected_times - actual_times)
     closed_count = sum(row.kline_closed for row in rows)
@@ -88,9 +101,9 @@ def _minute_block(
         "price_complete": price_complete,
     }
     if (
-        len(rows) != 240
+        len(rows) != expected_minutes
         or missing_count
-        or closed_count != 240
+        or closed_count != expected_minutes
         or not price_complete
     ):
         return None, quality
@@ -119,19 +132,32 @@ def _freshness_minutes(observed_at: datetime, row_at: datetime | None) -> int | 
 
 
 def build_live_input(
-    symbol: str, window_start: datetime
+    symbol: str,
+    window_start: datetime,
+    *,
+    window_hours: int = 4,
+    baseline_hours: int = 24,
+    include_contextual_evidence: bool = True,
 ) -> tuple[dict[str, object] | None, dict[str, object]]:
+    if baseline_hours <= 0 or baseline_hours % window_hours:
+        raise ValueError("baseline_hours must be divisible by window_hours")
+    baseline_windows = baseline_hours // window_hours
     blocks: list[FourHourBlock] = []
     block_quality: list[dict[str, object]] = []
-    for offset in range(-6, 1):
+    for offset in range(-baseline_windows, 1):
         block, quality = _minute_block(
-            symbol, window_start + timedelta(hours=offset * 4)
+            symbol,
+            window_start + timedelta(hours=offset * window_hours),
+            window_hours=window_hours,
         )
         block_quality.append(quality)
         if block is None:
             return None, {
                 "ready": False,
-                "reason": "四小时窗口或前 24 小时基线的分钟数据不完整。",
+                "reason": (
+                    f"{window_hours}小时窗口或前 {baseline_hours} 小时基线的"
+                    "分钟数据不完整。"
+                ),
                 "blocks": block_quality,
             }
         blocks.append(block)
@@ -146,42 +172,67 @@ def build_live_input(
         .order_by("-timestamp")
         .first()
     )
-    funding = (
-        FundingRate.objects.filter(symbol=symbol, funding_time__lte=block.end)
-        .order_by("-funding_time")
-        .first()
-    )
-    dvol = (
-        DeribitVolatilityIndexCandle.objects.filter(open_time__lte=block.end)
-        .order_by("-open_time")
-        .first()
-    )
     freshness = {
         "oi_minutes": _freshness_minutes(block.end, oi.timestamp if oi else None),
-        "funding_minutes": _freshness_minutes(
-            block.end, funding.funding_time if funding else None
-        ),
-        "dvol_minutes": _freshness_minutes(
-            block.end, dvol.open_time if dvol else None
-        ),
     }
     warnings = []
     if freshness["oi_minutes"] is None or freshness["oi_minutes"] > 15:
         warnings.append("OI 数据缺失或距离窗口结束超过 15 分钟。")
-    if freshness["funding_minutes"] is None or freshness["funding_minutes"] > 720:
-        warnings.append("Funding 数据缺失或距离窗口结束超过 12 小时。")
-    if freshness["dvol_minutes"] is None or freshness["dvol_minutes"] > 120:
-        warnings.append("DVOL 数据缺失或距离窗口结束超过 2 小时。")
+    if include_contextual_evidence:
+        funding = (
+            FundingRate.objects.filter(symbol=symbol, funding_time__lte=block.end)
+            .order_by("-funding_time")
+            .first()
+        )
+        dvol = (
+            DeribitVolatilityIndexCandle.objects.filter(open_time__lte=block.end)
+            .order_by("-open_time")
+            .first()
+        )
+        freshness["funding_minutes"] = _freshness_minutes(
+            block.end, funding.funding_time if funding else None
+        )
+        freshness["dvol_minutes"] = _freshness_minutes(
+            block.end, dvol.open_time if dvol else None
+        )
+        if freshness["funding_minutes"] is None or freshness["funding_minutes"] > 720:
+            warnings.append("Funding 数据缺失或距离窗口结束超过 12 小时。")
+        if freshness["dvol_minutes"] is None or freshness["dvol_minutes"] > 120:
+            warnings.append("DVOL 数据缺失或距离窗口结束超过 2 小时。")
 
-    evidence = _market_evidence(symbol, blocks, 6)
+    evidence = _market_evidence(
+        symbol,
+        blocks,
+        baseline_windows,
+        baseline_windows=baseline_windows,
+        include_contextual_evidence=include_contextual_evidence,
+    )
+    coverage = evidence.get("microstructure", {}).get("book_coverage_mean")
+    if not include_contextual_evidence and (
+        coverage is None or float(coverage) < 0.8
+    ):
+        warnings.append("盘口分钟平均覆盖率低于 80%，盘口结论需要降级。")
     evidence["data_freshness"] = freshness
     snapshot = {
         "window_start": block.start.isoformat(),
         "window_end": block.end.isoformat(),
-        "selection_reason": MarketPilotReport.SelectionReason.SHOCK,
+        "selection_reason": MarketPilotReport.SelectionReason.LIVE_THRESHOLD,
+        "window_hours": window_hours,
+        "evidence_profile": (
+            "contextual" if include_contextual_evidence else "microstructure_only"
+        ),
         "market_evidence": evidence,
-        "news_available_before_window_end": _news_evidence(block.end),
-        "known_data_limitations": [*LIVE_LIMITATIONS, *warnings],
+        "news_available_before_window_end": (
+            _news_evidence(block.end) if include_contextual_evidence else []
+        ),
+        "known_data_limitations": [
+            *(
+                LIVE_LIMITATIONS
+                if include_contextual_evidence
+                else MICROSTRUCTURE_ONLY_LIMITATIONS
+            ),
+            *warnings,
+        ],
     }
     return snapshot, {
         "ready": True,
@@ -216,7 +267,15 @@ def update_due_outcomes(*, now: datetime | None = None) -> int:
         base_close = Decimal(str(close_value))
         outcomes = dict(report.future_outcomes)
         changed = False
-        for horizon in OUTCOME_HORIZONS:
+        configured_horizons = report.input_snapshot.get(
+            "outcome_horizons", OUTCOME_HORIZONS
+        )
+        horizons = tuple(
+            int(item)
+            for item in configured_horizons
+            if isinstance(item, int) and not isinstance(item, bool) and item > 0
+        ) or OUTCOME_HORIZONS
+        for horizon in horizons:
             key = f"future_{horizon}h_return_pct"
             target_at = report.window_end + timedelta(hours=horizon)
             if key in outcomes or current < target_at:
@@ -227,8 +286,7 @@ def update_due_outcomes(*, now: datetime | None = None) -> int:
             outcomes[key] = round(float((target_close / base_close - 1) * 100), 6)
             changed = True
         complete = all(
-            f"future_{horizon}h_return_pct" in outcomes
-            for horizon in OUTCOME_HORIZONS
+            f"future_{horizon}h_return_pct" in outcomes for horizon in horizons
         )
         if changed or complete:
             report.future_outcomes = outcomes
@@ -251,13 +309,21 @@ def _report_markdown(report: MarketPilotReport) -> str:
         detail_url = (
             f"\n> [查看完整证据报告]({base_url}/microstructure/market-pilot/{report.id}/)"
         )
+    window_hours = int(report.input_snapshot.get("window_hours", 4))
+    symbol = report.symbol.removesuffix("USDT")
+    profile = report.input_snapshot.get("evidence_profile", "contextual")
+    scope_note = (
+        "内部微观结构解释" if profile == "microstructure_only" else "市场证据解释"
+    )
     return (
-        f"## ETH 四小时异常{direction}\n"
+        f"## {symbol} {window_hours}小时异常{direction}\n"
         f"> 窗口：{local_start}–{local_end}（北京时间）\n"
         f"> 涨跌：**{float(price.get('return_pct', 0)):+.2f}%**\n"
         f"> AI 机制：**{report.get_mechanism_display()}** / "
-        f"置信度 {report.get_confidence_display()}\n\n"
-        f"**触发背景**：{analysis.get('trigger_assessment', '证据不足')}\n\n"
+        f"置信度 {report.get_confidence_display()}\n"
+        f"> 分析范围：{scope_note}\n\n"
+        f"**{'窗口起始内部状态' if profile == 'microstructure_only' else '触发背景'}**："
+        f"{analysis.get('trigger_assessment', '证据不足')}\n\n"
         f"**放大机制**：{analysis.get('amplifier_assessment', '证据不足')}"
         f"{detail_url}\n\n"
         f"<font color=\"comment\">影子监控报告，不构成交易建议。</font>"
@@ -333,12 +399,14 @@ def retry_pending_notifications(*, client: httpx.Client | None = None) -> int:
     return sent
 
 
-def _create_live_run(symbol: str, trigger: str) -> MarketPilotRun:
+def _create_live_run(
+    symbol: str, trigger: str, *, prompt_version: str = PROMPT_VERSION
+) -> MarketPilotRun:
     try:
         with transaction.atomic():
             return MarketPilotRun.objects.create(
                 symbol=symbol,
-                prompt_version=PROMPT_VERSION,
+                prompt_version=prompt_version,
                 configured_model=settings.NEWS_AI_MODEL,
                 mode=MarketPilotRun.Mode.LIVE,
                 trigger=trigger,
@@ -358,9 +426,13 @@ def monitor_market_windows(
     *,
     symbol: str = "ETHUSDT",
     threshold_pct: Decimal = Decimal("2"),
+    window_hours: int = 4,
+    baseline_hours: int = 24,
+    outcome_horizons: tuple[int, ...] = OUTCOME_HORIZONS,
+    include_contextual_evidence: bool = True,
     trigger: str = MarketPilotRun.Trigger.MANUAL,
     now: datetime | None = None,
-    max_windows: int = 6,
+    max_windows: int | None = None,
     analyzer: Callable = analyze_with_deepseek,
     notification_client: httpx.Client | None = None,
 ) -> MarketPilotRun:
@@ -369,10 +441,23 @@ def monitor_market_windows(
         raise ValueError("now must be timezone-aware")
     if threshold_pct <= 0:
         raise ValueError("threshold_pct must be positive")
-    run = _create_live_run(symbol, trigger)
-    latest_end = latest_closed_window_end(current)
+    if window_hours <= 0 or 24 % window_hours:
+        raise ValueError("window_hours must be a positive divisor of 24")
+    if baseline_hours <= 0 or baseline_hours % window_hours:
+        raise ValueError("baseline_hours must be divisible by window_hours")
+    if not outcome_horizons or any(horizon <= 0 for horizon in outcome_horizons):
+        raise ValueError("outcome_horizons must contain positive hours")
+    if max_windows is None:
+        max_windows = baseline_hours // window_hours
+    prompt_version = (
+        PROMPT_VERSION
+        if include_contextual_evidence
+        else MICROSTRUCTURE_PROMPT_VERSION
+    )
+    run = _create_live_run(symbol, trigger, prompt_version=prompt_version)
+    latest_end = latest_closed_window_end(current, window_hours=window_hours)
     starts = [
-        latest_end - timedelta(hours=offset * 4)
+        latest_end - timedelta(hours=offset * window_hours)
         for offset in range(max_windows, 0, -1)
     ]
     pending_inputs: list[dict[str, object]] = []
@@ -386,7 +471,7 @@ def monitor_market_windows(
                 window_start=window_start,
                 defaults={
                     "run": run,
-                    "window_end": window_start + timedelta(hours=4),
+                    "window_end": window_start + timedelta(hours=window_hours),
                     "threshold_pct": threshold_pct,
                 },
             )
@@ -399,7 +484,13 @@ def monitor_market_windows(
             check.run = run
             check.threshold_pct = threshold_pct
             check.attempt_count += 1
-            snapshot, quality = build_live_input(symbol, window_start)
+            snapshot, quality = build_live_input(
+                symbol,
+                window_start,
+                window_hours=window_hours,
+                baseline_hours=baseline_hours,
+                include_contextual_evidence=include_contextual_evidence,
+            )
             check.data_quality = quality
             if snapshot is None:
                 check.status = MarketPilotWindowCheck.Status.WAITING_DATA
@@ -409,6 +500,7 @@ def monitor_market_windows(
             return_pct = Decimal(
                 str(snapshot["market_evidence"]["price"]["return_pct"])
             )
+            snapshot["trigger_threshold_pct"] = float(threshold_pct)
             check.return_pct = return_pct
             check.safe_error_summary = ""
             if abs(return_pct) < threshold_pct:
@@ -426,6 +518,8 @@ def monitor_market_windows(
             "usage": {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0},
         }
         if pending_inputs:
+            for snapshot in pending_inputs:
+                snapshot["outcome_horizons"] = list(outcome_horizons)
             analyses, ai_metadata = analyzer(pending_inputs)
             analyses_by_start = {item["window_start"]: item for item in analyses}
             notification_status = (
@@ -441,7 +535,7 @@ def monitor_market_windows(
                     defaults={
                         "run": run,
                         "window_end": check.window_end,
-                        "selection_reason": MarketPilotReport.SelectionReason.SHOCK,
+                        "selection_reason": str(snapshot["selection_reason"]),
                         "mechanism": str(analysis["mechanism"]),
                         "confidence": str(analysis["confidence"]),
                         "input_snapshot": snapshot,

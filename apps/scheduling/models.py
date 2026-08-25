@@ -495,9 +495,13 @@ class NewsAISchedule(models.Model):
 
 class MarketPilotSchedule(models.Model):
     name = models.CharField(max_length=120, unique=True)
+    symbol = models.CharField(max_length=20, default="ETHUSDT")
     enabled = models.BooleanField(default=False)
     run_time = models.TimeField(default=time(0, 10))
     interval_hours = models.PositiveSmallIntegerField(default=4, editable=False)
+    window_hours = models.PositiveSmallIntegerField(default=4, editable=False)
+    include_contextual_evidence = models.BooleanField(default=True, editable=False)
+    outcome_horizons = models.JSONField(default=list, blank=True, editable=False)
     timezone = models.CharField(
         max_length=64, default=SCHEDULE_TIMEZONE, editable=False
     )

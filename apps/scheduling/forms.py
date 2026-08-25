@@ -119,24 +119,32 @@ class NewsAIScheduleForm(forms.ModelForm):
 
 class MarketPilotScheduleForm(forms.ModelForm):
     threshold_pct = forms.DecimalField(
-        label="四小时异常阈值",
+        label="异常阈值",
         min_value=0.1,
         max_value=20,
         decimal_places=3,
-        help_text="按四小时开盘到收盘的绝对涨跌幅判断；当前建议保持 2%。",
+        help_text="按窗口开盘到收盘的绝对涨跌幅判断。",
         widget=forms.NumberInput(attrs={"min": "0.1", "max": "20", "step": "0.1"}),
     )
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        symbol = self.instance.symbol.removesuffix("USDT")
+        hours = self.instance.window_hours
+        self.fields["enabled"].label = f"启用 {symbol} {hours}小时影子监控"
+        self.fields["threshold_pct"].label = f"{hours}小时异常阈值"
+        self.fields["threshold_pct"].help_text = (
+            f"按{hours}小时开盘到收盘的绝对涨跌幅判断；"
+            f"当前建议保持 {self.instance.threshold_pct}%。"
+        )
+        self.fields["run_time"].help_text = (
+            f"北京时间；以该时间为首轮，此后每 {self.instance.interval_hours} 小时执行一次。"
+        )
 
     class Meta:
         model = MarketPilotSchedule
         fields = ["enabled", "run_time", "threshold_pct"]
-        labels = {
-            "enabled": "启用 ETH 四小时影子监控",
-            "run_time": "每日首轮执行时间",
-        }
-        help_texts = {
-            "run_time": "北京时间；以该时间为首轮，此后每 4 小时执行一次。",
-        }
+        labels = {"run_time": "每日首轮执行时间"}
         widgets = {
             "enabled": forms.CheckboxInput(),
             "run_time": forms.TimeInput(attrs={"type": "time", "step": "60"}),

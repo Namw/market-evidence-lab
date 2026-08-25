@@ -211,6 +211,7 @@ class MarketPilotRun(models.Model):
 class MarketPilotReport(models.Model):
     class SelectionReason(models.TextChoices):
         SHOCK = "absolute_return_ge_2pct", "候选异动"
+        LIVE_THRESHOLD = "absolute_return_threshold", "阈值异动"
         CALM = "calm_control", "平静对照"
 
     class Mechanism(models.TextChoices):

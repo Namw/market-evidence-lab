@@ -633,28 +633,45 @@ def _pilot_report_row(report: MarketPilotReport) -> dict[str, object]:
         value = outcomes.get(key)
         return f"{float(value):+.2f}%" if value is not None else "待验证"
 
+    horizons = report.input_snapshot.get("outcome_horizons", [4, 12, 24])
+    outcome_labels = [
+        {
+            "horizon": int(horizon),
+            "label": outcome_label(f"future_{int(horizon)}h_return_pct"),
+        }
+        for horizon in horizons
+        if isinstance(horizon, int) and not isinstance(horizon, bool) and horizon > 0
+    ]
+
     return {
         "report": report,
         "price_return_pct": price.get("return_pct"),
         "close": price.get("close"),
-        "future_4h_label": outcome_label("future_4h_return_pct"),
-        "future_12h_label": outcome_label("future_12h_return_pct"),
-        "future_24h_label": outcome_label("future_24h_return_pct"),
+        "outcome_labels": outcome_labels,
         "trigger_assessment": report.ai_analysis.get("trigger_assessment", ""),
     }
 
 
 @require_GET
 def market_pilot_list(request):
+    selected_symbol = request.GET.get("symbol", "").upper()
+    if selected_symbol not in settings.MICROSTRUCTURE_SYMBOLS:
+        selected_symbol = ""
     reports = MarketPilotReport.objects.select_related("run").order_by(
         "-window_start", "-id"
     )
+    runs = MarketPilotRun.objects.order_by("-started_at", "-id")
+    checks = MarketPilotWindowCheck.objects.select_related("report").order_by(
+        "-window_start", "-id"
+    )
+    if selected_symbol:
+        reports = reports.filter(symbol=selected_symbol)
+        runs = runs.filter(symbol=selected_symbol)
+        checks = checks.filter(symbol=selected_symbol)
     page = Paginator(reports, 30).get_page(request.GET.get("page"))
     rows = [_pilot_report_row(report) for report in page.object_list]
-    recent_runs = MarketPilotRun.objects.order_by("-started_at", "-id")[:8]
-    recent_checks = MarketPilotWindowCheck.objects.select_related("report").order_by(
-        "-window_start", "-id"
-    )[:24]
+    recent_runs = runs[:8]
+    recent_checks = checks[:24]
     return render(
         request,
         "microstructure/market_pilot_list.html",
@@ -664,6 +681,8 @@ def market_pilot_list(request):
             "recent_runs": recent_runs,
             "recent_checks": recent_checks,
             "report_count": reports.count(),
+            "selected_symbol": selected_symbol,
+            "available_symbols": settings.MICROSTRUCTURE_SYMBOLS,
         },
     )
 
@@ -675,6 +694,17 @@ def market_pilot_detail(request, report_id: int):
     )
     snapshot = report.input_snapshot
     evidence = snapshot.get("market_evidence", {})
+    horizons = snapshot.get("outcome_horizons", [4, 12, 24])
+    outcome_rows = [
+        {
+            "horizon": int(horizon),
+            "value": report.future_outcomes.get(
+                f"future_{int(horizon)}h_return_pct"
+            ),
+        }
+        for horizon in horizons
+        if isinstance(horizon, int) and not isinstance(horizon, bool) and horizon > 0
+    ]
     return render(
         request,
         "microstructure/market_pilot_detail.html",
@@ -693,6 +723,13 @@ def market_pilot_detail(request, report_id: int):
             "data_limitations": snapshot.get("known_data_limitations", []),
             "analysis": report.ai_analysis,
             "outcomes": report.future_outcomes,
+            "outcome_rows": outcome_rows,
+            "window_hours": snapshot.get(
+                "window_hours",
+                int((report.window_end - report.window_start).total_seconds() // 3600),
+            ),
+            "microstructure_only": snapshot.get("evidence_profile")
+            == "microstructure_only",
         },
     )
 

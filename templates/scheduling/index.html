@@ -133,6 +133,26 @@
 
         <article class="scheduled-task-card">
             <header class="task-card-header">
+                <span class="task-type-icon market-icon" aria-hidden="true">2H</span>
+                <div><span class="task-kicker">MARKET PILOT · ZECUSDT</span><h3>ZEC 两小时 AI 微观结构异常监控</h3></div>
+                {% if zec_market_pilot_schedule.enabled %}<span class="task-state is-enabled"><i></i>已启用</span>{% else %}<span class="task-state"><i></i>已停用</span>{% endif %}
+            </header>
+            <p class="task-description">每两小时检查完整分钟窗口；仅当绝对涨跌达到阈值时，使用成交、盘口、Spread P95 和 OI 调用 DeepSeek，不读取新闻、Funding 或 DVOL。</p>
+            <div class="task-next-run">
+                <span>下次计划运行</span>
+                {% if zec_market_pilot_schedule.enabled %}<strong>{% timezone zec_market_pilot_schedule.timezone %}{{ zec_market_pilot_schedule.next_run_at|date:"m月d日 H:i" }}{% endtimezone %}</strong><small>北京时间</small>{% else %}<strong>启用后计算</strong><small>当前自动计划已停用</small>{% endif %}
+            </div>
+            <dl class="task-facts">
+                <div><dt>调度频率</dt><dd>每 {{ zec_market_pilot_schedule.interval_hours }} 小时（首轮 {{ zec_market_pilot_schedule.run_time|time:"H:i" }}）</dd></div>
+                <div><dt>异常阈值</dt><dd>|两小时涨跌| ≥ {{ zec_market_pilot_schedule.threshold_pct|floatformat:2 }}%</dd></div>
+                <div><dt>结果回填</dt><dd>2 / 6 / 12 / 24 小时</dd></div>
+                <div><dt>上次计划运行</dt><dd>{% if zec_market_pilot_schedule.last_run_at %}{{ zec_market_pilot_schedule.last_run_at|date:"m-d H:i" }} 北京时间{% else %}尚未运行{% endif %}</dd></div>
+            </dl>
+            <footer class="task-card-actions"><button class="task-config-button" type="button" data-dialog-target="zec-market-pilot-config-dialog">配置自动任务</button><a class="task-run-button" href="{% url 'microstructure:market_pilot_list' %}?symbol=ZECUSDT">查看报告</a></footer>
+        </article>
+
+        <article class="scheduled-task-card">
+            <header class="task-card-header">
                 <span class="task-type-icon market-icon" aria-hidden="true">D</span>
                 <div><span class="task-kicker">OPTIONS · DERIBIT ETH</span><h3>Deribit 期权数据采集</h3></div>
                 {% if deribit_schedule.enabled %}<span class="task-state is-enabled"><i></i>已启用</span>{% else %}<span class="task-state"><i></i>已停用</span>{% endif %}
@@ -207,6 +227,18 @@
             {% csrf_token %}<input type="hidden" name="action" value="save_market_pilot">
             {% if market_pilot_form.non_field_errors %}<div class="form-errors" role="alert">{{ market_pilot_form.non_field_errors }}</div>{% endif %}
             {% for field in market_pilot_form %}<div class="form-field{% if field.name == 'enabled' %} checkbox-field{% endif %}"><label for="{{ field.id_for_label }}">{% if field.name == 'enabled' %}{{ field }} {% endif %}{{ field.label }}</label>{% if field.name != 'enabled' %}{{ field }}{% endif %}{% if field.errors %}<div class="field-errors">{{ field.errors }}</div>{% endif %}{% if field.help_text %}<small>{{ field.help_text }}</small>{% endif %}</div>{% endfor %}
+            <div class="dialog-actions"><button type="button" class="secondary-button" data-dialog-close>取消</button><button class="primary-button" type="submit" data-waiting-text="保存中…">保存配置</button></div>
+        </form>
+    </div>
+</dialog>
+
+<dialog class="schedule-dialog" id="zec-market-pilot-config-dialog"{% if open_dialog == 'zec-market-pilot-config-dialog' %} data-open-dialog{% endif %}>
+    <div class="dialog-card">
+        <div class="dialog-heading"><div><p class="eyebrow">自动配置</p><h2>ZEC 两小时 AI 微观结构异常监控</h2></div><button type="button" class="dialog-close" data-dialog-close aria-label="关闭">×</button></div>
+        <form method="post" class="dialog-form" id="zec-market-pilot-config-form">
+            {% csrf_token %}<input type="hidden" name="action" value="save_zec_market_pilot">
+            {% if zec_market_pilot_form.non_field_errors %}<div class="form-errors" role="alert">{{ zec_market_pilot_form.non_field_errors }}</div>{% endif %}
+            {% for field in zec_market_pilot_form %}<div class="form-field{% if field.name == 'enabled' %} checkbox-field{% endif %}"><label for="{{ field.id_for_label }}">{% if field.name == 'enabled' %}{{ field }} {% endif %}{{ field.label }}</label>{% if field.name != 'enabled' %}{{ field }}{% endif %}{% if field.errors %}<div class="field-errors">{{ field.errors }}</div>{% endif %}{% if field.help_text %}<small>{{ field.help_text }}</small>{% endif %}</div>{% endfor %}
             <div class="dialog-actions"><button type="button" class="secondary-button" data-dialog-close>取消</button><button class="primary-button" type="submit" data-waiting-text="保存中…">保存配置</button></div>
         </form>
     </div>

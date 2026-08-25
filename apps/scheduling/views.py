@@ -31,7 +31,10 @@ from .forms import (
     NewsAIScheduleForm,
     NewsWorkflowScheduleForm,
 )
-from .market_pilot_workflow import get_builtin_market_pilot_schedule
+from .market_pilot_workflow import (
+    get_builtin_market_pilot_schedule,
+    get_builtin_zec_market_pilot_schedule,
+)
 from .models import (
     DeribitOptionsWorkflowRun,
     FundDataWorkflowRun,
@@ -103,6 +106,7 @@ def schedule_index(request):
     )
     news_ai_schedule = get_builtin_news_ai_schedule()
     market_pilot_schedule = get_builtin_market_pilot_schedule()
+    zec_market_pilot_schedule = get_builtin_zec_market_pilot_schedule()
     deribit_schedule = get_builtin_deribit_options_schedule()
     fund_schedules = get_builtin_fund_schedules()
     form = KlineScheduleForm(instance=schedule, auto_id="market_%s")
@@ -118,6 +122,10 @@ def schedule_index(request):
     market_pilot_form = MarketPilotScheduleForm(
         instance=market_pilot_schedule,
         auto_id="market_pilot_%s",
+    )
+    zec_market_pilot_form = MarketPilotScheduleForm(
+        instance=zec_market_pilot_schedule,
+        auto_id="zec_market_pilot_%s",
     )
     deribit_form = DeribitOptionsScheduleForm(
         instance=deribit_schedule,
@@ -205,6 +213,23 @@ def schedule_index(request):
                 messages.success(request, "ETH 四小时 AI 影子监控配置已保存。")
                 return redirect("scheduling:index")
             open_dialog = "market-pilot-config-dialog"
+        elif action == "save_zec_market_pilot":
+            zec_market_pilot_form = MarketPilotScheduleForm(
+                request.POST,
+                instance=zec_market_pilot_schedule,
+                auto_id="zec_market_pilot_%s",
+            )
+            if zec_market_pilot_form.is_valid():
+                updated = zec_market_pilot_form.save(commit=False)
+                updated.timezone = SCHEDULE_TIMEZONE
+                updated.next_run_at = calculate_next_interval_run_at(
+                    updated.run_time,
+                    interval_hours=updated.interval_hours,
+                )
+                updated.save()
+                messages.success(request, "ZEC 两小时 AI 微观结构监控配置已保存。")
+                return redirect("scheduling:index")
+            open_dialog = "zec-market-pilot-config-dialog"
         elif action == "save_deribit":
             deribit_form = DeribitOptionsScheduleForm(
                 request.POST,
@@ -463,6 +488,8 @@ def schedule_index(request):
         "news_ai_form": news_ai_form,
         "market_pilot_schedule": market_pilot_schedule,
         "market_pilot_form": market_pilot_form,
+        "zec_market_pilot_schedule": zec_market_pilot_schedule,
+        "zec_market_pilot_form": zec_market_pilot_form,
         "deribit_schedule": deribit_schedule,
         "deribit_form": deribit_form,
         "deribit_latest_run": DeribitOptionsWorkflowRun.objects.first(),

@@ -150,6 +150,59 @@ class MarketPilotPageTests(TestCase):
 
         self.assertEqual(response.status_code, 404)
 
+    def test_zec_report_omits_news_and_supports_symbol_filter(self):
+        started_at = self.report.window_end + timedelta(hours=2)
+        run = MarketPilotRun.objects.create(
+            symbol="ZECUSDT",
+            prompt_version="market-two-hour-microstructure-v1",
+            configured_model="deepseek-test",
+            mode=MarketPilotRun.Mode.LIVE,
+            trigger=MarketPilotRun.Trigger.SCHEDULED,
+            status=MarketPilotRun.Status.SUCCESS,
+            started_at=started_at,
+            finished_at=started_at,
+        )
+        report = MarketPilotReport.objects.create(
+            run=run,
+            symbol="ZECUSDT",
+            window_start=started_at - timedelta(hours=2),
+            window_end=started_at,
+            selection_reason=MarketPilotReport.SelectionReason.LIVE_THRESHOLD,
+            mechanism=MarketPilotReport.Mechanism.LIQUIDITY_JUMP,
+            confidence=MarketPilotReport.Confidence.MEDIUM,
+            input_snapshot={
+                "window_hours": 2,
+                "evidence_profile": "microstructure_only",
+                "outcome_horizons": [2, 6, 12, 24],
+                "market_evidence": {
+                    "price": {"open": 50, "close": 51.5, "return_pct": 3},
+                    "volume": {},
+                    "open_interest": {},
+                    "microstructure": {},
+                },
+                "news_available_before_window_end": [],
+                "known_data_limitations": ["仅使用内部微观结构数据"],
+            },
+            ai_analysis={
+                "trigger_assessment": "窗口起始流动性偏弱。",
+                "amplifier_assessment": "价差扩大并伴随深度下降。",
+            },
+            future_outcomes={},
+        )
+
+        listing = self.client.get(
+            reverse("microstructure:market_pilot_list"), {"symbol": "ZECUSDT"}
+        )
+        detail = self.client.get(
+            reverse("microstructure:market_pilot_detail", args=[report.pk])
+        )
+
+        self.assertContains(listing, "ZECUSDT")
+        self.assertNotContains(listing, "价格和成交量同步扩张")
+        self.assertContains(detail, "仅使用内部微观结构数据")
+        self.assertNotContains(detail, "窗口结束前可见新闻")
+        self.assertContains(detail, "后续 2h")
+
     @patch("apps.microstructure.market_pilot.analyze_with_deepseek")
     @patch("apps.microstructure.market_pilot.build_pilot_inputs")
     def test_pilot_run_persists_ai_result_and_future_outcome(
