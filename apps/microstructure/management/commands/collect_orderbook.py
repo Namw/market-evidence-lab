@@ -115,6 +115,7 @@ class Command(BaseCommand):
                     connection_state=MicrostructureCollectorRun.ConnectionState.CONNECTING,
                     started_at=run.started_at or now,
                     heartbeat_at=now,
+                    stopped_at=None,
                     error_message="",
                 )
             collector = OrderBookCollector.from_settings(symbol=options.get("symbol"))
