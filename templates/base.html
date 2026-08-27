@@ -53,6 +53,7 @@
                         <a class="nav-subitem{% if request.resolver_match.namespace == 'microstructure' and request.resolver_match.url_name == 'research' %} is-active{% endif %}" href="{% url 'microstructure:research' %}"{% if request.resolver_match.namespace == 'microstructure' and request.resolver_match.url_name == 'research' %} aria-current="page"{% endif %}>预测研究</a>
                     </div>
                 </details>
+                <a class="nav-item{% if request.resolver_match.namespace == 'meme_monitor' %} is-active{% endif %}" href="{% url 'meme_monitor:index' %}"{% if request.resolver_match.namespace == 'meme_monitor' %} aria-current="page"{% endif %}><span>Meme 新币观察</span></a>
                 <a class="nav-item{% if request.resolver_match.namespace == 'microstructure' and 'market_pilot' in request.resolver_match.url_name %} is-active{% endif %}" href="{% url 'microstructure:market_pilot_list' %}"{% if request.resolver_match.namespace == 'microstructure' and 'market_pilot' in request.resolver_match.url_name %} aria-current="page"{% endif %}><span>AI 市场预演</span></a>
                 <details class="nav-group{% if request.resolver_match.namespace == 'news_analysis' or request.resolver_match.namespace == 'news_data' %} is-active{% endif %}" data-nav-group="news"{% if request.resolver_match.namespace == 'news_analysis' or request.resolver_match.namespace == 'news_data' %} open{% endif %}>
                     <summary class="nav-item"><span>新闻观察</span><span class="nav-chevron" aria-hidden="true"></span></summary>

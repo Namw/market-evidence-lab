@@ -99,6 +99,47 @@ uv run --env-file .env python manage.py collect_market_funds addresses
 
 `addresses` 命令只记录来源策略阻止状态，不会向 Etherscan 发出自动采集请求。
 
+## BSC Meme 新币监听 MVP
+
+`apps/meme_monitor` 是独立的 DEX 新 Pair 研究模块。第一版使用无需认证的
+GeckoTerminal Public API，通过 Adapter 将外部响应标准化后，持续保存新 Pair 行情
+快照，并以价格、5分钟成交额、交易数和流动性四项规则检测异常。快照与异常事件写入
+现有 PostgreSQL；异常事件使用 UUID `event_id`，可供后续新闻研究和模拟交易关联。
+
+先执行迁移，再启动常驻监听：
+
+```bash
+uv run --env-file .env python manage.py migrate
+uv run --env-file .env python manage.py run_meme_monitor
+```
+
+单轮联调可使用：
+
+```bash
+uv run --env-file .env python manage.py run_meme_monitor --once
+```
+
+只读观察页：<http://127.0.0.1:8001/meme-monitor/>。页面每30秒自动刷新，展示
+heartbeat 运行状态、最近轮次、新 Pair 快照、异常事件和报警后5分钟、15分钟、1小时
+收益。页面不会启动或停止监听进程；常驻监听仍由上面的 management command 独立运行。
+
+默认监听 BSC、Pair 最大年龄24小时、每30秒轮询、同一
+`token_address + anomaly_type` 冷却10分钟。阈值和网络均通过 `.env` 的
+`MEME_MONITOR_*` 参数配置，完整默认值见 `.env.example`。第一版异常成立条件为：
+
+- 5分钟价格涨幅不低于30%；
+- 5分钟成交额不低于5,000 USD；
+- 5分钟买卖交易合计不低于20笔；
+- 流动性不低于5,000 USD。
+
+本地历史达到最小样本数后，还会计算当前5分钟成交额相对此前均值的倍数，并将达到
+3倍的事件额外标记为 `volume_spike`；该标记暂不作为异常成立的强制条件。
+
+GeckoTerminal 免费 API 限制为每页20个新池、最多查询10页，且有公开接口频率限制。
+因此启动后的持续发现是 MVP 的可靠路径；首次启动最多回看最新200个池，不能保证
+枚举 BSC 完整24小时历史。`MEME_MONITOR_MAX_TRACKED_PAIRS` 默认也设为200，以便在
+免费额度内完成每轮批量行情刷新。
+
 ## ETHUSDT 分钟盘口观察
 
 微观结构页通过一个常驻采集进程同时接入 Binance USD-M Futures 的 1分钟 Kline

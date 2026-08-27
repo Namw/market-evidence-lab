@@ -44,6 +44,7 @@ INSTALLED_APPS = [
     "apps.scheduling.apps.SchedulingConfig",
     "apps.news_data.apps.NewsDataConfig",
     "apps.news_analysis.apps.NewsAnalysisConfig",
+    "apps.meme_monitor.apps.MemeMonitorConfig",
 ]
 
 MIDDLEWARE = [
@@ -210,6 +211,73 @@ NEWS_EVENT_MERGE_AUTO_THRESHOLD = float(
     os.getenv("NEWS_EVENT_MERGE_AUTO_THRESHOLD", "0.85")
 )
 
+MEME_MONITOR_NETWORK = os.getenv("MEME_MONITOR_NETWORK", "bsc").strip()
+MEME_MONITOR_CHAIN = os.getenv("MEME_MONITOR_CHAIN", "BSC").strip()
+MEME_MONITOR_GECKOTERMINAL_BASE_URL = os.getenv(
+    "MEME_MONITOR_GECKOTERMINAL_BASE_URL",
+    "https://api.geckoterminal.com/api/v2",
+).rstrip("/")
+MEME_MONITOR_NEW_PAIR_MAX_AGE_HOURS = float(
+    os.getenv("MEME_MONITOR_NEW_PAIR_MAX_AGE_HOURS", "24")
+)
+MEME_MONITOR_POLL_INTERVAL_SECONDS = float(
+    os.getenv("MEME_MONITOR_POLL_INTERVAL_SECONDS", "30")
+)
+MEME_MONITOR_COOLDOWN_SECONDS = float(os.getenv("MEME_MONITOR_COOLDOWN_SECONDS", "600"))
+MEME_MONITOR_BOOTSTRAP_DISCOVERY_PAGES = int(
+    os.getenv("MEME_MONITOR_BOOTSTRAP_DISCOVERY_PAGES", "10")
+)
+MEME_MONITOR_MAX_TRACKED_PAIRS = int(os.getenv("MEME_MONITOR_MAX_TRACKED_PAIRS", "200"))
+MEME_MONITOR_PRICE_CHANGE_5M_PCT = float(
+    os.getenv("MEME_MONITOR_PRICE_CHANGE_5M_PCT", "30")
+)
+MEME_MONITOR_MIN_VOLUME_5M_USD = float(
+    os.getenv("MEME_MONITOR_MIN_VOLUME_5M_USD", "5000")
+)
+MEME_MONITOR_VOLUME_SPIKE_MULTIPLIER = float(
+    os.getenv("MEME_MONITOR_VOLUME_SPIKE_MULTIPLIER", "3")
+)
+MEME_MONITOR_VOLUME_HISTORY_SAMPLES = int(
+    os.getenv("MEME_MONITOR_VOLUME_HISTORY_SAMPLES", "10")
+)
+MEME_MONITOR_VOLUME_HISTORY_MIN_SAMPLES = int(
+    os.getenv("MEME_MONITOR_VOLUME_HISTORY_MIN_SAMPLES", "3")
+)
+MEME_MONITOR_MIN_TRANSACTIONS_5M = int(
+    os.getenv("MEME_MONITOR_MIN_TRANSACTIONS_5M", "20")
+)
+MEME_MONITOR_MIN_LIQUIDITY_USD = float(
+    os.getenv("MEME_MONITOR_MIN_LIQUIDITY_USD", "5000")
+)
+MEME_MONITOR_HTTP_TIMEOUT_SECONDS = float(
+    os.getenv("MEME_MONITOR_HTTP_TIMEOUT_SECONDS", "15")
+)
+MEME_MONITOR_HTTP_MAX_RETRIES = int(os.getenv("MEME_MONITOR_HTTP_MAX_RETRIES", "2"))
+MEME_MONITOR_MIN_REQUEST_INTERVAL_SECONDS = float(
+    os.getenv("MEME_MONITOR_MIN_REQUEST_INTERVAL_SECONDS", "2.1")
+)
+
+LOGGING = {
+    "version": 1,
+    "disable_existing_loggers": False,
+    "formatters": {
+        "meme_monitor": {"format": "[{levelname}] {message}", "style": "{"},
+    },
+    "handlers": {
+        "meme_monitor_console": {
+            "class": "logging.StreamHandler",
+            "formatter": "meme_monitor",
+        }
+    },
+    "loggers": {
+        "apps.meme_monitor": {
+            "handlers": ["meme_monitor_console"],
+            "level": "INFO",
+            "propagate": False,
+        }
+    },
+}
+
 NEWS_COLLECTOR_USER_AGENT = os.getenv(
     "NEWS_COLLECTOR_USER_AGENT",
     "MarketEvidenceLab/1.0 jackywangcode@gmail.com",
@@ -220,6 +288,10 @@ SOURCE_PROXY_URL = os.getenv(
         "NEWS_SOURCE_PROXY_URL",
         os.getenv("BLS_NEWS_PROXY_URL", ""),
     ),
+).strip()
+MEME_MONITOR_PROXY_URL = os.getenv(
+    "MEME_MONITOR_PROXY_URL",
+    SOURCE_PROXY_URL,
 ).strip()
 MICROSTRUCTURE_WS_PROXY_URL = os.getenv(
     "MICROSTRUCTURE_WS_PROXY_URL",

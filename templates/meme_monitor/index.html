@@ -1,0 +1,186 @@
+{% extends "base.html" %}
+{% load static meme_monitor_format %}
+
+{% block title %}Meme 新币观察 · Market Evidence Lab{% endblock %}
+{% block extra_css %}<link rel="stylesheet" href="{% static 'meme_monitor/css/index.css' %}?v=1">{% endblock %}
+{% block body_class %}meme-monitor-page{% endblock %}
+
+{% block content %}
+<header class="page-header meme-header">
+    <div>
+        <p class="eyebrow">BSC · GeckoTerminal · Rule Based</p>
+        <h1>Meme 新币观察</h1>
+        <p>持续保留新 Pair 行情快照和异常证据；这里展示监控健康度、最新市场事实与报警后的实际表现。</p>
+    </div>
+    <div class="meme-refresh" data-refresh-seconds="30">
+        <span>页面自动刷新</span>
+        <strong data-refresh-countdown>30 秒</strong>
+        <button type="button" data-refresh-now>立即刷新</button>
+    </div>
+</header>
+
+<section class="meme-status-banner status-{{ status.key }}" aria-label="监听状态">
+    <span class="meme-status-dot" aria-hidden="true"></span>
+    <div>
+        <p>监听状态</p>
+        <strong>{{ status.label }}</strong>
+        <small>{{ status.detail }}</small>
+    </div>
+    {% if latest_run %}
+    <dl>
+        <div><dt>运行模式</dt><dd>{{ latest_run.get_mode_display }}</dd></div>
+        <div><dt>启动时间</dt><dd>{{ latest_run.started_at|date:"Y-m-d H:i:s" }}</dd></div>
+        <div><dt>最后心跳</dt><dd>{{ latest_run.heartbeat_at|date:"Y-m-d H:i:s" }}</dd></div>
+        <div><dt>成功 / 失败轮次</dt><dd>{{ latest_run.successful_cycle_count }} / {{ latest_run.failed_cycle_count }}</dd></div>
+    </dl>
+    {% else %}
+    <div class="meme-start-hint">
+        <strong>监听尚未启动</strong>
+        <code>uv run --env-file .env python manage.py run_meme_monitor</code>
+        <small>命令会写入 `.env` 当前指向的数据库，请先确认连接目标。</small>
+    </div>
+    {% endif %}
+</section>
+
+<section class="meme-metric-grid" aria-label="监听摘要">
+    <article class="panel meme-metric-card">
+        <span>最近一轮跟踪 Pair</span>
+        <strong>{{ tracked_pair_count }}</strong>
+        <small>数据库 {{ new_pair_max_age_hours|floatformat:0 }} 小时内共有 {{ candidate_pair_count }} 个候选 Pair</small>
+    </article>
+    <article class="panel meme-metric-card">
+        <span>最近一小时快照</span>
+        <strong>{{ snapshots_last_hour }}</strong>
+        <small>累计 {{ snapshot_count }} 条行情快照</small>
+    </article>
+    <article class="panel meme-metric-card">
+        <span>最近 24 小时异常</span>
+        <strong>{{ events_last_24h }}</strong>
+        <small>同 Token 同异常默认冷却 10 分钟</small>
+    </article>
+    <article class="panel meme-metric-card">
+        <span>最后成功采样</span>
+        <strong>{% if latest_snapshot_at %}{{ latest_snapshot_at|date:"H:i:s" }}{% else %}—{% endif %}</strong>
+        <small>{% if latest_snapshot_age_seconds is not None %}距今 {{ latest_snapshot_age_seconds|duration_seconds }}{% else %}尚无行情快照{% endif %}</small>
+    </article>
+</section>
+
+<section class="meme-section" aria-labelledby="meme-events-title">
+    <div class="meme-section-heading">
+        <div>
+            <p class="eyebrow">ANOMALY EVIDENCE</p>
+            <h2 id="meme-events-title">异常事件与后续表现</h2>
+            <p>报警只是机械阈值命中；5m、15m、1h 收益用于判断它是否真正具有后续价值。</p>
+        </div>
+    </div>
+    {% if events %}
+    <div class="meme-event-list">
+        {% for row in events %}
+        <article class="panel meme-event-card">
+            <header>
+                <div class="meme-token-identity">
+                    <span>{{ row.event.symbol|default:"?"|slice:":2" }}</span>
+                    <div>
+                        <h3>{{ row.event.name|default:"未知 Token" }}</h3>
+                        <p>{{ row.event.symbol|default:"—" }} · {{ row.event.chain }} · Pair 年龄 {{ row.event.pair_age_minutes }} 分钟</p>
+                    </div>
+                </div>
+                <div class="meme-event-time">
+                    <span>{{ row.event.event_time|date:"Y-m-d H:i:s" }}</span>
+                    <a href="https://www.geckoterminal.com/{{ geckoterminal_network }}/pools/{{ row.event.pair_address }}" target="_blank" rel="noopener noreferrer">查看 Pool ↗</a>
+                </div>
+            </header>
+            <div class="meme-event-facts">
+                <dl>
+                    <div><dt>报警价格</dt><dd>{{ row.event.price_usd|price_usd }}</dd></div>
+                    <div><dt>5m 涨幅</dt><dd class="is-positive">{{ row.event.price_change_5m|signed_pct }}</dd></div>
+                    <div><dt>5m 成交额</dt><dd>{{ row.event.volume_5m|human_usd }}</dd></div>
+                    <div><dt>流动性</dt><dd>{{ row.event.liquidity_usd|human_usd }}</dd></div>
+                    <div><dt>买 / 卖</dt><dd>{{ row.event.buys_5m|default_if_none:"—" }} / {{ row.event.sells_5m|default_if_none:"—" }}</dd></div>
+                </dl>
+                <div class="meme-outcome-grid" aria-label="报警后收益">
+                    {% for outcome in row.outcomes %}
+                    <div class="meme-outcome {{ outcome.css_class }} status-{{ outcome.status }}">
+                        <span>报警后 {{ outcome.minutes }}m</span>
+                        {% if outcome.status == "observed" %}
+                        <strong>{{ outcome.return_pct|signed_pct }}</strong>
+                        <small>{{ outcome.snapshot_at|date:"H:i:s" }} · {{ outcome.price_usd|price_usd }}</small>
+                        {% elif outcome.status == "pending" %}
+                        <strong>等待观察</strong><small>尚未到达目标时间</small>
+                        {% else %}
+                        <strong>缺少数据</strong><small>目标时间附近没有快照</small>
+                        {% endif %}
+                    </div>
+                    {% endfor %}
+                </div>
+            </div>
+            <footer>
+                <div class="meme-rule-list">
+                    {% for rule in row.event.triggered_rules %}<span>{{ rule }}</span>{% endfor %}
+                </div>
+                <code>{{ row.event.event_id }}</code>
+            </footer>
+        </article>
+        {% endfor %}
+    </div>
+    {% else %}
+    <div class="panel meme-empty"><strong>尚无异常事件</strong><p>监听器持续运行并命中全部规则后，事件会显示在这里。</p></div>
+    {% endif %}
+</section>
+
+<section class="meme-section" aria-labelledby="meme-pairs-title">
+    <div class="meme-section-heading">
+        <div>
+            <p class="eyebrow">LATEST PAIRS</p>
+            <h2 id="meme-pairs-title">最新跟踪 Pair</h2>
+            <p>每个 Pair 只展示数据库中最新一条快照；数据缺失保持为空，不使用零值替代。</p>
+        </div>
+    </div>
+    <div class="panel meme-table-panel">
+        {% if latest_pairs %}
+        <div class="table-scroll">
+            <table class="meme-table">
+                <thead><tr><th>Token / Pair</th><th>年龄</th><th>价格</th><th>5m / 1h 涨幅</th><th>5m 成交额</th><th>流动性</th><th>5m 买 / 卖</th><th>DEX</th><th>采样时间</th></tr></thead>
+                <tbody>
+                    {% for row in latest_pairs %}
+                    <tr>
+                        <td><a href="https://www.geckoterminal.com/{{ geckoterminal_network }}/pools/{{ row.snapshot.pair_address }}" target="_blank" rel="noopener noreferrer"><strong>{{ row.snapshot.symbol|default:"—" }}</strong> {{ row.snapshot.name|default:"未知 Token" }}</a><small>{{ row.snapshot.pair_address|slice:":10" }}…{{ row.snapshot.pair_address|slice:"-6:" }}</small></td>
+                        <td>{{ row.pair_age_minutes }} min</td>
+                        <td>{{ row.snapshot.price_usd|price_usd }}</td>
+                        <td><span class="{{ row.price_change_5m_class }}">{{ row.snapshot.price_change_5m|signed_pct }}</span><small>{{ row.snapshot.price_change_1h|signed_pct }}</small></td>
+                        <td>{{ row.snapshot.volume_5m|human_usd }}</td>
+                        <td>{{ row.snapshot.liquidity_usd|human_usd }}</td>
+                        <td>{{ row.snapshot.buys_5m|default_if_none:"—" }} / {{ row.snapshot.sells_5m|default_if_none:"—" }}<small>{{ row.transaction_count_5m }} 笔</small></td>
+                        <td>{{ row.snapshot.dex }}</td>
+                        <td>{{ row.snapshot.timestamp|date:"m-d H:i:s" }}</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        {% else %}<div class="meme-empty"><strong>尚无新 Pair 快照</strong><p>启动监听器后，这里会出现最近创建的 BSC Pool。</p></div>{% endif %}
+    </div>
+</section>
+
+<section class="meme-section" aria-labelledby="meme-runs-title">
+    <div class="meme-section-heading">
+        <div>
+            <p class="eyebrow">EXECUTION LOG</p>
+            <h2 id="meme-runs-title">最近执行轮次</h2>
+            <p>heartbeat 判断进程是否存活；每轮独立记录发现、跟踪、保存、异常和错误。</p>
+        </div>
+    </div>
+    <div class="panel meme-table-panel">
+        {% if recent_cycles %}
+        <div class="table-scroll">
+            <table class="meme-table meme-cycle-table">
+                <thead><tr><th>开始时间</th><th>状态</th><th>运行</th><th>发现</th><th>跟踪</th><th>快照</th><th>异常</th><th>错误</th></tr></thead>
+                <tbody>{% for cycle in recent_cycles %}<tr><td>{{ cycle.started_at|date:"Y-m-d H:i:s" }}</td><td><span class="meme-cycle-status status-{{ cycle.status }}">{{ cycle.get_status_display }}</span></td><td>#{{ cycle.run_id }} · {{ cycle.run.get_mode_display }}</td><td>{{ cycle.fetched_pairs }}</td><td>{{ cycle.tracked_pairs }}</td><td>{{ cycle.saved_snapshots }}</td><td>{{ cycle.detected_anomalies }}</td><td>{{ cycle.error_message|default:"—" }}</td></tr>{% endfor %}</tbody>
+            </table>
+        </div>
+        {% else %}<div class="meme-empty"><strong>尚无执行记录</strong><p>新版监听器首次启动后会写入运行和轮次 heartbeat。</p></div>{% endif %}
+    </div>
+</section>
+{% endblock %}
+
+{% block extra_js %}<script src="{% static 'meme_monitor/js/index.js' %}?v=1" defer></script>{% endblock %}
