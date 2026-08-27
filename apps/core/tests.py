@@ -50,6 +50,8 @@ class ProductSurfaceTests(TestCase):
         "microstructure:index",
         "microstructure:research",
         "meme_monitor:index",
+        "meme_monitor:anomalies",
+        "meme_monitor:pairs",
         "microstructure:market_pilot_list",
         "news_data:index",
         "news_analysis:index",
@@ -71,7 +73,14 @@ class ProductSurfaceTests(TestCase):
 
         self.assertEqual(
             parser.groups,
-            ["market-data", "market-funds", "microstructure", "news", "collection"],
+            [
+                "market-data",
+                "market-funds",
+                "microstructure",
+                "meme-monitor",
+                "news",
+                "collection",
+            ],
         )
         self.assertEqual(
             parser.labels,
@@ -86,6 +95,9 @@ class ProductSurfaceTests(TestCase):
                 "盘口采集",
                 "预测研究",
                 "Meme 新币观察",
+                "总览",
+                "异常事件与后续表现",
+                "最新跟踪 Pair",
                 "AI 市场预演",
                 "新闻观察",
                 "数据采集",
@@ -142,6 +154,9 @@ class ProductSurfaceTests(TestCase):
             "market_data:index": "market-data",
             "market_funds:index": "market-funds",
             "market_funds:addresses": "market-funds",
+            "meme_monitor:index": "meme-monitor",
+            "meme_monitor:anomalies": "meme-monitor",
+            "meme_monitor:pairs": "meme-monitor",
         }
         for name, expected_group in expected_groups.items():
             with self.subTest(name=name):

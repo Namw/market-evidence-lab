@@ -19,7 +19,7 @@ class SchedulerCommandTests(TestCase):
         self.assertIn("Scheduler check complete", stdout.getvalue())
         heartbeat = SchedulerHeartbeat.objects.get()
         self.assertFalse(heartbeat.is_running)
-        self.assertEqual(heartbeat.poll_interval_seconds, 300)
+        self.assertEqual(heartbeat.poll_interval_seconds, 30)
 
     @patch("apps.scheduling.management.commands.run_scheduler.execute_claimed_workflow")
     @patch("apps.scheduling.management.commands.run_scheduler.claim_due_schedules")
@@ -79,3 +79,18 @@ class SchedulerCommandTests(TestCase):
 
         execute_news.assert_called_once()
         self.assertEqual(execute_news.call_args.args, (30,))
+
+    @patch(
+        "apps.scheduling.management.commands.run_scheduler.execute_claimed_meme_schedule"
+    )
+    @patch("apps.scheduling.management.commands.run_scheduler.claim_due_meme_schedules")
+    def test_once_executes_claimed_meme_monitor_in_same_executor(
+        self,
+        claim_meme,
+        execute_meme,
+    ):
+        claim_meme.return_value = [50]
+
+        call_command("run_scheduler", "--once")
+
+        execute_meme.assert_called_once_with(50)

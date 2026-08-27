@@ -4,26 +4,15 @@ from uuid import uuid4
 
 from django.core.management.base import BaseCommand, CommandError
 
-from apps.scheduling.services import (
-    claim_due_schedules,
-    execute_claimed_workflow,
-    get_builtin_schedule,
-    record_heartbeat,
+from apps.meme_monitor.scheduling import (
+    claim_due_meme_schedules,
+    execute_claimed_meme_schedule,
+    get_builtin_meme_schedule,
 )
 from apps.scheduling.deribit_workflow import (
     claim_due_deribit_options_schedules,
     execute_claimed_deribit_options_workflow,
     get_builtin_deribit_options_schedule,
-)
-from apps.scheduling.news_workflow import (
-    claim_due_news_schedules,
-    execute_claimed_news_workflow,
-    get_builtin_news_schedules,
-)
-from apps.scheduling.news_ai_workflow import (
-    claim_due_news_ai_schedules,
-    execute_claimed_news_ai_workflow,
-    get_builtin_news_ai_schedule,
 )
 from apps.scheduling.funds_workflow import (
     claim_due_fund_schedules,
@@ -35,10 +24,26 @@ from apps.scheduling.market_pilot_workflow import (
     execute_claimed_market_pilot_workflow,
     get_builtin_market_pilot_schedules,
 )
+from apps.scheduling.news_ai_workflow import (
+    claim_due_news_ai_schedules,
+    execute_claimed_news_ai_workflow,
+    get_builtin_news_ai_schedule,
+)
+from apps.scheduling.news_workflow import (
+    claim_due_news_schedules,
+    execute_claimed_news_workflow,
+    get_builtin_news_schedules,
+)
+from apps.scheduling.services import (
+    claim_due_schedules,
+    execute_claimed_workflow,
+    get_builtin_schedule,
+    record_heartbeat,
+)
 
 
 class Command(BaseCommand):
-    help = "Run the built-in market-data and news workflow schedule executor."
+    help = "Run the built-in market, news, fund, AI, and Meme schedule executor."
 
     def add_arguments(self, parser):
         parser.add_argument(
@@ -49,9 +54,9 @@ class Command(BaseCommand):
         parser.add_argument(
             "--poll-interval",
             type=int,
-            default=300,
+            default=30,
             metavar="SECONDS",
-            help="Seconds between checks (default: 300).",
+            help="Seconds between checks (default: 30).",
         )
 
     def handle(self, *args, **options):
@@ -65,6 +70,7 @@ class Command(BaseCommand):
         get_builtin_news_ai_schedule()
         get_builtin_fund_schedules()
         get_builtin_market_pilot_schedules()
+        get_builtin_meme_schedule()
         executor_id = str(uuid4())
         stop_event = threading.Event()
 
@@ -87,6 +93,17 @@ class Command(BaseCommand):
         try:
             while not stop_event.is_set():
                 heartbeat()
+                try:
+                    claimed_meme_ids = claim_due_meme_schedules()
+                except Exception as exc:
+                    self.stderr.write(
+                        self.style.ERROR(
+                            "Meme monitor schedule claim failed "
+                            f"({exc.__class__.__name__}); retrying."
+                        )
+                    )
+                    claimed_meme_ids = []
+
                 try:
                     claimed_ids = claim_due_schedules()
                 except Exception as exc:
@@ -147,6 +164,18 @@ class Command(BaseCommand):
                         )
                     )
                     claimed_market_pilot_ids = []
+
+                for schedule_id in claimed_meme_ids:
+                    try:
+                        execute_claimed_meme_schedule(schedule_id)
+                    except Exception as exc:
+                        self.stderr.write(
+                            self.style.ERROR(
+                                f"Meme monitor schedule #{schedule_id} failed unexpectedly "
+                                f"({exc.__class__.__name__}); continuing."
+                            )
+                        )
+                    heartbeat()
 
                 for workflow_run_id in claimed_ids:
                     try:

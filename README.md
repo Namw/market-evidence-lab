@@ -106,22 +106,30 @@ GeckoTerminal Public API，通过 Adapter 将外部响应标准化后，持续�
 快照，并以价格、5分钟成交额、交易数和流动性四项规则检测异常。快照与异常事件写入
 现有 PostgreSQL；异常事件使用 UUID `event_id`，可供后续新闻研究和模拟交易关联。
 
-先执行迁移，再启动常驻监听：
+先执行迁移，并启动项目统一调度执行器：
 
 ```bash
 uv run --env-file .env python manage.py migrate
-uv run --env-file .env python manage.py run_meme_monitor
+uv run --env-file .env python manage.py run_scheduler
 ```
 
-单轮联调可使用：
+随后可在 Meme 总览页使用“启动定时检查 / 关闭定时检查”开关。启用后计划立即到期，
+由在线的统一执行器领取；关闭后不再产生新轮次，已开始的当前轮次会执行完成。调度器
+默认每30秒检查到期计划。单轮联调仍可使用：
 
 ```bash
 uv run --env-file .env python manage.py run_meme_monitor --once
 ```
 
-只读观察页：<http://127.0.0.1:8001/meme-monitor/>。页面每30秒自动刷新，展示
-heartbeat 运行状态、最近轮次、新 Pair 快照、异常事件和报警后5分钟、15分钟、1小时
-收益。页面不会启动或停止监听进程；常驻监听仍由上面的 management command 独立运行。
+观察页分为三个子页面，均按轮询间隔自动刷新：
+
+- 总览：<http://127.0.0.1:8001/meme-monitor/>，展示 heartbeat、摘要指标与最近轮次；
+- 异常事件与后续表现：<http://127.0.0.1:8001/meme-monitor/anomalies/>；
+- 最新跟踪 Pair：<http://127.0.0.1:8001/meme-monitor/pairs/>。
+
+总览页的开关只修改当前 `.env` 所连接数据库中的计划状态，不会从 Web 进程创建系统
+后台进程；因此页面会同时显示统一调度执行器是否在线。也可直接运行
+`run_meme_monitor` 作为不受页面开关控制的独立常驻调试进程。
 
 默认监听 BSC、Pair 最大年龄24小时、每30秒轮询、同一
 `token_address + anomaly_type` 冷却10分钟。阈值和网络均通过 `.env` 的

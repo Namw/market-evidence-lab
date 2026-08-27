@@ -1,5 +1,6 @@
 import uuid
 
+from django.core.validators import MaxValueValidator, MinValueValidator
 from django.db import models
 
 
@@ -45,6 +46,25 @@ class MemeMonitorRun(models.Model):
 
     def __str__(self) -> str:
         return f"{self.chain}:{self.mode}:{self.status}:#{self.pk}"
+
+
+class MemeMonitorSchedule(models.Model):
+    name = models.CharField(max_length=120, unique=True)
+    enabled = models.BooleanField(default=False)
+    interval_seconds = models.PositiveIntegerField(
+        default=30,
+        validators=[MinValueValidator(5), MaxValueValidator(3600)],
+    )
+    next_run_at = models.DateTimeField()
+    last_run_at = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["name"]
+
+    def __str__(self) -> str:
+        return self.name
 
 
 class MemeMonitorCycle(models.Model):

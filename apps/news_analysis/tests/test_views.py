@@ -1,6 +1,6 @@
+from datetime import timedelta
 from types import SimpleNamespace
 from unittest.mock import patch
-from datetime import timedelta
 
 from django.test import Client, TestCase, override_settings
 from django.urls import reverse
@@ -8,9 +8,9 @@ from django.utils import timezone
 
 from apps.news_analysis.content import ArticleContent, SourceContentError
 from apps.news_analysis.models import NewsAnalysisResult, NewsAnalysisRun
+from apps.news_data.sources import SEC_CODE
 
 from .helpers import make_record
-from apps.news_data.sources import SEC_CODE
 
 
 def make_run(**overrides):
@@ -62,8 +62,10 @@ class NewsClassificationViewTests(TestCase):
         self.assertContains(response, "数据分类结果")
         self.assertContains(response, record.title)
         self.assertContains(response, "利好")
-        navigation = response.content.decode().split('<nav class="navigation">', 1)[1].split("</nav>", 1)[0]
-        self.assertEqual(navigation.count('class="nav-subitem'), 13)
+        navigation = response.content.decode().split('<nav class="navigation">', 1)[
+            1
+        ].split("</nav>", 1)[0]
+        self.assertEqual(navigation.count('class="nav-subitem'), 16)
         self.assertIn("新闻事件库", navigation)
         self.assertIn("客观事实提取", navigation)
         self.assertIn("每日分析结果", navigation)

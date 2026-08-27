@@ -1,10 +1,12 @@
 from __future__ import annotations
 
+from collections.abc import Iterable
 from datetime import datetime, timedelta
 from decimal import Decimal
 
 from django.conf import settings
-from django.db.models import Max
+from django.core.paginator import Paginator
+from django.db.models import F, Max
 from django.utils import timezone
 
 from apps.meme_monitor.models import (
@@ -12,25 +14,49 @@ from apps.meme_monitor.models import (
     MemeMarketSnapshot,
     MemeMonitorCycle,
     MemeMonitorRun,
+    MemeMonitorSchedule,
 )
+from apps.meme_monitor.scheduling import get_builtin_meme_schedule
+from apps.scheduling.services import scheduler_status
 
 
-def dashboard_context(*, now: datetime | None = None) -> dict:
+def overview_context(*, now: datetime | None = None) -> dict:
     observed_at = now or timezone.now()
     pair_cutoff = observed_at - timedelta(
         hours=settings.MEME_MONITOR_NEW_PAIR_MAX_AGE_HOURS
     )
     latest_run = MemeMonitorRun.objects.first()
+    schedule = get_builtin_meme_schedule()
+    executor = scheduler_status(now=observed_at)
     latest_snapshot_at = MemeMarketSnapshot.objects.aggregate(value=Max("timestamp"))[
         "value"
     ]
-    latest_pairs = _latest_pairs(pair_cutoff=pair_cutoff, now=observed_at)
-    events = _recent_events(now=observed_at)
     recent_cycles = list(MemeMonitorCycle.objects.select_related("run")[:20])
     latest_cycle = recent_cycles[0] if recent_cycles else None
+    candidate_pair_count = (
+        MemeMarketSnapshot.objects.filter(pair_created_at__gte=pair_cutoff)
+        .values("pair_address")
+        .distinct()
+        .count()
+    )
 
     return {
-        "status": _present_status(latest_run, now=observed_at),
+        **_page_context(
+            active_page="overview",
+            title="Meme 新币观察",
+            description=(
+                "持续保留新 Pair 行情快照和异常证据；这里展示监控健康度、"
+                "最新市场事实与执行情况。"
+            ),
+        ),
+        "status": _present_schedule_status(
+            schedule,
+            executor=executor,
+            latest_run=latest_run,
+        ),
+        "latest_run_status": _present_status(latest_run, now=observed_at),
+        "schedule": schedule,
+        "scheduler": executor,
         "latest_run": latest_run,
         "latest_snapshot_at": latest_snapshot_at,
         "latest_snapshot_age_seconds": (
@@ -39,9 +65,9 @@ def dashboard_context(*, now: datetime | None = None) -> dict:
             else None
         ),
         "tracked_pair_count": (
-            latest_cycle.tracked_pairs if latest_cycle else len(latest_pairs)
+            latest_cycle.tracked_pairs if latest_cycle else candidate_pair_count
         ),
-        "candidate_pair_count": len(latest_pairs),
+        "candidate_pair_count": candidate_pair_count,
         "snapshot_count": MemeMarketSnapshot.objects.count(),
         "snapshots_last_hour": MemeMarketSnapshot.objects.filter(
             timestamp__gte=observed_at - timedelta(hours=1)
@@ -49,12 +75,70 @@ def dashboard_context(*, now: datetime | None = None) -> dict:
         "events_last_24h": MemeAnomalyEventRecord.objects.filter(
             event_time__gte=observed_at - timedelta(hours=24)
         ).count(),
-        "latest_pairs": latest_pairs[:100],
-        "events": events,
         "recent_cycles": recent_cycles,
+        "new_pair_max_age_hours": settings.MEME_MONITOR_NEW_PAIR_MAX_AGE_HOURS,
+    }
+
+
+def anomalies_context(
+    *,
+    now: datetime | None = None,
+    page_number: str | int | None = None,
+) -> dict:
+    observed_at = now or timezone.now()
+    records = MemeAnomalyEventRecord.objects.select_related("snapshot").order_by(
+        "-event_time",
+        F("price_change_5m").desc(nulls_last=True),
+        F("volume_5m").desc(nulls_last=True),
+        "-created_at",
+    )
+    page = Paginator(records, 30).get_page(page_number)
+    return {
+        **_page_context(
+            active_page="anomalies",
+            title="异常事件与后续表现",
+            description=(
+                "最新报警优先；集中比较触发证据与 5 分钟、15 分钟、1 小时后续表现。"
+            ),
+        ),
+        "events": _event_rows(records=page.object_list, now=observed_at),
+        "page": page,
+    }
+
+
+def pairs_context(
+    *,
+    now: datetime | None = None,
+    page_number: str | int | None = None,
+) -> dict:
+    observed_at = now or timezone.now()
+    pair_cutoff = observed_at - timedelta(
+        hours=settings.MEME_MONITOR_NEW_PAIR_MAX_AGE_HOURS
+    )
+    latest_pairs = _latest_pairs(pair_cutoff=pair_cutoff, now=observed_at)
+    page = Paginator(latest_pairs, 30).get_page(page_number)
+    return {
+        **_page_context(
+            active_page="pairs",
+            title="最新跟踪 Pair",
+            description=(
+                "查看最近创建且正在跟踪的 BSC Pool；每个 Pair 只展示最新一条行情快照。"
+            ),
+        ),
+        "latest_pairs": list(page.object_list),
+        "page": page,
+        "candidate_pair_count": len(latest_pairs),
+        "new_pair_max_age_hours": settings.MEME_MONITOR_NEW_PAIR_MAX_AGE_HOURS,
+    }
+
+
+def _page_context(*, active_page: str, title: str, description: str) -> dict:
+    return {
+        "active_page": active_page,
+        "page_title": title,
+        "page_description": description,
         "geckoterminal_network": settings.MEME_MONITOR_NETWORK,
         "poll_interval_seconds": settings.MEME_MONITOR_POLL_INTERVAL_SECONDS,
-        "new_pair_max_age_hours": settings.MEME_MONITOR_NEW_PAIR_MAX_AGE_HOURS,
     }
 
 
@@ -64,7 +148,10 @@ def _latest_pairs(*, pair_cutoff: datetime, now: datetime) -> list[dict]:
         .order_by("pair_address", "-timestamp")
         .distinct("pair_address")
     )
-    records.sort(key=lambda item: item.timestamp, reverse=True)
+    records.sort(
+        key=lambda item: (item.pair_created_at, item.timestamp),
+        reverse=True,
+    )
     return [
         {
             "snapshot": record,
@@ -85,12 +172,11 @@ def _latest_pairs(*, pair_cutoff: datetime, now: datetime) -> list[dict]:
     ]
 
 
-def _recent_events(*, now: datetime) -> list[dict]:
-    records = list(
-        MemeAnomalyEventRecord.objects.select_related("snapshot").order_by(
-            "-event_time"
-        )[:50]
-    )
+def _event_rows(
+    *,
+    records: Iterable[MemeAnomalyEventRecord],
+    now: datetime,
+) -> list[dict]:
     return [
         {
             "event": event,
@@ -187,4 +273,40 @@ def _present_status(run: MemeMonitorRun | None, *, now: datetime) -> dict:
         "key": "stopped",
         "label": "已停止",
         "detail": "单轮执行已完成或监听进程已正常停止。",
+    }
+
+
+def _present_schedule_status(
+    schedule: MemeMonitorSchedule,
+    *,
+    executor: dict[str, object],
+    latest_run: MemeMonitorRun | None,
+) -> dict:
+    if not schedule.enabled:
+        return {
+            "key": "stopped",
+            "label": "定时检查已关闭",
+            "detail": "不会产生新的市场数据请求；已开始的当前轮次会执行完成。",
+        }
+    if not executor["online"]:
+        return {
+            "key": "stale",
+            "label": "已启用 · 等待执行器",
+            "detail": "定时计划已保存，但统一调度执行器当前离线。",
+        }
+    if (
+        latest_run is not None
+        and latest_run.status == MemeMonitorRun.Status.FAILED
+        and schedule.last_run_at is not None
+        and latest_run.started_at >= schedule.last_run_at
+    ):
+        return {
+            "key": "degraded",
+            "label": "定时检查已启用 · 最近一轮失败",
+            "detail": latest_run.latest_error or "最近一轮市场检查执行失败。",
+        }
+    return {
+        "key": "running",
+        "label": "定时检查运行中",
+        "detail": f"执行器在线，每 {schedule.interval_seconds} 秒检查一次到期任务。",
     }
