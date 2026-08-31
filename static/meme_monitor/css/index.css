@@ -624,6 +624,34 @@
     min-width: 1504px;
 }
 
+.meme-research-metrics {
+    margin-bottom: 32px;
+}
+
+.meme-research-table {
+    min-width: 1420px;
+}
+
+.meme-research-table td:nth-child(2) {
+    min-width: 210px;
+}
+
+.meme-cycle-status.status-waiting_entry,
+.meme-cycle-status.status-waiting_exit {
+    color: #8a631d;
+    background: #f8f0df;
+}
+
+.meme-cycle-status.status-completed {
+    color: #126e50;
+    background: #e5f4ed;
+}
+
+.meme-cycle-status.status-unavailable {
+    color: #a33f32;
+    background: #f9e9e6;
+}
+
 .meme-anomaly-table th {
     padding: 13px 14px;
     font-size: 12.8px;

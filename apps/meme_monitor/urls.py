@@ -8,5 +8,6 @@ urlpatterns = [
     path("", views.index, name="index"),
     path("anomalies/", views.anomalies, name="anomalies"),
     path("pairs/", views.pairs, name="pairs"),
+    path("research/", views.research, name="research"),
     path("schedule/toggle/", views.toggle_schedule, name="toggle_schedule"),
 ]

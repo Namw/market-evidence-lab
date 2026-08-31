@@ -12,6 +12,7 @@ from apps.meme_monitor.selectors import (
     anomalies_context,
     overview_context,
     pairs_context,
+    research_context,
 )
 from apps.meme_monitor.storage import DjangoMemeMonitorStorage
 from apps.meme_monitor.tests.helpers import make_snapshot
@@ -27,7 +28,7 @@ class MemeMonitorViewTests(TestCase):
         self.now = datetime(2026, 8, 28, 0, tzinfo=UTC)
         self.storage = DjangoMemeMonitorStorage()
 
-    def save_event_for_snapshot(self, snapshot, snapshot_record):
+    def save_event_for_snapshot(self, snapshot):
         self.storage.save_event(
             MemeAnomalyEvent(
                 event_time=snapshot.timestamp,
@@ -46,7 +47,6 @@ class MemeMonitorViewTests(TestCase):
                 sells_5m=snapshot.sells_5m,
                 triggered_rules=("price_spike", "active_trading"),
             ),
-            snapshot_record=snapshot_record,
         )
 
     def test_empty_overview_renders_only_summary_and_cycles(self):
@@ -115,13 +115,21 @@ class MemeMonitorViewTests(TestCase):
         response = self.client.get(reverse("meme_monitor:pairs"))
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, "最新跟踪 Pair")
-        self.assertContains(response, "尚无新 Pair 快照")
+        self.assertContains(response, "尚无新 Pair 状态")
         self.assertNotContains(response, 'id="meme-runs-title"')
         self.assertNotContains(response, 'id="meme-events-title"')
 
+    def test_empty_research_page_explains_new_episode_scope(self):
+        response = self.client.get(reverse("meme_monitor:research"))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "首次异常 5 分钟延续性研究")
+        self.assertContains(response, "尚无研究 Episode")
+        self.assertEqual(research_context()["episode_count"], 0)
+
     def test_pairs_are_sorted_newest_first_and_paginated_by_30(self):
         observed_at = timezone.now()
-        self.storage.save_snapshots(
+        self.storage.upsert_pair_states(
             [
                 make_snapshot(
                     timestamp=observed_at,
@@ -131,7 +139,7 @@ class MemeMonitorViewTests(TestCase):
                     symbol=f"TOKEN{index:02}",
                 )
                 for index in range(35)
-            ]
+            ], volume_history_limit=10
         )
 
         first_page = pairs_context(now=observed_at, page_number=1)
@@ -162,12 +170,8 @@ class MemeMonitorViewTests(TestCase):
             )
             for index in range(35)
         ]
-        records = self.storage.save_snapshots(snapshots)
         for index, snapshot in enumerate(snapshots):
-            self.save_event_for_snapshot(
-                snapshot,
-                records[f"0xeventpair{index:02}"],
-            )
+            self.save_event_for_snapshot(snapshot)
 
         first_page = anomalies_context(now=observed_at, page_number=1)
         second_page = anomalies_context(now=observed_at, page_number=2)
@@ -201,12 +205,8 @@ class MemeMonitorViewTests(TestCase):
                 ("HIGH", Decimal(120)),
             )
         ]
-        records = self.storage.save_snapshots(snapshots)
         for snapshot in snapshots:
-            self.save_event_for_snapshot(
-                snapshot,
-                records[snapshot.pair_address],
-            )
+            self.save_event_for_snapshot(snapshot)
 
         context = anomalies_context(now=observed_at)
 
@@ -228,7 +228,6 @@ class MemeMonitorViewTests(TestCase):
             timestamp=event_time,
             price_usd=Decimal(1),
         )
-        record = self.storage.save_snapshots([event_snapshot])["0xpair"]
         self.storage.save_event(
             MemeAnomalyEvent(
                 event_time=event_time,
@@ -247,27 +246,12 @@ class MemeMonitorViewTests(TestCase):
                 sells_5m=74,
                 triggered_rules=("price_spike", "active_trading"),
             ),
-            snapshot_record=record,
-        )
-        self.storage.save_snapshots(
-            [
-                make_snapshot(
-                    timestamp=event_time + timedelta(minutes=5, seconds=10),
-                    price_usd=Decimal("1.10"),
-                ),
-                make_snapshot(
-                    timestamp=event_time + timedelta(minutes=15, seconds=10),
-                    price_usd=Decimal("0.80"),
-                ),
-            ]
         )
 
         context = overview_context(now=self.now)
         self.assertEqual(context["latest_run_status"]["key"], "running")
         outcomes = anomalies_context(now=self.now)["events"][0]["outcomes"]
-        self.assertEqual(outcomes[0]["return_pct"], Decimal("10.00"))
-        self.assertEqual(outcomes[1]["return_pct"], Decimal("-20.00"))
-        self.assertEqual(outcomes[2]["status"], "pending")
+        self.assertEqual(outcomes[0]["status"], "unavailable")
 
     def test_running_record_with_old_heartbeat_is_stale(self):
         self.storage.start_run(

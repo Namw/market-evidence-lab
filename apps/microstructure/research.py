@@ -17,6 +17,7 @@ TRADE_INTENSITY_LOOKBACK_MINUTES = 60
 SPREAD_EXPANSION_LOOKBACK_MINUTES = 60
 MIN_DEPTH_COVERAGE_RATIO = Decimal("0.80")
 TRAIN_RATIO = Decimal("0.70")
+RESEARCH_CALCULATION_VERSION = "microstructure-research-v1"
 
 RESEARCH_METRICS = {
     "trade_imbalance": {
@@ -110,6 +111,26 @@ RESEARCH_METRICS = {
         "range_multiplier": Decimal(100),
     },
 }
+
+ALL_RESEARCH_FIELDS = (
+    "minute_start",
+    "future_5m_return",
+    "taker_buy_quote",
+    "taker_sell_quote",
+    "quote_volume",
+    "kline_closed",
+    "bid_depth_open",
+    "ask_depth_open",
+    "bid_depth_close",
+    "ask_depth_close",
+    "book_sample_count",
+    "coverage_ratio",
+    "spread_bps_p95",
+    "imbalance_top5_mean",
+    "imbalance_top5_sample_count",
+    "open_price",
+    "close_price",
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -437,6 +458,8 @@ def build_decile_research(
     symbol: str,
     *,
     metric_key: str = "trade_imbalance",
+    rows: list[MarketMinute] | None = None,
+    cutoff: datetime | None = None,
 ) -> dict[str, object]:
     if metric_key not in RESEARCH_METRICS:
         raise ValueError(f"Unsupported research metric: {metric_key}")
@@ -487,11 +510,13 @@ def build_decile_research(
                 "taker_sell_quote",
             ]
         )
-    all_rows = list(
-        MarketMinute.objects.filter(symbol=symbol)
-        .only(*selected_fields)
-        .order_by("minute_start")
-    )
+    if rows is None:
+        row_query = MarketMinute.objects.filter(symbol=symbol)
+        if cutoff is not None:
+            row_query = row_query.filter(minute_start__lte=cutoff)
+        all_rows = list(row_query.only(*selected_fields).order_by("minute_start"))
+    else:
+        all_rows = rows
     metric_values = {}
     if metric_key == "trade_intensity":
         metric_values = calculate_trade_intensity(all_rows)
@@ -574,6 +599,28 @@ def build_decile_research(
         "status_detail": status_detail,
         "groups": groups,
     }
+
+
+def build_all_research(
+    symbol: str,
+    *,
+    cutoff: datetime | None = None,
+) -> list[dict[str, object]]:
+    """Build every metric from one consistent, shared history read."""
+    row_query = MarketMinute.objects.filter(symbol=symbol)
+    if cutoff is not None:
+        row_query = row_query.filter(minute_start__lte=cutoff)
+    rows = list(
+        row_query.only(*ALL_RESEARCH_FIELDS).order_by("minute_start")
+    )
+    return [
+        build_decile_research(
+            symbol,
+            metric_key=metric_key,
+            rows=rows,
+        )
+        for metric_key in RESEARCH_METRICS
+    ]
 
 
 def build_trade_imbalance_research(symbol: str) -> dict[str, object]:

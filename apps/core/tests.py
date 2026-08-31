@@ -52,6 +52,7 @@ class ProductSurfaceTests(TestCase):
         "meme_monitor:index",
         "meme_monitor:anomalies",
         "meme_monitor:pairs",
+        "meme_monitor:research",
         "microstructure:market_pilot_list",
         "news_data:index",
         "news_analysis:index",
@@ -98,6 +99,7 @@ class ProductSurfaceTests(TestCase):
                 "总览",
                 "异常事件与后续表现",
                 "最新跟踪 Pair",
+                "5 分钟延续性研究",
                 "AI 市场预演",
                 "新闻观察",
                 "数据采集",
@@ -157,6 +159,7 @@ class ProductSurfaceTests(TestCase):
             "meme_monitor:index": "meme-monitor",
             "meme_monitor:anomalies": "meme-monitor",
             "meme_monitor:pairs": "meme-monitor",
+            "meme_monitor:research": "meme-monitor",
         }
         for name, expected_group in expected_groups.items():
             with self.subTest(name=name):

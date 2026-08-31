@@ -102,9 +102,10 @@ uv run --env-file .env python manage.py collect_market_funds addresses
 ## BSC Meme 新币监听 MVP
 
 `apps/meme_monitor` 是独立的 DEX 新 Pair 研究模块。第一版使用无需认证的
-GeckoTerminal Public API，通过 Adapter 将外部响应标准化后，持续保存新 Pair 行情
-快照，并以价格、5分钟成交额、交易数和流动性四项规则检测异常。快照与异常事件写入
-现有 PostgreSQL；异常事件使用 UUID `event_id`，可供后续新闻研究和模拟交易关联。
+GeckoTerminal Public API，通过 Adapter 将外部响应标准化后，以价格、5分钟成交额、
+交易数和流动性四项规则检测异常。采集过程在内存中计算；PostgreSQL 只保存每个 Pair
+的当前状态、重启所需的有界成交额基线、异常事件与研究 Episode，不再追加原始行情快照。
+异常事件使用 UUID `event_id`，可供后续研究关联。
 
 先执行迁移，并启动项目统一调度执行器：
 
@@ -125,7 +126,8 @@ uv run --env-file .env python manage.py run_meme_monitor --once
 
 - 总览：<http://127.0.0.1:8001/meme-monitor/>，展示 heartbeat、摘要指标与最近轮次；
 - 异常事件与后续表现：<http://127.0.0.1:8001/meme-monitor/anomalies/>；
-- 最新跟踪 Pair：<http://127.0.0.1:8001/meme-monitor/pairs/>。
+- 最新跟踪 Pair：<http://127.0.0.1:8001/meme-monitor/pairs/>；
+- 首次异常 5 分钟延续性研究：<http://127.0.0.1:8001/meme-monitor/research/>。
 
 总览页的开关只修改当前 `.env` 所连接数据库中的计划状态，不会从 Web 进程创建系统
 后台进程；因此页面会同时显示统一调度执行器是否在线。也可直接运行
@@ -142,6 +144,25 @@ uv run --env-file .env python manage.py run_meme_monitor --once
 
 本地历史达到最小样本数后，还会计算当前5分钟成交额相对此前均值的倍数，并将达到
 3倍的事件额外标记为 `volume_spike`；该标记暂不作为异常成立的强制条件。
+
+研究页从新版本上线后的数据开始建样本，不回填旧异常。只有 GeckoTerminal 返回
+`launchpad_details` 的 Token 会进入研究；同一 Token、同一规则版本只记录首次异常。
+默认在首次异常30秒后寻找第一条可执行入场快照，从实际入场起跟踪5分钟。可执行性
+使用100 USD名义本金、双边30 bps费用和常数乘积池深度估算，单边价格冲击不得超过
+5%。launchpad 返回 `migrated_destination_pool_address` 后，研究会持续请求目标池，
+并只使用迁移目标池完成后续入场或退出。以上口径可通过 `.env` 中的
+`MEME_RESEARCH_*` 参数调整；成本模型不包含 Token 买卖税，页面会显式标记为估算值。
+
+旧版原始快照应在新版本部署并运行一轮后清理。命令先预览，必须提供带时区的切换时间；
+加 `--confirm` 才会删除该时间前的快照、关联旧异常和旧 Episode，且不会删除当前 Pair
+状态：
+
+```bash
+uv run --env-file .env python manage.py purge_meme_snapshot_history \
+  --before 2026-08-31T23:00:00+08:00
+uv run --env-file .env python manage.py purge_meme_snapshot_history \
+  --before 2026-08-31T23:00:00+08:00 --confirm
+```
 
 GeckoTerminal 免费 API 限制为每页20个新池、最多查询10页，且有公开接口频率限制。
 因此启动后的持续发现是 MVP 的可靠路径；首次启动最多回看最新200个池，不能保证
@@ -192,16 +213,16 @@ K线、主动成交与 Delta、盘口深度与价差，点击任意分钟会联�
 有效快照失衡值的均值；成交与价格背离仅保留主动成交方向与当分钟价格方向相反的
 分钟，并以成交失衡乘当分钟绝对涨跌幅保留背离方向。三项盘口指标均要求盘口覆盖率
 不低于80%。未来收益
-只在当前分钟至5分钟后六根K线严格连续且全部收盘时生成；该研究标签不再随实时
-采集自动生成，需要研究时通过下方命令显式回填。研究按时间前70%发现、
+只在当前分钟至5分钟后六根K线严格连续且全部收盘时生成。统一调度器每天
+00:30（Asia/Shanghai）先增量补充研究标签，再为所有配置币种生成研究快照；
+研究页读取最近一次成功快照，不在页面请求中扫描全部历史。研究按时间前70%发现、
 后30%验证，并使用发现集十分位边界统计两段的样本数、平均未来收益和上涨比例。
-指标与分组统计目前在访问研究页时实时计算，尚未生成正式异常信号。当前状态、六项
-候选指标和后续定时化计划见
+研究快照不是正式异常信号。当前状态、六项候选指标和后续计划见
 [微观结构预测研究路线图](docs/microstructure-research-roadmap.md)。
-迁移后可回填既有分钟数据：
+迁移后可手工生成标签和所有研究快照；定时任务也会执行同一流程：
 
 ```bash
-uv run --env-file .env python manage.py backfill_future_5m_returns
+uv run --env-file .env python manage.py generate_research_snapshots
 ```
 
 可通过环境变量覆盖以下采集参数：

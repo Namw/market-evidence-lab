@@ -8,8 +8,16 @@ from django.utils import timezone
 
 from apps.market_data.models import OpenInterest
 from apps.microstructure.management.commands.collect_orderbook import Command
-from apps.microstructure.models import MarketMinute, MicrostructureCollectorRun
-from apps.microstructure.views import _decorate_research_verdict
+from apps.microstructure.models import (
+    MarketMinute,
+    MicrostructureCollectorRun,
+    MicrostructureResearchSnapshot,
+)
+from apps.microstructure.research import RESEARCH_CALCULATION_VERSION
+from apps.microstructure.views import (
+    _decorate_research_verdict,
+    build_research_page_payload,
+)
 
 
 class MicrostructureViewTests(TestCase):
@@ -117,6 +125,40 @@ class MicrostructureViewTests(TestCase):
             for item in response.context["research_items"]
         ]
         self.assertEqual(len(set(chart_labels)), 1)
+
+    def test_research_page_uses_latest_persisted_snapshot(self):
+        start = datetime(2026, 8, 20, 0, 0, tzinfo=UTC)
+        for offset in range(20):
+            MarketMinute.objects.create(
+                symbol="ETHUSDT",
+                minute_start=start + timedelta(minutes=offset),
+                minute_end=start + timedelta(minutes=offset + 1),
+                close_price="3200",
+                taker_buy_quote=str(100 + offset),
+                taker_sell_quote=str(120 - offset),
+                future_5m_return=str((offset - 10) / 10000),
+                kline_closed=True,
+            )
+        payload = build_research_page_payload("ETHUSDT", cutoff=start + timedelta(minutes=19))
+        snapshot = MicrostructureResearchSnapshot.objects.create(
+            symbol="ETHUSDT",
+            data_cutoff=start + timedelta(minutes=19),
+            calculation_version=RESEARCH_CALCULATION_VERSION,
+            minute_count=20,
+            labeled_count=20,
+            payload=payload,
+        )
+
+        with patch(
+            "apps.microstructure.views.build_research_page_payload",
+            side_effect=AssertionError("live calculation should not run"),
+        ):
+            response = self.client.get(reverse("microstructure:research"))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.context["research_snapshot"].pk, snapshot.pk)
+        self.assertContains(response, "20 条有效5分钟结果")
+        self.assertContains(response, "数据截至")
 
     def test_research_verdict_requires_stable_out_of_sample_shape(self):
         start = datetime(2026, 8, 1, 0, 0, tzinfo=UTC)

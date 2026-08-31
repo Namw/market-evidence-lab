@@ -1,3 +1,4 @@
+from django.core.serializers.json import DjangoJSONEncoder
 from django.db import models
 
 
@@ -151,6 +152,32 @@ class MicrostructureCollectorRun(models.Model):
 
     def __str__(self) -> str:
         return f"{self.symbol}:{self.status}:#{self.pk}"
+
+
+class MicrostructureResearchSnapshot(models.Model):
+    """A successful, page-ready daily research calculation."""
+
+    symbol = models.CharField(max_length=20)
+    data_cutoff = models.DateTimeField()
+    calculation_version = models.CharField(max_length=80)
+    minute_count = models.PositiveIntegerField(default=0)
+    labeled_count = models.PositiveIntegerField(default=0)
+    labels_updated = models.PositiveIntegerField(default=0)
+    duration_ms = models.PositiveIntegerField(default=0)
+    payload = models.JSONField(encoder=DjangoJSONEncoder)
+    generated_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["-generated_at", "-id"]
+        indexes = [
+            models.Index(
+                fields=["symbol", "-generated_at"],
+                name="micro_research_snap_idx",
+            )
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.symbol}:{self.data_cutoff.isoformat()}:#{self.pk}"
 
 
 class MarketPilotRun(models.Model):

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import math
+from copy import deepcopy
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 
@@ -19,9 +20,10 @@ from .models import (
     MarketPilotRun,
     MarketPilotWindowCheck,
     MicrostructureCollectorRun,
+    MicrostructureResearchSnapshot,
 )
 from .process_control import CollectorControlError, launch_collector, stop_collector
-from .research import RESEARCH_METRICS, build_decile_research
+from .research import RESEARCH_CALCULATION_VERSION, build_all_research
 
 from apps.market_data.models import Kline, OpenInterest
 
@@ -597,30 +599,53 @@ def _research_overview(results: list[dict[str, object]]) -> dict[str, object]:
     }
 
 
-@require_GET
-def research(request, symbol: str | None = None):
-    resolved = _resolve_symbol(symbol)
-    results = [
-        build_decile_research(
-            resolved,
-            metric_key=metric_key,
-        )
-        for metric_key in RESEARCH_METRICS
-    ]
+def build_research_page_payload(
+    symbol: str,
+    *,
+    cutoff: datetime | None = None,
+) -> dict[str, object]:
+    results = build_all_research(symbol, cutoff=cutoff)
     shared_return_max = _shared_return_max(results)
     for result in results:
         _decorate_research_verdict(result)
         _format_research_result(result)
         _prepare_chart_data(result, return_max=shared_return_max)
-    overview = _research_overview(results)
+    return {
+        "overview": _research_overview(results),
+        "research_items": results,
+    }
+
+
+def _hydrate_research_payload(payload: dict[str, object]) -> dict[str, object]:
+    hydrated = deepcopy(payload)
+    overview = hydrated.get("overview", {})
+    for key in ("range_start", "range_end"):
+        value = overview.get(key)
+        if isinstance(value, str):
+            overview[key] = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    return hydrated
+
+
+@require_GET
+def research(request, symbol: str | None = None):
+    resolved = _resolve_symbol(symbol)
+    snapshot = MicrostructureResearchSnapshot.objects.filter(
+        symbol=resolved,
+        calculation_version=RESEARCH_CALCULATION_VERSION,
+    ).first()
+    payload = (
+        _hydrate_research_payload(snapshot.payload)
+        if snapshot is not None
+        else build_research_page_payload(resolved)
+    )
     return render(
         request,
         "microstructure/research.html",
         {
-            "overview": overview,
-            "research_items": results,
+            **payload,
             "symbol": resolved,
             "available_symbols": settings.MICROSTRUCTURE_SYMBOLS,
+            "research_snapshot": snapshot,
         },
     )
 

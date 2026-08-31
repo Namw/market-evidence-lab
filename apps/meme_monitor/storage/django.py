@@ -12,6 +12,7 @@ from apps.meme_monitor.models import (
     MemeMarketSnapshot,
     MemeMonitorCycle,
     MemeMonitorRun,
+    MemePairState,
 )
 
 
@@ -131,26 +132,58 @@ class DjangoMemeMonitorStorage:
         limit: int,
     ) -> list[TokenMarketSnapshot]:
         records = list(
-            MemeMarketSnapshot.objects.filter(
+            MemePairState.objects.filter(
                 source=self.source,
                 chain=chain,
                 pair_created_at__gte=created_since,
             )
-            .order_by("pair_address", "-timestamp")
-            .distinct("pair_address")
+            .order_by("-observed_at")
         )
         records.sort(
             key=lambda record: record.pair_created_at,
             reverse=True,
         )
-        return [_snapshot_from_record(record) for record in records[:limit]]
+        return [_snapshot_from_state(record) for record in records[:limit]]
 
-    def save_snapshots(
+    def volume_histories(
+        self,
+        *,
+        chain: str,
+        pair_addresses: Sequence[str],
+        limit: int,
+    ) -> dict[str, list[Decimal]]:
+        rows = MemePairState.objects.filter(
+            source=self.source,
+            chain=chain,
+            pair_address__in=pair_addresses,
+        ).values_list("pair_address", "volume_5m_history")
+        return {
+            address: [_decimal(value) for value in reversed(history[-limit:])]
+            for address, history in rows
+        }
+
+    def upsert_pair_states(
         self,
         snapshots: Sequence[TokenMarketSnapshot],
-    ) -> dict[str, MemeMarketSnapshot]:
-        records = [
-            MemeMarketSnapshot(
+        *,
+        volume_history_limit: int,
+    ) -> int:
+        existing = {
+            state.pair_address: state
+            for state in MemePairState.objects.filter(
+                source=self.source,
+                chain__in={item.chain for item in snapshots},
+                pair_address__in={item.pair_address for item in snapshots},
+            )
+        }
+        states: list[MemePairState] = []
+        for item in snapshots:
+            prior_state = existing.get(item.pair_address)
+            prior_history = prior_state.volume_5m_history if prior_state else []
+            history = list(prior_history)
+            if item.volume_5m is not None:
+                history.append(str(item.volume_5m))
+            states.append(MemePairState(
                 source=self.source[:40],
                 chain=item.chain[:32],
                 dex=item.dex[:80],
@@ -169,33 +202,23 @@ class DjangoMemeMonitorStorage:
                 sells_5m=_positive_integer(item.sells_5m),
                 price_change_5m=_bounded(item.price_change_5m, integer_digits=22),
                 price_change_1h=_bounded(item.price_change_1h, integer_digits=22),
-                timestamp=item.timestamp,
-            )
-            for item in snapshots
-        ]
-        MemeMarketSnapshot.objects.bulk_create(records)
-        return {record.pair_address: record for record in records}
-
-    def recent_volume_5m(
-        self,
-        *,
-        chain: str,
-        pair_address: str,
-        before: datetime,
-        limit: int,
-    ) -> list[Decimal]:
-        values = (
-            MemeMarketSnapshot.objects.filter(
-                source=self.source,
-                chain=chain,
-                pair_address=pair_address,
-                timestamp__lt=before,
-                volume_5m__isnull=False,
-            )
-            .order_by("-timestamp")
-            .values_list("volume_5m", flat=True)[:limit]
+                volume_5m_history=history[-volume_history_limit:],
+                observed_at=item.timestamp,
+            ))
+        if not states:
+            return 0
+        MemePairState.objects.bulk_create(
+            states,
+            update_conflicts=True,
+            unique_fields=["source", "chain", "pair_address"],
+            update_fields=[
+                "dex", "token_address", "symbol", "name", "pair_created_at",
+                "price_usd", "liquidity_usd", "market_cap", "fdv", "volume_5m",
+                "volume_1h", "buys_5m", "sells_5m", "price_change_5m",
+                "price_change_1h", "volume_5m_history", "observed_at", "updated_at",
+            ],
         )
-        return list(values)
+        return len(states)
 
     def in_cooldown(
         self,
@@ -215,12 +238,10 @@ class DjangoMemeMonitorStorage:
     def save_event(
         self,
         event: MemeAnomalyEvent,
-        *,
-        snapshot_record: MemeMarketSnapshot,
     ) -> MemeAnomalyEventRecord:
         return MemeAnomalyEventRecord.objects.create(
             event_id=event.event_id,
-            snapshot=snapshot_record,
+            source=self.source[:40],
             anomaly_type=event.anomaly_type,
             event_time=event.event_time,
             chain=event.chain[:32],
@@ -240,7 +261,7 @@ class DjangoMemeMonitorStorage:
         )
 
 
-def _snapshot_from_record(record: MemeMarketSnapshot) -> TokenMarketSnapshot:
+def _snapshot_from_state(record: MemePairState) -> TokenMarketSnapshot:
     return TokenMarketSnapshot(
         chain=record.chain,
         dex=record.dex,
@@ -259,8 +280,12 @@ def _snapshot_from_record(record: MemeMarketSnapshot) -> TokenMarketSnapshot:
         sells_5m=record.sells_5m,
         price_change_5m=record.price_change_5m,
         price_change_1h=record.price_change_1h,
-        timestamp=record.timestamp,
+        timestamp=record.observed_at,
     )
+
+
+def _decimal(value: str | int | float | Decimal) -> Decimal:
+    return Decimal(str(value))
 
 
 def _bounded(value: Decimal | None, *, integer_digits: int) -> Decimal | None:

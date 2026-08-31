@@ -65,7 +65,8 @@ class NewsClassificationViewTests(TestCase):
         navigation = response.content.decode().split('<nav class="navigation">', 1)[
             1
         ].split("</nav>", 1)[0]
-        self.assertEqual(navigation.count('class="nav-subitem'), 16)
+        self.assertEqual(navigation.count('class="nav-subitem'), 17)
+        self.assertIn("5 分钟延续性研究", navigation)
         self.assertIn("新闻事件库", navigation)
         self.assertIn("客观事实提取", navigation)
         self.assertIn("每日分析结果", navigation)

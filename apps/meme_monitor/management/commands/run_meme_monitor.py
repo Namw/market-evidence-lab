@@ -8,6 +8,10 @@ from django.utils import timezone
 from apps.meme_monitor.data_source import GeckoTerminalDataSource, MarketDataSourceError
 from apps.meme_monitor.detector import MemeAnomalyDetector, MemeDetectorConfig
 from apps.meme_monitor.models import MemeMonitorRun
+from apps.meme_monitor.research import (
+    MemeContinuationResearchConfig,
+    MemeContinuationResearchService,
+)
 from apps.meme_monitor.service import MemeMonitorConfig, MemeMonitorService
 from apps.meme_monitor.storage import DjangoMemeMonitorStorage
 
@@ -79,6 +83,23 @@ class Command(BaseCommand):
                 ),
                 max_tracked_pairs=settings.MEME_MONITOR_MAX_TRACKED_PAIRS,
                 volume_history_samples=settings.MEME_MONITOR_VOLUME_HISTORY_SAMPLES,
+            ),
+            research=MemeContinuationResearchService(
+                MemeContinuationResearchConfig(
+                    rule_version=settings.MEME_RESEARCH_RULE_VERSION,
+                    entry_delay_seconds=settings.MEME_RESEARCH_ENTRY_DELAY_SECONDS,
+                    horizon_seconds=settings.MEME_RESEARCH_HORIZON_SECONDS,
+                    observation_tolerance_seconds=(
+                        settings.MEME_RESEARCH_OBSERVATION_TOLERANCE_SECONDS
+                    ),
+                    notional_usd=Decimal(str(settings.MEME_RESEARCH_NOTIONAL_USD)),
+                    fee_bps_per_side=Decimal(
+                        str(settings.MEME_RESEARCH_FEE_BPS_PER_SIDE)
+                    ),
+                    max_price_impact_pct=Decimal(
+                        str(settings.MEME_RESEARCH_MAX_PRICE_IMPACT_PCT)
+                    ),
+                )
             ),
             monitor_run_id=run.pk,
         )

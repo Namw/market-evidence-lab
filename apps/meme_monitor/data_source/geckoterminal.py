@@ -223,6 +223,9 @@ class GeckoTerminalDataSource:
         price_change = attributes.get("price_change_percentage") or {}
         txns_5m = transactions.get("m5") or {}
         created_at = _parse_datetime(attributes["pool_created_at"])
+        launchpad = attributes.get("launchpad_details")
+        if not isinstance(launchpad, dict):
+            launchpad = None
         return TokenMarketSnapshot(
             chain=self.chain,
             dex=str(dex),
@@ -241,6 +244,24 @@ class GeckoTerminalDataSource:
             sells_5m=_int_or_none(txns_5m.get("sells")),
             price_change_5m=_decimal_or_none(price_change.get("m5")),
             price_change_1h=_decimal_or_none(price_change.get("h1")),
+            launchpad_graduation_percentage=(
+                _decimal_or_none(launchpad.get("graduation_percentage"))
+                if launchpad
+                else None
+            ),
+            launchpad_completed=(
+                bool(launchpad.get("completed")) if launchpad else None
+            ),
+            launchpad_completed_at=(
+                _parse_datetime_or_none(launchpad.get("completed_at"))
+                if launchpad
+                else None
+            ),
+            migrated_destination_pair_address=(
+                str(launchpad.get("migrated_destination_pool_address") or "")
+                if launchpad
+                else ""
+            ),
             timestamp=observed_at,
         )
 
@@ -283,3 +304,12 @@ def _parse_datetime(value: str) -> datetime:
     if parsed.tzinfo is None:
         parsed = parsed.replace(tzinfo=UTC)
     return parsed
+
+
+def _parse_datetime_or_none(value: Any) -> datetime | None:
+    if not value:
+        return None
+    try:
+        return _parse_datetime(str(value))
+    except (TypeError, ValueError):
+        return None

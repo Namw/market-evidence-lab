@@ -8,6 +8,7 @@ from apps.meme_monitor.selectors import (
     anomalies_context,
     overview_context,
     pairs_context,
+    research_context,
 )
 
 
@@ -31,6 +32,15 @@ def pairs(request):
         request,
         "meme_monitor/index.html",
         pairs_context(page_number=request.GET.get("page")),
+    )
+
+
+@require_GET
+def research(request):
+    return render(
+        request,
+        "meme_monitor/index.html",
+        research_context(page_number=request.GET.get("page")),
     )
 
 

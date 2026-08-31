@@ -4,7 +4,7 @@ from decimal import Decimal
 from django.test import TestCase
 
 from apps.meme_monitor.detector import MemeAnomalyDetector, MemeDetectorConfig
-from apps.meme_monitor.models import MemeAnomalyEventRecord, MemeMarketSnapshot
+from apps.meme_monitor.models import MemeAnomalyEventRecord, MemeMarketSnapshot, MemePairState
 from apps.meme_monitor.storage import DjangoMemeMonitorStorage
 from apps.meme_monitor.tests.helpers import make_snapshot
 
@@ -14,22 +14,21 @@ class DjangoMemeMonitorStorageTests(TestCase):
         self.storage = DjangoMemeMonitorStorage()
         self.now = datetime(2026, 8, 27, 12, tzinfo=UTC)
 
-    def test_saves_snapshots_history_event_and_checks_cooldown(self):
+    def test_upserts_current_state_history_event_and_checks_cooldown(self):
         previous = make_snapshot(
             timestamp=self.now - timedelta(seconds=30),
             volume_5m=Decimal(10000),
         )
         current = make_snapshot(timestamp=self.now)
-        self.storage.save_snapshots([previous])
-        records = self.storage.save_snapshots([current])
+        self.storage.upsert_pair_states([previous], volume_history_limit=10)
 
-        history = self.storage.recent_volume_5m(
+        history = self.storage.volume_histories(
             chain="BSC",
-            pair_address="0xpair",
-            before=self.now,
+            pair_addresses=["0xpair"],
             limit=10,
-        )
+        )["0xpair"]
         self.assertEqual(history, [Decimal(10000)])
+        self.storage.upsert_pair_states([current], volume_history_limit=10)
 
         detector = MemeAnomalyDetector(
             MemeDetectorConfig(
@@ -42,9 +41,10 @@ class DjangoMemeMonitorStorageTests(TestCase):
             )
         )
         event = detector.detect(current, historical_volumes=[], event_time=self.now)
-        self.storage.save_event(event, snapshot_record=records["0xpair"])
+        self.storage.save_event(event)
 
-        self.assertEqual(MemeMarketSnapshot.objects.count(), 2)
+        self.assertEqual(MemeMarketSnapshot.objects.count(), 0)
+        self.assertEqual(MemePairState.objects.count(), 1)
         self.assertEqual(MemeAnomalyEventRecord.objects.count(), 1)
         self.assertTrue(
             self.storage.in_cooldown(

@@ -167,12 +167,59 @@ class MemeMarketSnapshot(models.Model):
         return f"{self.chain}:{self.symbol}:{self.timestamp.isoformat()}"
 
 
+class MemePairState(models.Model):
+    """The latest observable state for a pair, plus a deliberately bounded baseline."""
+
+    source = models.CharField(max_length=40, default="geckoterminal")
+    chain = models.CharField(max_length=32)
+    dex = models.CharField(max_length=80)
+    token_address = models.CharField(max_length=128)
+    pair_address = models.CharField(max_length=128)
+    symbol = models.CharField(max_length=80, blank=True)
+    name = models.CharField(max_length=300, blank=True)
+    pair_created_at = models.DateTimeField()
+    price_usd = models.DecimalField(max_digits=50, decimal_places=24, null=True, blank=True)
+    liquidity_usd = models.DecimalField(max_digits=50, decimal_places=8, null=True, blank=True)
+    market_cap = models.DecimalField(max_digits=50, decimal_places=8, null=True, blank=True)
+    fdv = models.DecimalField(max_digits=50, decimal_places=8, null=True, blank=True)
+    volume_5m = models.DecimalField(max_digits=50, decimal_places=8, null=True, blank=True)
+    volume_1h = models.DecimalField(max_digits=50, decimal_places=8, null=True, blank=True)
+    buys_5m = models.PositiveIntegerField(null=True, blank=True)
+    sells_5m = models.PositiveIntegerField(null=True, blank=True)
+    price_change_5m = models.DecimalField(max_digits=30, decimal_places=8, null=True, blank=True)
+    price_change_1h = models.DecimalField(max_digits=30, decimal_places=8, null=True, blank=True)
+    # JSON is used because this is a short restart baseline, not time-series storage.
+    volume_5m_history = models.JSONField(default=list)
+    observed_at = models.DateTimeField()
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["-observed_at", "pair_address"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["source", "chain", "pair_address"],
+                name="meme_pair_state_source_pair_unique",
+            )
+        ]
+        indexes = [
+            models.Index(fields=["chain", "-pair_created_at"], name="meme_state_created_idx"),
+            models.Index(fields=["chain", "-observed_at"], name="meme_state_observed_idx"),
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.chain}:{self.symbol}:{self.observed_at.isoformat()}"
+
+
 class MemeAnomalyEventRecord(models.Model):
     event_id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    source = models.CharField(max_length=40, default="geckoterminal")
     snapshot = models.ForeignKey(
         MemeMarketSnapshot,
-        on_delete=models.PROTECT,
+        on_delete=models.SET_NULL,
         related_name="anomaly_events",
+        null=True,
+        blank=True,
     )
     anomaly_type = models.CharField(max_length=80, default="market_spike")
     event_time = models.DateTimeField()
@@ -214,3 +261,140 @@ class MemeAnomalyEventRecord(models.Model):
 
     def __str__(self) -> str:
         return f"{self.chain}:{self.symbol}:{self.anomaly_type}:{self.event_time.isoformat()}"
+
+
+class MemeLaunchpadTokenState(models.Model):
+    source = models.CharField(max_length=40, default="geckoterminal")
+    chain = models.CharField(max_length=32)
+    token_address = models.CharField(max_length=128)
+    symbol = models.CharField(max_length=80, blank=True)
+    name = models.CharField(max_length=300, blank=True)
+    launchpad_pair_address = models.CharField(max_length=128)
+    current_pair_address = models.CharField(max_length=128)
+    migrated_destination_pair_address = models.CharField(max_length=128, blank=True)
+    graduation_percentage = models.DecimalField(
+        max_digits=10,
+        decimal_places=4,
+        null=True,
+        blank=True,
+    )
+    completed = models.BooleanField(default=False)
+    completed_at = models.DateTimeField(null=True, blank=True)
+    observed_at = models.DateTimeField()
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["-observed_at", "token_address"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["source", "chain", "token_address"],
+                name="meme_launchpad_token_unique",
+            )
+        ]
+        indexes = [
+            models.Index(
+                fields=["chain", "-observed_at"],
+                name="meme_launchpad_seen_idx",
+            )
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.chain}:{self.symbol}:{self.current_pair_address}"
+
+
+class MemeContinuationResearchEpisode(models.Model):
+    class Status(models.TextChoices):
+        WAITING_ENTRY = "waiting_entry", "等待可执行入场"
+        WAITING_EXIT = "waiting_exit", "跟踪 5 分钟"
+        COMPLETED = "completed", "研究完成"
+        UNAVAILABLE = "unavailable", "无法形成样本"
+
+    episode_id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    trigger_event = models.OneToOneField(
+        MemeAnomalyEventRecord,
+        on_delete=models.PROTECT,
+        related_name="continuation_episode",
+    )
+    source = models.CharField(max_length=40, default="geckoterminal")
+    chain = models.CharField(max_length=32)
+    token_address = models.CharField(max_length=128)
+    symbol = models.CharField(max_length=80, blank=True)
+    name = models.CharField(max_length=300, blank=True)
+    rule_version = models.CharField(max_length=40, default="launchpad_5m_v1")
+    status = models.CharField(
+        max_length=24,
+        choices=Status.choices,
+        default=Status.WAITING_ENTRY,
+    )
+    failure_reason = models.CharField(max_length=120, blank=True)
+    triggered_at = models.DateTimeField()
+    launchpad_pair_address = models.CharField(max_length=128)
+    trigger_pair_address = models.CharField(max_length=128)
+    current_pair_address = models.CharField(max_length=128)
+    migrated_destination_pair_address = models.CharField(max_length=128, blank=True)
+    migration_detected_at = models.DateTimeField(null=True, blank=True)
+    entry_target_at = models.DateTimeField()
+    entry_observed_at = models.DateTimeField(null=True, blank=True)
+    entry_pair_address = models.CharField(max_length=128, blank=True)
+    entry_price_usd = models.DecimalField(
+        max_digits=50, decimal_places=24, null=True, blank=True
+    )
+    entry_liquidity_usd = models.DecimalField(
+        max_digits=50, decimal_places=8, null=True, blank=True
+    )
+    entry_price_impact_pct = models.DecimalField(
+        max_digits=20, decimal_places=8, null=True, blank=True
+    )
+    exit_target_at = models.DateTimeField(null=True, blank=True)
+    exit_observed_at = models.DateTimeField(null=True, blank=True)
+    exit_pair_address = models.CharField(max_length=128, blank=True)
+    exit_price_usd = models.DecimalField(
+        max_digits=50, decimal_places=24, null=True, blank=True
+    )
+    exit_liquidity_usd = models.DecimalField(
+        max_digits=50, decimal_places=8, null=True, blank=True
+    )
+    exit_price_impact_pct = models.DecimalField(
+        max_digits=20, decimal_places=8, null=True, blank=True
+    )
+    notional_usd = models.DecimalField(max_digits=20, decimal_places=8)
+    fee_bps_per_side = models.DecimalField(max_digits=12, decimal_places=4)
+    gross_return_pct = models.DecimalField(
+        max_digits=30, decimal_places=8, null=True, blank=True
+    )
+    net_return_pct = models.DecimalField(
+        max_digits=30, decimal_places=8, null=True, blank=True
+    )
+    cost_model = models.CharField(
+        max_length=80,
+        default="constant_product_v1_no_token_tax",
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["-triggered_at", "-created_at"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["source", "chain", "token_address", "rule_version"],
+                name="meme_research_first_token_unique",
+            )
+        ]
+        indexes = [
+            models.Index(
+                fields=["status", "entry_target_at"],
+                name="meme_research_entry_idx",
+            ),
+            models.Index(
+                fields=["status", "exit_target_at"],
+                name="meme_research_exit_idx",
+            ),
+            models.Index(
+                fields=["chain", "token_address"],
+                name="meme_research_token_idx",
+            ),
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.chain}:{self.symbol}:{self.status}:{self.triggered_at.isoformat()}"

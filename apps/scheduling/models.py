@@ -518,6 +518,27 @@ class MarketPilotSchedule(models.Model):
         return self.name
 
 
+class ResearchSnapshotSchedule(models.Model):
+    name = models.CharField(max_length=120, unique=True)
+    enabled = models.BooleanField(default=True)
+    run_time = models.TimeField(default=time(0, 30))
+    timezone = models.CharField(
+        max_length=64, default=SCHEDULE_TIMEZONE, editable=False
+    )
+    next_run_at = models.DateTimeField()
+    last_run_at = models.DateTimeField(null=True, blank=True)
+    last_success_at = models.DateTimeField(null=True, blank=True)
+    last_error = models.CharField(max_length=500, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["name"]
+
+    def __str__(self) -> str:
+        return self.name
+
+
 class NewsAIWorkflowRun(models.Model):
     class Trigger(models.TextChoices):
         SCHEDULED = "scheduled", "定时"

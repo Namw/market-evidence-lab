@@ -44,6 +44,9 @@ class GeckoTerminalDataSourceTests(SimpleTestCase):
         self.assertEqual(snapshot.volume_5m, Decimal(42000))
         self.assertEqual(snapshot.buys_5m, 186)
         self.assertEqual(snapshot.price_change_1h, Decimal(170))
+        self.assertEqual(snapshot.launchpad_graduation_percentage, Decimal("42.5"))
+        self.assertFalse(snapshot.launchpad_completed)
+        self.assertEqual(snapshot.migrated_destination_pair_address, "")
 
     def test_skips_one_malformed_pool_without_losing_valid_pool(self):
         payload = _pool_payload()
@@ -119,6 +122,12 @@ def _pool_payload():
                         "m5": {"buys": 186, "sells": 74},
                     },
                     "volume_usd": {"m5": "42000", "h1": "100000"},
+                    "launchpad_details": {
+                        "graduation_percentage": 42.5,
+                        "completed": False,
+                        "completed_at": None,
+                        "migrated_destination_pool_address": None,
+                    },
                 },
                 "relationships": {
                     "base_token": {"data": {"id": "bsc_0xtoken"}},

@@ -34,6 +34,11 @@ from apps.scheduling.news_workflow import (
     execute_claimed_news_workflow,
     get_builtin_news_schedules,
 )
+from apps.scheduling.research_snapshot_workflow import (
+    claim_due_research_snapshot_schedules,
+    execute_claimed_research_snapshot_schedule,
+    get_builtin_research_snapshot_schedule,
+)
 from apps.scheduling.services import (
     claim_due_schedules,
     execute_claimed_workflow,
@@ -70,6 +75,7 @@ class Command(BaseCommand):
         get_builtin_news_ai_schedule()
         get_builtin_fund_schedules()
         get_builtin_market_pilot_schedules()
+        get_builtin_research_snapshot_schedule()
         get_builtin_meme_schedule()
         executor_id = str(uuid4())
         stop_event = threading.Event()
@@ -164,6 +170,19 @@ class Command(BaseCommand):
                         )
                     )
                     claimed_market_pilot_ids = []
+
+                try:
+                    claimed_research_snapshot_ids = (
+                        claim_due_research_snapshot_schedules()
+                    )
+                except Exception as exc:
+                    self.stderr.write(
+                        self.style.ERROR(
+                            "Research snapshot schedule claim failed "
+                            f"({exc.__class__.__name__}); retrying."
+                        )
+                    )
+                    claimed_research_snapshot_ids = []
 
                 for schedule_id in claimed_meme_ids:
                     try:
@@ -260,6 +279,19 @@ class Command(BaseCommand):
                             self.style.ERROR(
                                 f"Market pilot schedule #{schedule_id} failed unexpectedly "
                                 f"({exc.__class__.__name__}); continuing."
+                            )
+                        )
+                    heartbeat()
+
+                for schedule_id in claimed_research_snapshot_ids:
+                    try:
+                        execute_claimed_research_snapshot_schedule(schedule_id)
+                    except Exception as exc:
+                        self.stderr.write(
+                            self.style.ERROR(
+                                f"Research snapshot schedule #{schedule_id} "
+                                f"failed unexpectedly ({exc.__class__.__name__}); "
+                                "continuing."
                             )
                         )
                     heartbeat()

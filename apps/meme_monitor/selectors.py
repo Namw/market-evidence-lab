@@ -3,6 +3,7 @@ from __future__ import annotations
 from collections.abc import Iterable
 from datetime import datetime, timedelta
 from decimal import Decimal
+from statistics import median
 
 from django.conf import settings
 from django.core.paginator import Paginator
@@ -11,10 +12,11 @@ from django.utils import timezone
 
 from apps.meme_monitor.models import (
     MemeAnomalyEventRecord,
-    MemeMarketSnapshot,
+    MemeContinuationResearchEpisode,
     MemeMonitorCycle,
     MemeMonitorRun,
     MemeMonitorSchedule,
+    MemePairState,
 )
 from apps.meme_monitor.scheduling import get_builtin_meme_schedule
 from apps.scheduling.services import scheduler_status
@@ -28,13 +30,13 @@ def overview_context(*, now: datetime | None = None) -> dict:
     latest_run = MemeMonitorRun.objects.first()
     schedule = get_builtin_meme_schedule()
     executor = scheduler_status(now=observed_at)
-    latest_snapshot_at = MemeMarketSnapshot.objects.aggregate(value=Max("timestamp"))[
+    latest_snapshot_at = MemePairState.objects.aggregate(value=Max("observed_at"))[
         "value"
     ]
     recent_cycles = list(MemeMonitorCycle.objects.select_related("run")[:20])
     latest_cycle = recent_cycles[0] if recent_cycles else None
     candidate_pair_count = (
-        MemeMarketSnapshot.objects.filter(pair_created_at__gte=pair_cutoff)
+        MemePairState.objects.filter(pair_created_at__gte=pair_cutoff)
         .values("pair_address")
         .distinct()
         .count()
@@ -45,7 +47,7 @@ def overview_context(*, now: datetime | None = None) -> dict:
             active_page="overview",
             title="Meme 新币观察",
             description=(
-                "持续保留新 Pair 行情快照和异常证据；这里展示监控健康度、"
+                "只保留当前 Pair 状态、异常证据和研究结果；这里展示监控健康度、"
                 "最新市场事实与执行情况。"
             ),
         ),
@@ -68,9 +70,9 @@ def overview_context(*, now: datetime | None = None) -> dict:
             latest_cycle.tracked_pairs if latest_cycle else candidate_pair_count
         ),
         "candidate_pair_count": candidate_pair_count,
-        "snapshot_count": MemeMarketSnapshot.objects.count(),
-        "snapshots_last_hour": MemeMarketSnapshot.objects.filter(
-            timestamp__gte=observed_at - timedelta(hours=1)
+        "snapshot_count": MemePairState.objects.count(),
+        "snapshots_last_hour": MemePairState.objects.filter(
+            observed_at__gte=observed_at - timedelta(hours=1)
         ).count(),
         "events_last_24h": MemeAnomalyEventRecord.objects.filter(
             event_time__gte=observed_at - timedelta(hours=24)
@@ -86,7 +88,7 @@ def anomalies_context(
     page_number: str | int | None = None,
 ) -> dict:
     observed_at = now or timezone.now()
-    records = MemeAnomalyEventRecord.objects.select_related("snapshot").order_by(
+    records = MemeAnomalyEventRecord.objects.select_related("continuation_episode").order_by(
         "-event_time",
         F("price_change_5m").desc(nulls_last=True),
         F("volume_5m").desc(nulls_last=True),
@@ -98,7 +100,7 @@ def anomalies_context(
             active_page="anomalies",
             title="异常事件与后续表现",
             description=(
-                "最新报警优先；集中比较触发证据与 5 分钟、15 分钟、1 小时后续表现。"
+                "最新报警优先；显示触发证据与迁移校正后的可执行 5 分钟研究结果。"
             ),
         ),
         "events": _event_rows(records=page.object_list, now=observed_at),
@@ -122,13 +124,58 @@ def pairs_context(
             active_page="pairs",
             title="最新跟踪 Pair",
             description=(
-                "查看最近创建且正在跟踪的 BSC Pool；每个 Pair 只展示最新一条行情快照。"
+                "查看最近创建且正在跟踪的 BSC Pool；每个 Pair 只展示当前状态。"
             ),
         ),
         "latest_pairs": list(page.object_list),
         "page": page,
         "candidate_pair_count": len(latest_pairs),
         "new_pair_max_age_hours": settings.MEME_MONITOR_NEW_PAIR_MAX_AGE_HOURS,
+    }
+
+
+def research_context(*, page_number: str | int | None = None) -> dict:
+    episodes = MemeContinuationResearchEpisode.objects.select_related(
+        "trigger_event"
+    ).all()
+    page = Paginator(episodes, 30).get_page(page_number)
+    completed = episodes.filter(
+        status=MemeContinuationResearchEpisode.Status.COMPLETED,
+        net_return_pct__isnull=False,
+    )
+    net_returns = list(completed.values_list("net_return_pct", flat=True))
+    positive_count = sum(value > 0 for value in net_returns)
+    return {
+        **_page_context(
+            active_page="research",
+            title="首次异常 5 分钟延续性研究",
+            description=(
+                "只记录 BSC launchpad Token 的首次异常；按可执行入场价建样本，"
+                "并在池迁移后切换到目标池完成 5 分钟观察。"
+            ),
+        ),
+        "episodes": list(page.object_list),
+        "page": page,
+        "episode_count": episodes.count(),
+        "tracking_count": episodes.filter(
+            status__in=(
+                MemeContinuationResearchEpisode.Status.WAITING_ENTRY,
+                MemeContinuationResearchEpisode.Status.WAITING_EXIT,
+            )
+        ).count(),
+        "completed_count": len(net_returns),
+        "unavailable_count": episodes.filter(
+            status=MemeContinuationResearchEpisode.Status.UNAVAILABLE
+        ).count(),
+        "migrated_count": episodes.exclude(
+            migrated_destination_pair_address=""
+        ).count(),
+        "positive_rate": (
+            Decimal(positive_count) / Decimal(len(net_returns)) * Decimal(100)
+            if net_returns
+            else None
+        ),
+        "median_net_return": median(net_returns) if net_returns else None,
     }
 
 
@@ -144,12 +191,11 @@ def _page_context(*, active_page: str, title: str, description: str) -> dict:
 
 def _latest_pairs(*, pair_cutoff: datetime, now: datetime) -> list[dict]:
     records = list(
-        MemeMarketSnapshot.objects.filter(pair_created_at__gte=pair_cutoff)
-        .order_by("pair_address", "-timestamp")
-        .distinct("pair_address")
+        MemePairState.objects.filter(pair_created_at__gte=pair_cutoff)
+        .order_by("-observed_at")
     )
     records.sort(
-        key=lambda item: (item.pair_created_at, item.timestamp),
+            key=lambda item: (item.pair_created_at, item.observed_at),
         reverse=True,
     )
     return [
@@ -180,59 +226,41 @@ def _event_rows(
     return [
         {
             "event": event,
-            "outcomes": [
-                _event_outcome(event, minutes=minutes, now=now)
-                for minutes in (5, 15, 60)
-            ],
+            "outcomes": [_episode_outcome(event, now=now)],
         }
         for event in records
     ]
 
 
-def _event_outcome(
+def _episode_outcome(
     event: MemeAnomalyEventRecord,
     *,
-    minutes: int,
     now: datetime,
 ) -> dict:
-    target = event.event_time + timedelta(minutes=minutes)
-    tolerance = timedelta(
-        seconds=max(settings.MEME_MONITOR_POLL_INTERVAL_SECONDS * 3, 90)
-    )
-    snapshot = (
-        MemeMarketSnapshot.objects.filter(
-            source=event.snapshot.source,
-            chain=event.chain,
-            pair_address=event.pair_address,
-            timestamp__gte=target,
-            timestamp__lte=target + tolerance,
-            price_usd__isnull=False,
-        )
-        .order_by("timestamp")
-        .first()
-    )
-    if snapshot is None:
+    episode = getattr(event, "continuation_episode", None)
+    if episode is None:
         return {
-            "minutes": minutes,
-            "status": "pending" if now <= target + tolerance else "unavailable",
+            "minutes": 5,
+            "status": "unavailable",
             "return_pct": None,
             "snapshot_at": None,
         }
-    if event.price_usd is None or event.price_usd <= 0:
+    if episode.status == MemeContinuationResearchEpisode.Status.COMPLETED:
         return {
-            "minutes": minutes,
-            "status": "unavailable",
-            "return_pct": None,
-            "snapshot_at": snapshot.timestamp,
+            "minutes": 5,
+            "status": "observed",
+            "return_pct": episode.net_return_pct,
+            "snapshot_at": episode.exit_observed_at,
+            "price_usd": episode.exit_price_usd,
+            "css_class": (
+                "is-positive" if episode.net_return_pct is not None and episode.net_return_pct >= 0 else "is-negative"
+            ),
         }
-    return_pct = (snapshot.price_usd / event.price_usd - Decimal(1)) * Decimal(100)
     return {
-        "minutes": minutes,
-        "status": "observed",
-        "return_pct": return_pct,
-        "snapshot_at": snapshot.timestamp,
-        "price_usd": snapshot.price_usd,
-        "css_class": "is-positive" if return_pct >= 0 else "is-negative",
+        "minutes": 5,
+        "status": "pending" if episode.status != MemeContinuationResearchEpisode.Status.UNAVAILABLE else "unavailable",
+        "return_pct": None,
+        "snapshot_at": None,
     }
 
 

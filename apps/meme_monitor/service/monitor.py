@@ -11,6 +11,7 @@ from django.utils import timezone
 from apps.meme_monitor.data_source.base import MemeMarketDataSource
 from apps.meme_monitor.detector import MemeAnomalyDetector
 from apps.meme_monitor.domain import MemeAnomalyEvent, TokenMarketSnapshot
+from apps.meme_monitor.research import MemeContinuationResearchService
 from apps.meme_monitor.storage import DjangoMemeMonitorStorage
 
 logger = logging.getLogger(__name__)
@@ -44,6 +45,7 @@ class MemeMonitorService:
         storage: DjangoMemeMonitorStorage,
         detector: MemeAnomalyDetector,
         config: MemeMonitorConfig,
+        research: MemeContinuationResearchService | None = None,
         monitor_run_id: int | None = None,
         sleep=time.sleep,
     ) -> None:
@@ -51,6 +53,7 @@ class MemeMonitorService:
         self.storage = storage
         self.detector = detector
         self.config = config
+        self.research = research
         self.monitor_run_id = monitor_run_id
         self._sleep = sleep
         self._tracked: dict[str, TokenMarketSnapshot] = {}
@@ -133,27 +136,49 @@ class MemeMonitorService:
         self._prune_tracked(cutoff=cutoff)
         logger.info("tracking %s pairs", len(self._tracked))
 
+        pair_addresses = {item.pair_address for item in self._tracked.values()}
+        if self.research is not None:
+            pair_addresses.update(
+                self.research.tracked_pair_addresses(chain=self.config.chain)
+            )
         snapshots = self.data_source.fetch_market_snapshots(
-            [item.pair_address for item in self._tracked.values()],
+            list(pair_addresses),
             observed_at=now,
         )
+        if self.research is not None:
+            migration_destinations = (
+                self.research.migration_destinations(snapshots) - pair_addresses
+            )
+            if migration_destinations:
+                snapshots.extend(
+                    self.data_source.fetch_market_snapshots(
+                        list(migration_destinations),
+                        observed_at=now,
+                    )
+                )
+                pair_addresses.update(migration_destinations)
         valid_snapshots = [item for item in snapshots if item.pair_created_at >= cutoff]
-        records = self.storage.save_snapshots(valid_snapshots)
-        logger.info("saved %s snapshots", len(records))
+        if self.research is not None:
+            self.research.observe_launchpads(valid_snapshots)
+        histories = self.storage.volume_histories(
+            chain=self.config.chain,
+            pair_addresses=[item.pair_address for item in valid_snapshots],
+            limit=self.config.volume_history_samples,
+        )
 
         detected = 0
         for snapshot in valid_snapshots:
             try:
-                event = self._detect_one(snapshot, event_time=now)
+                event = self._detect_one(
+                    snapshot,
+                    event_time=now,
+                    historical_volumes=histories.get(snapshot.pair_address, []),
+                )
                 if event is None:
                     continue
-                record = records.get(snapshot.pair_address)
-                if record is None:
-                    logger.warning(
-                        "snapshot record missing for pair %s", snapshot.pair_address
-                    )
-                    continue
-                self.storage.save_event(event, snapshot_record=record)
+                event_record = self.storage.save_event(event)
+                if self.research is not None:
+                    self.research.open_first_episode(event_record)
                 detected += 1
                 logger.warning("%s", format_anomaly_event(event))
             except Exception:
@@ -162,13 +187,20 @@ class MemeMonitorService:
                     snapshot.pair_address,
                 )
         logger.info("detected %s anomalies", detected)
+        if self.research is not None:
+            self.research.advance(valid_snapshots, observed_at=now)
+        updated_states = self.storage.upsert_pair_states(
+            valid_snapshots,
+            volume_history_limit=self.config.volume_history_samples,
+        )
+        logger.info("updated %s pair states", updated_states)
         drain_warnings = getattr(self.data_source, "drain_warnings", None)
         warnings = drain_warnings() if drain_warnings is not None else []
         warning_message = " | ".join(warnings)[:500]
         return MonitorCycleResult(
             fetched_pairs=len(discovered),
-            tracked_pairs=len(self._tracked),
-            saved_snapshots=len(records),
+            tracked_pairs=len(pair_addresses),
+            saved_snapshots=updated_states,
             detected_anomalies=detected,
             warning_message=warning_message,
         )
@@ -178,13 +210,8 @@ class MemeMonitorService:
         snapshot: TokenMarketSnapshot,
         *,
         event_time: datetime,
+        historical_volumes: list[Decimal],
     ) -> MemeAnomalyEvent | None:
-        historical_volumes = self.storage.recent_volume_5m(
-            chain=snapshot.chain,
-            pair_address=snapshot.pair_address,
-            before=event_time,
-            limit=self.config.volume_history_samples,
-        )
         event = self.detector.detect(
             snapshot,
             historical_volumes=historical_volumes,

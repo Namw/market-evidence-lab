@@ -2,11 +2,11 @@
 {% load static meme_monitor_format %}
 
 {% block title %}{{ page_title }} · Market Evidence Lab{% endblock %}
-{% block extra_css %}<link rel="stylesheet" href="{% static 'meme_monitor/css/index.css' %}?v=8">{% endblock %}
+{% block extra_css %}<link rel="stylesheet" href="{% static 'meme_monitor/css/index.css' %}?v=9">{% endblock %}
 {% block body_class %}meme-monitor-page{% endblock %}
 
 {% block content %}
-<header class="page-header meme-header{% if active_page == 'anomalies' %} meme-header-compact{% endif %}">
+<header class="page-header meme-header{% if active_page == 'anomalies' or active_page == 'research' %} meme-header-compact{% endif %}">
     <div>
         <p class="eyebrow">BSC · GeckoTerminal · Rule Based</p>
         <h1>{{ page_title }}</h1>
@@ -52,9 +52,9 @@
         <small>数据库 {{ new_pair_max_age_hours|floatformat:0 }} 小时内共有 {{ candidate_pair_count }} 个候选 Pair</small>
     </article>
     <article class="panel meme-metric-card">
-        <span>最近一小时快照</span>
+        <span>最近一小时更新状态</span>
         <strong>{{ snapshots_last_hour }}</strong>
-        <small>累计 {{ snapshot_count }} 条行情快照</small>
+        <small>当前保留 {{ snapshot_count }} 个 Pair 状态</small>
     </article>
     <article class="panel meme-metric-card">
         <span>最近 24 小时异常</span>
@@ -64,8 +64,55 @@
     <article class="panel meme-metric-card">
         <span>最后成功采样</span>
         <strong>{% if latest_snapshot_at %}{{ latest_snapshot_at|date:"H:i:s" }}{% else %}—{% endif %}</strong>
-        <small>{% if latest_snapshot_age_seconds is not None %}距今 {{ latest_snapshot_age_seconds|duration_seconds }}{% else %}尚无行情快照{% endif %}</small>
+        <small>{% if latest_snapshot_age_seconds is not None %}距今 {{ latest_snapshot_age_seconds|duration_seconds }}{% else %}尚无当前状态{% endif %}</small>
     </article>
+</section>
+{% endif %}
+
+{% if active_page == "research" %}
+<section class="meme-metric-grid meme-research-metrics" aria-label="研究摘要">
+    <article class="panel meme-metric-card"><span>首次异常 Episode</span><strong>{{ episode_count }}</strong><small>每个 Token、每个规则版本最多一个样本</small></article>
+    <article class="panel meme-metric-card"><span>已完成 / 跟踪中</span><strong>{{ completed_count }} / {{ tracking_count }}</strong><small>{{ unavailable_count }} 个样本因价格、流动性或采样窗口不可执行</small></article>
+    <article class="panel meme-metric-card"><span>5 分钟净收益为正</span><strong>{% if positive_rate is not None %}{{ positive_rate|floatformat:1 }}%{% else %}—{% endif %}</strong><small>$100 名义本金，含双边费用和池深度冲击估算</small></article>
+    <article class="panel meme-metric-card"><span>净收益中位数</span><strong>{{ median_net_return|signed_pct }}</strong><small>{{ migrated_count }} 个 Episode 已识别跨池迁移</small></article>
+</section>
+
+<section class="meme-section meme-research-section" aria-labelledby="meme-research-title">
+    <div class="meme-section-heading">
+        <div>
+            <p class="eyebrow">LAUNCHPAD · FIRST ANOMALY · 5M</p>
+            <h2 id="meme-research-title">跨池迁移校正后的可执行样本</h2>
+            <p>入场取首次异常 30 秒后第一条满足价格冲击上限的快照；退出从实际入场起计 5 分钟。迁移后只接受目标池价格。</p>
+        </div>
+    </div>
+    <div class="panel meme-table-panel">
+        {% if episodes %}
+        <div class="table-scroll">
+            <table class="meme-table meme-research-table">
+                <thead><tr><th>首次异常</th><th>Token</th><th>研究状态</th><th>池路径</th><th>可执行入场</th><th>5 分钟退出</th><th>毛收益</th><th>估算净收益</th></tr></thead>
+                <tbody>
+                    {% for episode in episodes %}
+                    <tr>
+                        <td><strong>{{ episode.triggered_at|date:"m-d H:i:s" }}</strong><small>{{ episode.rule_version }}</small></td>
+                        <td><strong>{{ episode.symbol|default:"—" }}</strong> {{ episode.name|default:"未知 Token" }}<small>{{ episode.token_address|slice:":10" }}…{{ episode.token_address|slice:"-6:" }}</small></td>
+                        <td><span class="meme-cycle-status status-{{ episode.status }}">{{ episode.get_status_display }}</span>{% if episode.failure_reason %}<small>{{ episode.failure_reason }}</small>{% endif %}</td>
+                        <td><strong>{{ episode.launchpad_pair_address|slice:":8" }}…</strong>{% if episode.migrated_destination_pair_address %}<small>迁移至 {{ episode.migrated_destination_pair_address|slice:":8" }}…</small>{% else %}<small>尚未迁移</small>{% endif %}</td>
+                        <td>{% if episode.entry_price_usd %}<strong>{{ episode.entry_price_usd|price_usd }}</strong><small>{{ episode.entry_pair_address|slice:":8" }}… · 冲击 {{ episode.entry_price_impact_pct|floatformat:2 }}%</small>{% else %}—<small>目标 {{ episode.entry_target_at|date:"H:i:s" }}</small>{% endif %}</td>
+                        <td>{% if episode.exit_price_usd %}<strong>{{ episode.exit_price_usd|price_usd }}</strong><small>{{ episode.exit_pair_address|slice:":8" }}… · 冲击 {{ episode.exit_price_impact_pct|floatformat:2 }}%</small>{% else %}—<small>{% if episode.exit_target_at %}目标 {{ episode.exit_target_at|date:"H:i:s" }}{% else %}等待入场{% endif %}</small>{% endif %}</td>
+                        <td><span class="{% if episode.gross_return_pct >= 0 %}is-positive{% elif episode.gross_return_pct is not None %}is-negative{% endif %}">{{ episode.gross_return_pct|signed_pct }}</span></td>
+                        <td><strong class="{% if episode.net_return_pct >= 0 %}is-positive{% elif episode.net_return_pct is not None %}is-negative{% endif %}">{{ episode.net_return_pct|signed_pct }}</strong><small>{{ episode.cost_model }}</small></td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        <nav class="pagination meme-pagination" aria-label="研究样本分页">
+            {% if page.has_previous %}<a class="text-link" href="?page={{ page.previous_page_number }}">上一页</a>{% endif %}
+            <span>第 {{ page.number }} / {{ page.paginator.num_pages }} 页 · 共 {{ page.paginator.count }} 个首次异常 Episode</span>
+            {% if page.has_next %}<a class="text-link" href="?page={{ page.next_page_number }}">下一页</a>{% endif %}
+        </nav>
+        {% else %}<div class="meme-empty"><strong>尚无研究 Episode</strong><p>新版本上线后，launchpad Token 首次命中异常规则时会自动开始 5 分钟研究。</p></div>{% endif %}
+    </div>
 </section>
 {% endif %}
 
@@ -75,7 +122,7 @@
     {% if events %}
     <div class="table-scroll">
         <table class="meme-table meme-anomaly-table">
-            <thead><tr><th>事件时间</th><th>Token / Pair</th><th>Pair 年龄</th><th>报警价格 / 5m</th><th>成交额 / 流动性</th><th>5m 买 / 卖</th><th>报警后表现</th><th>命中规则</th></tr></thead>
+            <thead><tr><th>事件时间</th><th>Token / Pair</th><th>Pair 年龄</th><th>报警价格 / 5m</th><th>成交额 / 流动性</th><th>5m 买 / 卖</th><th>可执行 5m 研究</th><th>命中规则</th></tr></thead>
             <tbody>
                 {% for row in events %}
                 <tr>
@@ -119,7 +166,7 @@
         <div>
             <p class="eyebrow">LATEST PAIRS</p>
             <h2 id="meme-pairs-title">最新跟踪 Pair</h2>
-            <p>每个 Pair 只展示数据库中最新一条快照，按 Pair 创建时间从新到旧排列；每页 30 条。</p>
+            <p>每个 Pair 只保留当前状态，按 Pair 创建时间从新到旧排列；每页 30 条。</p>
         </div>
     </div>
     <div class="panel meme-table-panel">
@@ -138,7 +185,7 @@
                         <td>{{ row.snapshot.liquidity_usd|human_usd }}</td>
                         <td>{{ row.snapshot.buys_5m|default_if_none:"—" }} / {{ row.snapshot.sells_5m|default_if_none:"—" }}<small>{{ row.transaction_count_5m }} 笔</small></td>
                         <td>{{ row.snapshot.dex }}</td>
-                        <td>{{ row.snapshot.timestamp|date:"m-d H:i:s" }}</td>
+                        <td>{{ row.snapshot.observed_at|date:"m-d H:i:s" }}</td>
                     </tr>
                     {% endfor %}
                 </tbody>
@@ -149,7 +196,7 @@
             <span>第 {{ page.number }} / {{ page.paginator.num_pages }} 页 · 第 {{ page.start_index }}–{{ page.end_index }} 条，共 {{ page.paginator.count }} 个 Pair</span>
             {% if page.has_next %}<a class="text-link" href="?page={{ page.next_page_number }}">下一页</a>{% endif %}
         </nav>
-        {% else %}<div class="meme-empty"><strong>尚无新 Pair 快照</strong><p>启动监听器后，这里会出现最近创建的 BSC Pool。</p></div>{% endif %}
+        {% else %}<div class="meme-empty"><strong>尚无新 Pair 状态</strong><p>启动监听器后，这里会出现最近创建的 BSC Pool。</p></div>{% endif %}
     </div>
 </section>
 {% endif %}
@@ -167,7 +214,7 @@
         {% if recent_cycles %}
         <div class="table-scroll">
             <table class="meme-table meme-cycle-table">
-                <thead><tr><th>开始时间</th><th>状态</th><th>运行</th><th>发现</th><th>跟踪</th><th>快照</th><th>异常</th><th>错误</th></tr></thead>
+                <thead><tr><th>开始时间</th><th>状态</th><th>运行</th><th>发现</th><th>跟踪</th><th>状态更新</th><th>异常</th><th>错误</th></tr></thead>
                 <tbody>{% for cycle in recent_cycles %}<tr><td>{{ cycle.started_at|date:"Y-m-d H:i:s" }}</td><td><span class="meme-cycle-status status-{{ cycle.status }}">{{ cycle.get_status_display }}</span></td><td>#{{ cycle.run_id }} · {{ cycle.run.get_mode_display }}</td><td>{{ cycle.fetched_pairs }}</td><td>{{ cycle.tracked_pairs }}</td><td>{{ cycle.saved_snapshots }}</td><td>{{ cycle.detected_anomalies }}</td><td>{{ cycle.error_message|default:"—" }}</td></tr>{% endfor %}</tbody>
             </table>
         </div>

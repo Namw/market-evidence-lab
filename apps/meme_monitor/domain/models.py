@@ -26,6 +26,10 @@ class TokenMarketSnapshot:
     sells_5m: int | None = None
     price_change_5m: Decimal | None = None
     price_change_1h: Decimal | None = None
+    launchpad_graduation_percentage: Decimal | None = None
+    launchpad_completed: bool | None = None
+    launchpad_completed_at: datetime | None = None
+    migrated_destination_pair_address: str = ""
 
     def pair_age_minutes(self, at: datetime | None = None) -> int:
         observed_at = at or self.timestamp

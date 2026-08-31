@@ -25,6 +25,12 @@
                 <strong>{{ overview.symbol }}</strong>
                 <span>{{ overview.labeled_count }} 条有效5分钟结果</span>
                 <span>覆盖 {{ overview.duration_label }}</span>
+                {% if research_snapshot %}
+                <span>快照 {% timezone "Asia/Shanghai" %}{{ research_snapshot.generated_at|date:"m-d H:i" }}{% endtimezone %}</span>
+                <span>数据截至 {% timezone "Asia/Shanghai" %}{{ research_snapshot.data_cutoff|date:"m-d H:i" }}{% endtimezone %}</span>
+                {% else %}
+                <span>尚无定时快照 · 当前为实时计算</span>
+                {% endif %}
                 {% if overview.range_start %}
                 <span>{% timezone "Asia/Shanghai" %}{{ overview.range_start|date:"m-d H:i" }} → {{ overview.range_end|date:"m-d H:i" }}{% endtimezone %}</span>
                 {% endif %}
