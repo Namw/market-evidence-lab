@@ -6,6 +6,7 @@
     const $ = (id) => document.getElementById(id);
     const csrf = root.querySelector('[name=csrfmiddlewaretoken]').value;
     const turns = new Map();
+    const traces = new Map();
     let current = null, sending = false, generation = 0, nextHistory = null, nextMessages = null;
     let pendingRequest = null, timer = null, reconnecting = false;
     let workerStartingUntil = 0, workerMessage = '', workerIsOnline = false;
@@ -77,6 +78,16 @@
         const last = $('turn-list').lastElementChild;
         if (last) $('chat-scroll').scrollTop += last.getBoundingClientRect().top - $('chat-scroll').getBoundingClientRect().top - 16;
     }
+    function readingPosition() {
+        const scroll = $('chat-scroll'), viewport = scroll.getBoundingClientRect();
+        const anchor = [...$('turn-list').children].find(item => item.getBoundingClientRect().bottom > viewport.top);
+        return {id: anchor?.id, offset: anchor ? anchor.getBoundingClientRect().top - viewport.top : 0, top: scroll.scrollTop};
+    }
+    function restoreReadingPosition(position) {
+        const scroll = $('chat-scroll'), anchor = position.id && $(position.id);
+        if (anchor) scroll.scrollTop += anchor.getBoundingClientRect().top - scroll.getBoundingClientRect().top - position.offset;
+        else scroll.scrollTop = position.top;
+    }
     function ask(text, refresh = true) {
         $('question').value = text;
         $('refresh-data').checked = refresh;
@@ -125,6 +136,55 @@
         card.append(footer);
         return card;
     }
+    function paintTrace(id) {
+        const state = traces.get(id), panel = $(`trace-${id}`), button = $(`trace-button-${id}`);
+        if (!state || !panel || !button) return;
+        panel.hidden = !state.open;
+        button.textContent = state.open ? '收起调用链' : '查看调用链';
+        button.setAttribute('aria-expanded', String(state.open));
+        if (!state.open) return;
+        const signature = JSON.stringify([state.data, state.error]);
+        if (panel.dataset.signature === signature) return;
+        const position = readingPosition();
+        const expanded = new Set([...panel.querySelectorAll('details[open]')].map(item => item.dataset.step));
+        panel.replaceChildren(); panel.dataset.signature = signature;
+        if (state.error) panel.append(node('p', 'ta-error', `${state.error} 收起后再次展开可重试。`));
+        if (!state.data) { if (!state.error) panel.append(node('p', '', '正在读取调用记录…')); restoreReadingPosition(position); return; }
+        const trace = state.data.trace;
+        panel.append(node('h3', '', '本轮调用链'));
+        const stats = `${trace.model || '模型尚未调用'} · 模型调用 ${trace.model_calls} 次 · 工具记录 ${trace.tool_records} 条${trace.elapsed_seconds !== null ? ` · 处理耗时 ${trace.elapsed_seconds} 秒` : ''}`;
+        panel.append(node('p', 'ta-trace-meta', stats), node('p', 'ta-trace-note', trace.note));
+        const steps = node('ol', 'ta-trace-steps');
+        trace.steps.forEach(step => {
+            const li = node('li', `ta-trace-step ${step.status}`);
+            li.append(node('strong', '', step.title), node('small', '', step.actor));
+            li.append(node('p', '', step.description));
+            if (step.recorded_at) li.append(node('small', '', `记录时间：${time(step.recorded_at)} 北京时间`));
+            if (Object.keys(step.details || {}).length) {
+                const detail = node('details', 'ta-evidence'); detail.dataset.step = step.id;
+                detail.open = expanded.has(step.id);
+                detail.append(node('summary', '', step.id.startsWith('tool-') ? '查看参数与返回结果' : '查看记录详情'), node('pre', '', JSON.stringify(step.details, null, 2)));
+                li.append(detail);
+            }
+            steps.append(li);
+        });
+        panel.append(steps);
+        const raw = node('details', 'ta-evidence'); raw.dataset.step = 'raw'; raw.open = expanded.has('raw');
+        raw.append(node('summary', '', '查看完整数据依据与用量'), node('pre', '', JSON.stringify(state.data, null, 2)));
+        panel.append(raw);
+        restoreReadingPosition(position);
+    }
+    async function loadTrace(id) {
+        const state = traces.get(id);
+        if (!state?.open || state.loading) return;
+        state.loading = true; state.error = '';
+        try { state.data = await api(`/trading-assistant/api/turns/${id}/evidence/`); }
+        catch (e) { state.error = e.message; }
+        finally {
+            state.loading = false;
+            if (traces.get(id) === state) paintTrace(id);
+        }
+    }
     function renderTurn(turn) {
         const wrap = node('article', 'ta-turn'); wrap.id = `turn-${turn.id}`;
         wrap.dataset.signature = JSON.stringify(turn);
@@ -150,21 +210,18 @@
             pending.setAttribute('role', 'status'); wrap.append(pending);
         }
         wrap.append(node('div', 'ta-meta', `${time(turn.created_at)} 北京时间${turn.prompt_version ? ` · ${turn.model_name} · ${turn.prompt_version}` : ''}`));
-        const details = node('details', 'ta-evidence');
-        details.append(node('summary', '', '查看数据依据与计算记录'));
-        details.addEventListener('toggle', async () => {
-            if (!details.open || details.dataset.loaded === 'true' || details.dataset.loading === 'true') return;
-            details.querySelector('pre')?.remove();
-            details.dataset.loading = 'true';
-            const pre = node('pre', '', '正在读取…'); details.append(pre);
-            try {
-                const result = await api(`/trading-assistant/api/turns/${turn.id}/evidence/`);
-                pre.textContent = JSON.stringify(result, null, 2);
-                details.dataset.loaded = 'true';
-            } catch (e) { pre.textContent = `${e.message} 收起后再次展开可重试。`; }
-            finally { details.dataset.loading = 'false'; }
+        if (!traces.has(turn.id)) traces.set(turn.id, {open: false, data: null, error: '', loading: false});
+        const toggle = node('button', 'ta-trace-toggle', '查看调用链'); toggle.type = 'button';
+        toggle.id = `trace-button-${turn.id}`; toggle.setAttribute('aria-expanded', 'false');
+        toggle.setAttribute('aria-controls', `trace-${turn.id}`);
+        const panel = node('section', 'ta-trace'); panel.id = `trace-${turn.id}`; panel.hidden = true;
+        panel.setAttribute('aria-label', '本轮调用链');
+        toggle.addEventListener('click', () => {
+            const state = traces.get(turn.id); state.open = !state.open;
+            paintTrace(turn.id);
+            if (state.open && (!state.data || state.error || ['queued', 'running'].includes(state.data.trace.status))) loadTrace(turn.id);
         });
-        wrap.append(details);
+        wrap.append(toggle, panel);
         return wrap;
     }
     function mergeTurns(items) {
@@ -174,9 +231,17 @@
             const old = $(`turn-${turn.id}`);
             if (old?.dataset.signature === JSON.stringify(turn)) return;
             const element = renderTurn(turn);
+            const previousPanel = old?.querySelector('.ta-trace');
+            if (previousPanel && traces.get(turn.id)?.open) element.querySelector('.ta-trace').replaceWith(previousPanel);
             if (old) old.replaceWith(element); else container.append(element);
+            paintTrace(turn.id);
         });
-        [...turns.values()].sort((a, b) => a.created_at.localeCompare(b.created_at)).forEach(turn => container.append($(`turn-${turn.id}`)));
+        // Moving every existing node on each poll disrupts focus, selection and
+        // browser scroll anchoring even when the response has not changed.
+        [...turns.values()].sort((a, b) => a.created_at.localeCompare(b.created_at) || a.id.localeCompare(b.id)).forEach((turn, index) => {
+            const element = $(`turn-${turn.id}`);
+            if (container.children[index] !== element) container.insertBefore(element, container.children[index] || null);
+        });
         updateControls();
     }
     async function loadHistory(page = 1) {
@@ -198,21 +263,21 @@
         const epoch = generation, id = current.id;
         const payload = await api(`${base}${id}/?page=${page}`);
         if (epoch !== generation) return;
-        const atBottom = $('chat-scroll').scrollHeight - $('chat-scroll').scrollTop - $('chat-scroll').clientHeight < 150;
-        const completed = payload.turns.some(turn => turn.status === 'succeeded' && turns.get(turn.id)?.status !== 'succeeded');
+        // Capture after the request, so scrolling while it was in flight wins.
+        const position = readingPosition();
         if (current.horizon_minutes !== payload.conversation.horizon_minutes) selectHorizon(payload.conversation.horizon_minutes);
         current = payload.conversation;
         mergeTurns(payload.turns);
         online(payload.worker_online);
-        if (page === 1 && atBottom) { if (completed) scrollLatest(); else scrollBottom(); }
         if (page > 1 || nextMessages === null) {
             nextMessages = payload.next_page;
             $('older-messages').hidden = !nextMessages;
         }
+        restoreReadingPosition(position);
     }
     async function selectConversation(id, changeUrl = true) {
         generation++;
-        turns.clear(); $('turn-list').replaceChildren(); nextMessages = null;
+        turns.clear(); traces.clear(); $('turn-list').replaceChildren(); nextMessages = null;
         current = id ? {id} : null;
         pendingRequest = null; error('');
         $('question').value = ''; $('refresh-data').checked = true;
@@ -261,6 +326,7 @@
         try {
             if (current) await loadMessages();
             else online((await api(root.dataset.workerApi)).worker_online);
+            await Promise.all([...traces].filter(([, state]) => state.open && (!state.data || ['queued', 'running'].includes(state.data.trace.status))).map(([id]) => loadTrace(id)));
             if (reconnecting) { error(''); reconnecting = false; }
         }
         catch (e) { reconnecting = true; error('连接暂时中断，正在自动重连。已保存的问题不会丢失。'); }

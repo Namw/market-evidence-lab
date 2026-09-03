@@ -22,6 +22,7 @@ from .data import baseline, capture_snapshot, local_iso
 from .models import AnalysisTurn
 from .schemas import TradingReport
 from .tools import make_tools
+from .report_recovery import ReportGenerationError, ReportRecovery
 
 
 class AnalysisState(AgentState):
@@ -36,10 +37,21 @@ class CallBudget(AgentMiddleware):
         self.turn.refresh_from_db(fields=["usage"])
         count = self.turn.usage.get("model_calls", 0)
         if count >= settings.TRADING_ASSISTANT_MAX_MODEL_CALLS:
-            raise ValueError("本轮模型调用已达上限，请缩小问题范围后重新提问。")
+            raise ReportGenerationError("本轮模型调用已达上限，未能生成完整报告。已保留工具结果，请缩小问题范围后重新提问。")
         self.turn.usage["model_calls"] = count + 1
-        self.turn.progress = "正在结合证据分析" if count else "正在阅读行情与对话"
+        retries = self.turn.usage.get("format_retries", 0)
+        self.turn.progress = f"正在根据已有证据重新生成报告（已自动修复 {retries} 次）" if retries else "正在结合证据分析" if count else "正在阅读行情与对话"
         self.turn.save(update_fields=["usage", "progress"])
+
+
+def merge_usage(previous, current):
+    merged = deepcopy(previous)
+    for key, value in current.items():
+        if isinstance(value, dict):
+            merged[key] = merge_usage(merged.get(key, {}), value)
+        elif isinstance(value, (int, float)):
+            merged[key] = merged.get(key, 0) + value
+    return merged
 
 
 def prepare_turn(turn):
@@ -166,11 +178,12 @@ def run_agent(turn, checkpointer, *, model=None):
             extra_body={"thinking": {"type": "disabled"}},
             http_client=client,
         )
+        recovery = ReportRecovery(turn)
         graph = create_agent(
             model=selected_model, tools=make_tools(turn), system_prompt=turn.prompt_text,
             response_format=ToolStrategy(TradingReport),
             state_schema=AnalysisState, checkpointer=checkpointer,
-            middleware=[CallBudget(turn)], name="market_entry_assistant",
+            middleware=[CallBudget(turn), recovery], name="market_entry_assistant",
         )
         usage = UsageMetadataCallbackHandler()
         config = {
@@ -183,12 +196,19 @@ def run_agent(turn, checkpointer, *, model=None):
         if is_resume and not state.next and state.values.get("structured_response"):
             response = state.values
         else:
-            initial = None if is_resume else {
+            # Old failed checkpoints can already contain unmatched malformed
+            # tool calls. Repair before making any provider request on resume.
+            repaired = recovery.repair(state.values.get("messages", [])) if is_resume else None
+            initial = {"messages": repaired, "structured_response": None} if repaired else None if is_resume else {
                 "messages": context_messages(turn), "analysis_turn_id": str(turn.pk),
                 "structured_response": None,
             }
-            response = graph.invoke(initial, config, durability="sync")
-        turn.refresh_from_db(fields=["usage"])
-        turn.usage["token_usage"] = usage.usage_metadata
-        turn.save(update_fields=["usage"])
+            try:
+                response = graph.invoke(initial, config, durability="sync")
+            finally:
+                # Preserve usage even when report formatting or a later API
+                # request fails, and accumulate across checkpoint recovery.
+                turn.refresh_from_db(fields=["usage"])
+                turn.usage["token_usage"] = merge_usage(turn.usage.get("token_usage", {}), usage.usage_metadata)
+                turn.save(update_fields=["usage"])
     return validated_report(turn, response.get("structured_response"))

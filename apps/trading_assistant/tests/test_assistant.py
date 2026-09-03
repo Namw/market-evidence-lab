@@ -1,12 +1,14 @@
 import json
 import uuid
 from datetime import timedelta
+from unittest.mock import patch
 
 from django.test import Client, TransactionTestCase, override_settings
 from django.urls import reverse
 from django.utils import timezone
 from langchain_core.language_models.fake_chat_models import FakeMessagesListChatModel
 from langchain_core.messages import AIMessage
+from langchain.agents.middleware import AgentMiddleware
 from langgraph.checkpoint.memory import InMemorySaver
 
 from apps.microstructure.models import MarketMinute
@@ -16,6 +18,7 @@ from apps.trading_assistant.models import AnalysisTurn, Conversation, ToolExecut
 from apps.trading_assistant.schemas import checkpoint_serializer
 from apps.trading_assistant.services import mark_success, submit_turn
 from apps.trading_assistant.tools import make_tools
+from apps.trading_assistant.report_recovery import ReportGenerationError
 
 
 class ToolModel(FakeMessagesListChatModel):
@@ -28,6 +31,34 @@ class InterruptedModel(ToolModel):
         if self.i >= 1:
             raise ConnectionError("simulated provider interruption")
         return super()._generate(messages, stop=stop, run_manager=run_manager, **kwargs)
+
+
+class ProtocolCheckingModel(ToolModel):
+    def _generate(self, messages, stop=None, run_manager=None, **kwargs):
+        pending = set()
+        for message in messages:
+            if message.type == "ai":
+                if pending:
+                    raise ValueError("unanswered tool calls")
+                pending = {call["id"] for call in message.tool_calls + message.invalid_tool_calls}
+            elif message.type == "tool":
+                if message.tool_call_id not in pending:
+                    raise ValueError("unexpected tool response")
+                pending.remove(message.tool_call_id)
+            elif pending:
+                raise ValueError("unanswered tool calls")
+        if pending:
+            raise ValueError("unanswered tool calls")
+        return super()._generate(messages, stop=stop, run_manager=run_manager, **kwargs)
+
+
+def broken_report():
+    return AIMessage(content="", invalid_tool_calls=[{
+        "name": "TradingReport", "id": "broken_json", "args": '{"long": <DSML>', "error": "invalid JSON",
+    }], tool_calls=[
+        {"name": "TradingReport", "id": "extra_1", "args": {"stance": "short"}},
+        {"name": "TradingReport", "id": "extra_2", "args": {"stance": "wait"}},
+    ], usage_metadata={"input_tokens": 100, "output_tokens": 10, "total_tokens": 110}, response_metadata={"model_name": "test-model"})
 
 
 def report_payload(**changes):
@@ -279,3 +310,111 @@ class AssistantTests(TransactionTestCase):
             self.assertEqual(self.client.post(url, json.dumps(body), content_type="application/json").status_code, 400)
         client = Client(enforce_csrf_checks=True)
         self.assertEqual(client.post(url, {}, content_type="application/json").status_code, 403)
+
+    def test_trace_explains_saved_tools_and_keeps_raw_evidence(self):
+        turn = self.turn()
+        prepare_turn(turn)
+        context_messages(turn)
+        tool = {item.name: item for item in make_tools(turn)}["compare_windows"]
+        tool.invoke({"recent_minutes": 15, "previous_minutes": 45})
+        tool.invoke({"recent_minutes": 15, "previous_minutes": 45})
+        turn.started_at = timezone.now() - timedelta(seconds=3)
+        turn.usage = {"model_calls": 2}
+        turn.save(update_fields=["started_at", "usage"])
+        mark_success(turn, {"evidence_ids": ["E0"], "guard_notes": []})
+        payload = self.client.get(reverse("trading_assistant:evidence", args=[turn.pk])).json()
+        trace = payload["trace"]
+        self.assertEqual(trace["status"], "succeeded")
+        self.assertEqual(trace["model_calls"], 2)
+        self.assertEqual(trace["tool_records"], 1)
+        self.assertEqual([item["id"] for item in trace["steps"][:3]], ["question", "snapshot", "context"])
+        saved_tool = trace["steps"][3]
+        self.assertEqual(saved_tool["details"]["工具参数"], {"recent_minutes": 15, "previous_minutes": 45})
+        self.assertEqual(saved_tool["details"]["工具返回"], payload["tools"][0]["result"])
+        self.assertEqual(payload["baseline"], turn.input_context["input"]["baseline_evidence"])
+        self.assertGreaterEqual(trace["elapsed_seconds"], 3)
+        self.assertNotIn("prompt_text", payload)
+
+    def test_trace_does_not_invent_steps_for_queued_or_failed_turns(self):
+        turn = self.turn()
+        url = reverse("trading_assistant:evidence", args=[turn.pk])
+        trace = self.client.get(url).json()["trace"]
+        self.assertEqual([step["id"] for step in trace["steps"]], ["question", "outcome"])
+        self.assertEqual(trace["steps"][-1]["status"], "pending")
+        self.assertIsNone(trace["elapsed_seconds"])
+        turn.status = AnalysisTurn.Status.FAILED
+        turn.safe_error = "数据库暂时不可用"
+        turn.save(update_fields=["status", "safe_error"])
+        trace = self.client.get(url).json()["trace"]
+        self.assertEqual(trace["steps"][-1]["description"], "数据库暂时不可用")
+        self.assertEqual(trace["steps"][-1]["status"], "error")
+
+    @override_settings(TRADING_ASSISTANT_API_KEY="test", SOURCE_PROXY_URL="")
+    def test_malformed_report_recovers_without_losing_tool_results(self):
+        turn = self.turn()
+        model = ProtocolCheckingModel(responses=[
+            AIMessage(content="", tool_calls=[{"name": "compare_windows", "args": {}, "id": "comparison"}]),
+            broken_report(),
+            AIMessage(content="", tool_calls=[{"name": "TradingReport", "args": report_payload(), "id": "fixed"}]),
+        ])
+        result = run_agent(turn, InMemorySaver(serde=checkpoint_serializer()), model=model)
+        self.assertEqual(result["stance"], "wait")
+        self.assertEqual(turn.tool_executions.count(), 1)
+        turn.refresh_from_db()
+        self.assertEqual(turn.usage["model_calls"], 3)
+        self.assertEqual(turn.usage["format_retries"], 1)
+        self.assertEqual(len(turn.usage["format_recovery_events"]), 1)
+        self.assertEqual(turn.usage["token_usage"]["test-model"]["total_tokens"], 110)
+
+    @override_settings(TRADING_ASSISTANT_API_KEY="test", SOURCE_PROXY_URL="")
+    def test_format_retries_are_bounded_and_usage_saved_on_failure(self):
+        turn = self.turn()
+        model = ProtocolCheckingModel(responses=[broken_report(), broken_report(), broken_report()])
+        with self.assertRaisesMessage(ReportGenerationError, "自动修复次数已用尽"):
+            run_agent(turn, InMemorySaver(serde=checkpoint_serializer()), model=model)
+        turn.refresh_from_db()
+        self.assertEqual(turn.usage["model_calls"], 3)
+        self.assertEqual(turn.usage["format_retries"], 2)
+        self.assertEqual(turn.usage["token_usage"]["test-model"]["total_tokens"], 330)
+
+    @override_settings(TRADING_ASSISTANT_API_KEY="test", SOURCE_PROXY_URL="")
+    def test_resume_repairs_old_poisoned_checkpoint_before_provider_call(self):
+        class LegacyRecovery(AgentMiddleware):
+            def __init__(self, turn):
+                pass
+
+            def repair(self, messages):
+                return None
+
+        turn = self.turn()
+        saver = InMemorySaver(serde=checkpoint_serializer())
+        old_model = ProtocolCheckingModel(responses=[
+            AIMessage(content="", tool_calls=[{"name": "compare_windows", "args": {}, "id": "saved_comparison"}]),
+            broken_report(),
+        ])
+        with patch("apps.trading_assistant.agent.ReportRecovery", LegacyRecovery):
+            with self.assertRaisesMessage(ValueError, "unanswered tool calls"):
+                run_agent(turn, saver, model=old_model)
+        snapshot_id = turn.snapshot_id
+        model = ProtocolCheckingModel(responses=[AIMessage(content="", tool_calls=[{"name": "TradingReport", "args": report_payload(), "id": "recovered"}])])
+        report = run_agent(turn, saver, model=model)
+        self.assertEqual(report["stance"], "wait")
+        self.assertEqual(turn.snapshot_id, snapshot_id)
+        self.assertEqual(turn.tool_executions.count(), 1)
+        turn.refresh_from_db()
+        self.assertEqual(turn.usage["format_retries"], 1)
+
+    @override_settings(TRADING_ASSISTANT_API_KEY="test", SOURCE_PROXY_URL="")
+    def test_schema_errors_and_invalid_only_responses_can_recover(self):
+        responses = [
+            AIMessage(content="", tool_calls=[{"name": "TradingReport", "args": {"stance": "wait"}, "id": "incomplete"}]),
+            AIMessage(content="", invalid_tool_calls=[{"name": "TradingReport", "id": "bad", "args": "<DSML>", "error": "invalid"}]),
+        ]
+        for invalid in responses:
+            with self.subTest(response=invalid):
+                turn = self.turn()
+                model = ProtocolCheckingModel(responses=[invalid, AIMessage(content="", tool_calls=[{"name": "TradingReport", "args": report_payload(), "id": "valid"}])])
+                result = run_agent(turn, InMemorySaver(serde=checkpoint_serializer()), model=model)
+                mark_success(turn, result)
+                turn.refresh_from_db()
+                self.assertEqual(turn.usage["format_retries"], 1)

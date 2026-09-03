@@ -12,6 +12,7 @@ from django.utils import timezone
 from langgraph.checkpoint.postgres import PostgresSaver
 
 from apps.trading_assistant.agent import run_agent
+from apps.trading_assistant.report_recovery import ReportGenerationError
 from apps.trading_assistant.models import AnalysisTurn, WorkerHeartbeat
 from apps.trading_assistant.services import mark_failed, mark_success
 from apps.trading_assistant.schemas import checkpoint_serializer
@@ -93,11 +94,13 @@ class Command(BaseCommand):
                                 self.stdout.write(f"完成分析 {current.pk}")
                             except TimeoutError:
                                 mark_failed(current, "本轮分析超时，问题与已完成的工具结果已保存。可重新提问。")
+                            except ReportGenerationError as exc:
+                                mark_failed(current, str(exc))
                             except (httpx.HTTPError, ConnectionError):
                                 mark_failed(current, "模型服务连接失败，请检查模型服务与网络配置后重新提问。")
                             except Exception as exc:
                                 # Provider exception strings may contain request bodies or credentials.
-                                mark_failed(current, "分析未完成，请检查模型配置或稍后重新提问。")
+                                mark_failed(current, "分析执行出现异常，问题与已完成的工具结果已保留。请稍后重新提问。")
                                 self.stderr.write(f"分析 {current.pk} 失败：{type(exc).__name__}")
                             finally:
                                 signal.setitimer(signal.ITIMER_REAL, 0)

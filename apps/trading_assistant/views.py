@@ -12,6 +12,7 @@ from .data import HORIZONS, baseline
 from .models import AnalysisTurn, Conversation
 from .services import submit_turn, worker_online
 from .worker_control import WorkerStartError, start_worker
+from .trace import execution_trace
 
 
 @require_http_methods(["GET", "POST"])
@@ -123,10 +124,13 @@ def send_message(request, conversation_id):
 
 @require_GET
 def evidence(request, turn_id):
-    turn = get_object_or_404(AnalysisTurn.objects.select_related("snapshot"), pk=turn_id)
+    turn = get_object_or_404(AnalysisTurn.objects.select_related("snapshot", "conversation"), pk=turn_id)
+    executions = list(turn.tool_executions.all())
+    baseline_evidence = turn.input_context.get("input", {}).get("baseline_evidence") or (baseline(turn.snapshot) if turn.snapshot_id else None)
     return JsonResponse({
-        "baseline": turn.input_context.get("input", {}).get("baseline_evidence") or (baseline(turn.snapshot) if turn.snapshot_id else None),
-        "tools": [{"name": item.name, "arguments": item.arguments, "result": item.result} for item in turn.tool_executions.all()],
+        "trace": execution_trace(turn, executions, baseline_evidence),
+        "baseline": baseline_evidence,
+        "tools": [{"name": item.name, "arguments": item.arguments, "result": item.result} for item in executions],
         "prompt_version": turn.prompt_version, "prompt_hash": turn.prompt_hash,
         "model": turn.model_name, "usage": turn.usage,
     })

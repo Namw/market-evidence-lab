@@ -2,7 +2,7 @@
 {% load static %}
 {% block title %}开仓分析助手 · Market Evidence Lab{% endblock %}
 {% block body_class %}trading-assistant-page{% endblock %}
-{% block extra_css %}<link rel="stylesheet" href="{% static 'trading_assistant/assistant.css' %}?v=2">{% endblock %}
+{% block extra_css %}<link rel="stylesheet" href="{% static 'trading_assistant/assistant.css' %}?v=4">{% endblock %}
 {% block content %}
 <div class="ta-app" id="assistant-app" data-api="{% url 'trading_assistant:conversations' %}" data-worker-api="{% url 'trading_assistant:worker' %}">
     <aside class="ta-history" aria-label="对话历史">
@@ -47,4 +47,4 @@
     </section>
 </div>
 {% endblock %}
-{% block extra_js %}<script src="{% static 'trading_assistant/assistant.js' %}?v=3" defer></script>{% endblock %}
+{% block extra_js %}<script src="{% static 'trading_assistant/assistant.js' %}?v=5" defer></script>{% endblock %}
