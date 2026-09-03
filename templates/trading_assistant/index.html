@@ -1,0 +1,50 @@
+{% extends "base.html" %}
+{% load static %}
+{% block title %}开仓分析助手 · Market Evidence Lab{% endblock %}
+{% block body_class %}trading-assistant-page{% endblock %}
+{% block extra_css %}<link rel="stylesheet" href="{% static 'trading_assistant/assistant.css' %}?v=2">{% endblock %}
+{% block content %}
+<div class="ta-app" id="assistant-app" data-api="{% url 'trading_assistant:conversations' %}" data-worker-api="{% url 'trading_assistant:worker' %}">
+    <aside class="ta-history" aria-label="对话历史">
+        <div class="ta-history-heading"><span>我的对话</span><button type="button" id="new-chat" class="ta-new" aria-label="新建对话">＋ 新对话</button></div>
+        <div id="conversation-list" class="ta-conversations"></div>
+        <button id="more-conversations" class="ta-text-button" type="button" hidden>更多对话</button>
+        <div class="ta-history-footer"><span class="ta-dot" id="worker-dot"></span><span id="worker-status">正在连接…</span></div>
+    </aside>
+    <section class="ta-chat" aria-label="开仓分析对话">
+        <header class="ta-header">
+            <div><p class="ta-eyebrow">MARKET EVIDENCE · AGENT</p><h1>开仓分析助手</h1><p>从盘口证据出发，讨论你的下一笔交易。</p></div>
+            <a class="ta-source-link" href="{% url 'microstructure:index' %}">查看盘口数据 ↗</a>
+        </header>
+        {% if not ai_configured %}<div class="ta-notice">模型尚未配置。请在环境配置中设置 TRADING_ASSISTANT_API_KEY，或沿用 NEWS_AI_API_KEY。</div>{% endif %}
+        <div class="ta-notice ta-worker-notice" id="worker-notice" hidden><span id="worker-message" role="status">后台分析进程未在线。启动后会继续处理已保存的问题。</span> <button type="button" id="start-worker" class="ta-start-worker">启动分析服务</button></div>
+        <div class="ta-settings">
+            <label>交易对<select id="symbol">{% for symbol in symbols %}<option value="{{ symbol }}"{% if symbol == default_symbol %} selected{% endif %}>{{ symbol }}</option>{% endfor %}</select></label>
+            <label>预期持有<select id="horizon"><option value="240" selected>4 小时</option><option value="480">8 小时</option><option value="1440">24 小时</option></select></label>
+            <span class="ta-setting-note">用于本轮分析情景，可随追问调整</span>
+        </div>
+        <div id="chat-scroll" class="ta-scroll">
+            <button id="older-messages" class="ta-text-button ta-older" type="button" hidden>查看更早的消息</button>
+            <div id="empty-state" class="ta-empty">
+                <div class="ta-orbit" aria-hidden="true">↗</div>
+                <h2>开仓之前，先看看证据。</h2>
+                <p>比较做多、做空与观望的理由。<br>继续追问入场位置、止盈止损，逐步形成你的方案。</p>
+                <div class="ta-suggestions">
+                    <button type="button" data-question="我想开仓，请分析当前做多、做空和观望分别怎么看。"><strong>我想开仓</strong><span>比较多、空与观望 →</span></button>
+                    <button type="button" data-question="最近买盘有没有持续增强？结合价格和盘口给我分析。"><strong>看看主动成交</strong><span>买盘增强，有价格配合吗 →</span></button>
+                    <button type="button" data-question="如果考虑开多，什么价格合适？止盈止损区间如何看待？"><strong>讨论做多方案</strong><span>入场、止盈与止损 →</span></button>
+                </div>
+                <small>仅参考已采集的微观结构数据 · 历史胜率暂无可靠估计</small>
+            </div>
+            <div id="turn-list"></div>
+        </div>
+        <form id="chat-form" class="ta-composer">
+            {% csrf_token %}
+            <div class="ta-input-wrap"><label class="ta-sr-only" for="question">你的问题</label><textarea id="question" maxlength="4000" rows="2" placeholder="例如：我倾向开多，现价合适还是等回踩？" required></textarea><button id="send" type="submit">发送 ↑</button></div>
+            <div class="ta-composer-footer"><label><input type="checkbox" id="refresh-data" checked> 更新行情后分析</label><span>取消勾选可沿用上次快照 · Enter 发送，Shift+Enter 换行</span></div>
+            <p id="form-error" class="ta-error" role="alert" hidden></p>
+        </form>
+    </section>
+</div>
+{% endblock %}
+{% block extra_js %}<script src="{% static 'trading_assistant/assistant.js' %}?v=3" defer></script>{% endblock %}

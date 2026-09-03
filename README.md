@@ -244,6 +244,74 @@ MICROSTRUCTURE_WS_OPEN_TIMEOUT_SECONDS=10
 明确反映每分钟成功获得的盘口秒级样本。Top20 深度下降只能说明挂单量变化，不能
 单独解释为成交或撤单，因此页面只呈现事实，不给出方向结论。
 
+## 开仓分析助手 MVP
+
+新菜单“开仓分析助手”：<http://127.0.0.1:8001/trading-assistant/>。
+独立应用 `apps/trading_assistant` 使用 LangChain `create_agent`、DeepSeek 和
+LangGraph PostgreSQL checkpoint。第一版支持 ETH/ZEC 盘口分析、多空与观望比较、
+连续追问、指定参考入场价、候选止盈止损区间、成本后收益风险比与对话历史。
+只分析 `MarketMinute` 中已收盘且在截止时间之前的数据，不读取未来收益标签。
+
+初始化及运行（Web 与助手 worker 是两个进程）：
+
+```bash
+uv sync
+uv run python manage.py migrate trading_assistant
+uv run python manage.py runserver 8001
+# 在另一个终端运行；关闭网页不会停止分析。
+uv run python manage.py run_trading_assistant
+```
+
+worker 自动使用当前 `.env` 数据库连接，并在独立 `trading_assistant_agent` schema
+初始化框架 checkpoint 表，首次运行账号需具备创建 schema 的权限。只需要运行一个
+worker，数据库 advisory lock 防止重复启动。`--once` 仅处理一轮。
+也可以在助手页面的离线提示中点击“启动分析服务”，无需另外打开终端。
+按钮使用 Web 服务当前的 Python 环境及环境变量启动独立进程，页面自动检查就绪状态；
+关闭网页不会停止它。重复点击不会重复启动，启动日志保存在 `.local_trading_assistant.log`。
+按钮会自动处理符合条件的失效运行锁：仅检查当前数据库、当前账号持有的助手专用锁，
+要求心跳失联及连接空闲均超过 6 分钟（分析超时更长时，等待时间为超时加 60 秒）。
+清理前再次核对连接身份、空闲状态和心跳，只终止对应的旧助手连接；活跃查询、
+刚启动或身份无法确认的连接会受到保护。数据库不可达、迁移缺失及权限不足会显示具体提示，
+不会自动修改数据库结构或重启远端主机。心跳使用数据库时间，直接连接显式设置 UTC，
+避免不同主机的时钟或会话时区影响判断；后台定期检查运行锁连接并启用 TCP 保活。
+该按钮用于现有本地单用户运行方式，启动前仍需完成数据库连接和迁移。
+模型默认沿用 `NEWS_AI_API_KEY / NEWS_AI_BASE_URL / NEWS_AI_MODEL`，支持独立的
+`TRADING_ASSISTANT_*` 覆盖。DeepSeek 代理沿用“采集 → 来源与网络”的 DeepSeek 配置。
+当前 DeepSeek 接入使用非思考模式和工具形式的结构化报告。没有启用 LangSmith 云追踪。
+
+每轮任务先保存，再由 worker 领取。页面轮询显示状态，刷新或离开不会丢失任务。
+同一会话仅允许一轮进行中，重复请求编号不会重复提交。worker 重启后恢复未完成
+checkpoint；模型与工具调用有上限，单轮默认超时 300 秒。主动停止 worker 时，
+正在执行的一轮重新排队；失败轮保留问题与已生成的工具记录，页面可重新提问。
+
+每个会话固定币种；顶部可选择 15/30/60/120/240 分钟的分析情景，默认 60 分钟。
+第一轮保存最近 24 小时的有界数据快照，后续勾选“更新行情”生成新快照，取消勾选
+沿用最近成功报告的快照并限定为历史解释。模型携带最近六轮完整成功对话，以及
+最近讨论的候选价格方案；完整聊天历史仍长期存储，旧消息可分页查看。
+原始输入上下文、提示词文本/版本/hash、快照、工具参数/结果和最终报告都单独保存。
+
+价格计划为明确规则计算的候选情景：用 5 分钟（持有不超过 60 分钟）或 15 分钟
+聚合 K 线计算 14 个 True Range 的简单均值，结合最近 60 分钟局部高低点与波动
+缓冲；目标超出历史区间时显式标注 ATR 外推。所选周期不是该时限内触价的预测。
+示例成本按每边手续费 4 bps、滑点 2 bps 估算，未计资金费；不是用户实际费率。
+显示区间为近似值，未按交易所 tick size 对齐，不是自动下单接口。
+价格/主动成交覆盖不足、盘口采样不足、快照陈旧或 ATR 窗口有缺口时，限制结论或
+拒绝生成价格方案。当前没有经过统一交易规则验证的胜率，界面固定显示“暂无可靠估计”。
+
+提示词位于 `apps/trading_assistant/prompts/v1.md`；新增例如 `v2.md` 后设置
+`TRADING_ASSISTANT_PROMPT_VERSION=v2` 并重启 worker。旧报告保留原始提示词与输入，
+不会因文件修改而覆盖。公式在 `data.py`，工具入口在 `tools.py`，输出结构在
+`schemas.py`。增加公式时同步调整 `CALCULATION_VERSION` 与对应测试。
+
+第一版沿用现有本地单用户系统的访问方式，会话列表在该系统内共享；没有增加多用户
+隔离或自动下单。若未来提供多人或公网访问，需要先接入认证与会话归属校验。
+
+隔离测试使用 SQLite，不连接远端库创建或删除测试数据库：
+
+```bash
+uv run python manage.py test apps.trading_assistant apps.core --settings=config.test_settings
+```
+
 ## 检查
 
 ```bash

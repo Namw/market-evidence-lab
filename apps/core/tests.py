@@ -43,6 +43,7 @@ class NavigationParser(HTMLParser):
 
 class ProductSurfaceTests(TestCase):
     expected_links = [
+        "trading_assistant:index",
         "market_data:index",
         "market_data:deribit_options",
         "market_funds:index",
@@ -86,6 +87,7 @@ class ProductSurfaceTests(TestCase):
         self.assertEqual(
             parser.labels,
             [
+                "开仓分析助手",
                 "行情数据观察",
                 "数据查看",
                 "Deribit 期权数据",

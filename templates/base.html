@@ -32,6 +32,7 @@
             </a>
 
             <nav class="navigation">
+                <a class="nav-item{% if request.resolver_match.namespace == 'trading_assistant' %} is-active{% endif %}" href="{% url 'trading_assistant:index' %}"{% if request.resolver_match.namespace == 'trading_assistant' %} aria-current="page"{% endif %}><span>开仓分析助手</span></a>
                 <details class="nav-group{% if request.resolver_match.namespace == 'market_data' %} is-active{% endif %}" data-nav-group="market-data"{% if request.resolver_match.namespace == 'market_data' %} open{% endif %}>
                     <summary class="nav-item"><span>行情数据观察</span><span class="nav-chevron" aria-hidden="true"></span></summary>
                     <div class="nav-submenu" aria-label="行情数据观察">

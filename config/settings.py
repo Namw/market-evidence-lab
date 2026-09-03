@@ -38,6 +38,7 @@ INSTALLED_APPS = [
     "apps.core.apps.CoreConfig",
     "apps.market_data.apps.MarketDataConfig",
     "apps.microstructure.apps.MicrostructureConfig",
+    "apps.trading_assistant.apps.TradingAssistantConfig",
     "apps.market_funds.apps.MarketFundsConfig",
     "apps.collection.apps.CollectionConfig",
     "apps.inspection.apps.InspectionConfig",
@@ -172,6 +173,16 @@ ETHEREUM_RPC_URL = os.getenv("ETHEREUM_RPC_URL", "").strip()
 NEWS_AI_API_KEY = os.getenv("NEWS_AI_API_KEY") or os.getenv("DEEPSEEK_API_KEY", "")
 NEWS_AI_MODEL = os.getenv("NEWS_AI_MODEL", "deepseek-v4-flash")
 NEWS_AI_TIMEOUT_SECONDS = float(os.getenv("NEWS_AI_TIMEOUT_SECONDS", "60"))
+
+# The assistant can use a separate provider configuration; secrets stay server-side.
+TRADING_ASSISTANT_API_KEY = os.getenv("TRADING_ASSISTANT_API_KEY", NEWS_AI_API_KEY)
+TRADING_ASSISTANT_BASE_URL = os.getenv("TRADING_ASSISTANT_BASE_URL", NEWS_AI_BASE_URL)
+TRADING_ASSISTANT_MODEL = os.getenv("TRADING_ASSISTANT_MODEL", NEWS_AI_MODEL)
+TRADING_ASSISTANT_TIMEOUT_SECONDS = float(os.getenv("TRADING_ASSISTANT_TIMEOUT_SECONDS", "60"))
+TRADING_ASSISTANT_MAX_RUN_SECONDS = int(os.getenv("TRADING_ASSISTANT_MAX_RUN_SECONDS", "300"))
+TRADING_ASSISTANT_MAX_MODEL_CALLS = 6
+TRADING_ASSISTANT_MAX_TOOL_CALLS = 12
+TRADING_ASSISTANT_PROMPT_VERSION = os.getenv("TRADING_ASSISTANT_PROMPT_VERSION", "v1")
 MARKET_PILOT_WECHAT_WEBHOOK_URL = os.getenv(
     "MARKET_PILOT_WECHAT_WEBHOOK_URL", ""
 ).strip()
