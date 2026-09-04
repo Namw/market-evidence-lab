@@ -16,6 +16,22 @@
     const selectHorizon = (minutes) => { $('horizon').value = [240, 480, 1440].includes(Number(minutes)) ? String(minutes) : '240'; };
     const fmt = (value) => typeof value === 'number' ? value.toLocaleString('zh-CN', {maximumFractionDigits: Math.abs(value) >= 100 ? 2 : 4}) : '—';
     const time = (value) => value ? new Date(value).toLocaleString('zh-CN', {timeZone: 'Asia/Shanghai', hour12: false}) : '—';
+    function randomUuid() {
+        const webCrypto = globalThis.crypto;
+        if (typeof webCrypto?.randomUUID === 'function') return webCrypto.randomUUID();
+
+        const bytes = new Uint8Array(16);
+        if (typeof webCrypto?.getRandomValues === 'function') webCrypto.getRandomValues(bytes);
+        else {
+            // Older browsers and non-secure HTTP origins may expose neither API.
+            // The UUID is an idempotency key, not a security credential.
+            for (let index = 0; index < bytes.length; index++) bytes[index] = Math.floor(Math.random() * 256);
+        }
+        bytes[6] = (bytes[6] & 0x0f) | 0x40;
+        bytes[8] = (bytes[8] & 0x3f) | 0x80;
+        const hex = [...bytes].map(value => value.toString(16).padStart(2, '0'));
+        return `${hex.slice(0, 4).join('')}-${hex.slice(4, 6).join('')}-${hex.slice(6, 8).join('')}-${hex.slice(8, 10).join('')}-${hex.slice(10).join('')}`;
+    }
     const node = (tag, cls, text) => {
         const element = document.createElement(tag);
         if (cls) element.className = cls;
@@ -305,7 +321,7 @@
             }
             const body = {question, refresh_data: $('refresh-data').checked, horizon_minutes: Number($('horizon').value)};
             const key = JSON.stringify([current.id, body]);
-            if (!pendingRequest || pendingRequest.key !== key) pendingRequest = {key, id: crypto.randomUUID()};
+            if (!pendingRequest || pendingRequest.key !== key) pendingRequest = {key, id: randomUuid()};
             const payload = await api(`${base}${current.id}/messages/`, {...body, request_id: pendingRequest.id});
             pendingRequest = null;
             $('question').value = '';
